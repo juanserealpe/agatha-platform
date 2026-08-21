@@ -1,0 +1,6 @@
+# README personales de los módulos del backend
+backend/internal/modules/**/README.MD
+
+# Environment variables
+.env
+.env.*
