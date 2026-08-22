@@ -1,4 +1,4 @@
-# README personales de los módulos del backend
+# Personal module notes
 backend/internal/modules/**/README.MD
 backend/internal/shared//README.MD
 
@@ -6,3 +6,21 @@ backend/internal/shared//README.MD
 # Environment variables
 .env
 .env.*
+
+# Go build artifacts
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
