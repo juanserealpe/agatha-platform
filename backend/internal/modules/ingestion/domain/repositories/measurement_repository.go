@@ -1,8 +1,29 @@
 package repositories
 
-import "github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
+import (
+	"context"
+	"time"
+
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
+)
 
 type MeasurementRepository interface {
-	Save(measurement *entities.RawMeasurement) error
-	FindByDeviceID(deviceID string, limit int) ([]*entities.RawMeasurement, error)
+	Save(ctx context.Context, measurement entities.RawMeasurement) error
+
+	SaveBatch(
+		ctx context.Context,
+		measurements []entities.RawMeasurement,
+	) error
+
+	FindLastTimestamp(
+		ctx context.Context,
+		deviceID string,
+	) (*time.Time, error)
+
+	Exists(
+		ctx context.Context,
+		deviceID string,
+		metricID string,
+		timestamp time.Time,
+	) (bool, error)
 }
