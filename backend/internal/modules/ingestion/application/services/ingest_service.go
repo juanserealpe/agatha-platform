@@ -232,24 +232,40 @@ func (s *IngestService) Ingest(
 		// Persistencia
 		// ---------------------------------------------------------
 
-		if err := s.metricDefinitionRepository.Save(
+		existingMetric, err := s.metricDefinitionRepository.FindByKey(
 			ctx,
-			mapped.Metric,
-		); err != nil {
+			mapped.Metric.DeviceID,
+			mapped.Metric.Key,
+		)
 
-			s.logger.Error(
-				"falló la persistencia de la métrica",
-				"device_id", device.ID,
-				"metric", mapped.Metric.Name,
+		if err != nil {
+			return fmt.Errorf("find metric definition: %w", err)
+		}
+
+		if existingMetric == nil {
+
+			if err := s.metricDefinitionRepository.Save(
+				ctx,
+				mapped.Metric,
+			); err != nil {
+				return fmt.Errorf(
+					"save metric definition: %w",
+					err,
+				)
+			}
+
+			s.logger.Info(
+				"métrica registrada",
 				"metric_id", mapped.Metric.ID,
-				"error", err,
-			)
-
-			return fmt.Errorf(
-				"persist metric definition: %w",
-				err,
+				"key", mapped.Metric.Key,
 			)
 		}
+		s.logger.Info(
+			"preparando persistencia de mediciones",
+			"metric", mapped.Metric.Key,
+			"metric_id", mapped.Metric.ID,
+			"measurements", len(mapped.Measurements),
+		)
 
 		if err := s.measurementRepository.SaveBatch(
 			ctx,
