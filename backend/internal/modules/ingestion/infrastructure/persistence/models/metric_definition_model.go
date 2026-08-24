@@ -3,9 +3,8 @@ package models
 import "time"
 
 type MetricDefinitionModel struct {
-	ID        string    `gorm:"column:id;primaryKey"`
-	DeviceID  string    `gorm:"column:device_id;not null"`
-	Key       string    `gorm:"column:key;not null"`
+	ID        uint64    `gorm:"column:id;primaryKey;autoIncrement"`
+	Key       string    `gorm:"column:key;not null;uniqueIndex"`
 	Name      string    `gorm:"column:name;not null"`
 	Unit      string    `gorm:"column:unit;not null"`
 	Category  string    `gorm:"column:category;not null"`

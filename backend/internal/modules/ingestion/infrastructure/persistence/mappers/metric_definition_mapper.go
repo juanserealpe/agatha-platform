@@ -14,8 +14,6 @@ func ToMetricDefinitionModel(
 	}
 
 	return &models.MetricDefinitionModel{
-		ID:        entity.ID,
-		DeviceID:  entity.DeviceID,
 		Key:       entity.Key,
 		Name:      entity.Name,
 		Unit:      entity.Unit,
@@ -34,8 +32,6 @@ func ToMetricDefinitionEntity(
 	}
 
 	return &entities.MetricDefinition{
-		ID:        model.ID,
-		DeviceID:  model.DeviceID,
 		Key:       model.Key,
 		Name:      model.Name,
 		Unit:      model.Unit,

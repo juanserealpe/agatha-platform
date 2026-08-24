@@ -8,7 +8,6 @@ import (
 
 type MetricDefinition struct {
 	ID        string
-	DeviceID  string
 	Key       string
 	Name      string
 	Unit      string
