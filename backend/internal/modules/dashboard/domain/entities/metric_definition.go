@@ -1,0 +1,18 @@
+package entities
+
+import (
+	"time"
+
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain/enums"
+)
+
+type MetricDefinition struct {
+	ID        uint64
+	Key       string
+	Name      string
+	Unit      string
+	Category  enums.MetricCategory
+	Active    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
