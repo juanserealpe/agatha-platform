@@ -27,11 +27,13 @@ func ToMetricDefinitionModel(
 func ToMetricDefinitionEntity(
 	model *models.MetricDefinitionModel,
 ) *entities.MetricDefinition {
+
 	if model == nil {
 		return nil
 	}
 
 	return &entities.MetricDefinition{
+		ID:        model.ID,
 		Key:       model.Key,
 		Name:      model.Name,
 		Unit:      model.Unit,

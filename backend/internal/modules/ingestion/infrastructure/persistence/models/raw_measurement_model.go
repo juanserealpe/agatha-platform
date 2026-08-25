@@ -9,7 +9,6 @@ type RawMeasurementModel struct {
 	Timestamp   time.Time `gorm:"column:timestamp;not null"`
 	Value       float64   `gorm:"column:value;not null"`
 	Source      string    `gorm:"column:source;not null"`
-	ExternalKey string    `gorm:"column:external_key"`
 }
 
 func (RawMeasurementModel) TableName() string {

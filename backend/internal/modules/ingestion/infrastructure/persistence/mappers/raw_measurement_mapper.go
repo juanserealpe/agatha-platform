@@ -13,13 +13,12 @@ func ToRawMeasurementModel(
 	}
 
 	return &models.RawMeasurementModel{
-		ID:          entity.ID,
-		DeviceID:    entity.DeviceID,
-		MetricID:    entity.MetricID,
-		Timestamp:   entity.Timestamp,
-		Value:       entity.Value,
-		Source:      entity.Source,
-		ExternalKey: entity.ExternalKey,
+		ID:        entity.ID,
+		DeviceID:  entity.DeviceID,
+		MetricID:  entity.MetricID,
+		Timestamp: entity.Timestamp,
+		Value:     entity.Value,
+		Source:    entity.Source,
 	}
 }
 
@@ -31,12 +30,11 @@ func ToRawMeasurementEntity(
 	}
 
 	return &entities.RawMeasurement{
-		ID:          model.ID,
-		DeviceID:    model.DeviceID,
-		MetricID:    model.MetricID,
-		Timestamp:   model.Timestamp,
-		Value:       model.Value,
-		Source:      model.Source,
-		ExternalKey: model.ExternalKey,
+		ID:        model.ID,
+		DeviceID:  model.DeviceID,
+		MetricID:  model.MetricID,
+		Timestamp: model.Timestamp,
+		Value:     model.Value,
+		Source:    model.Source,
 	}
 }

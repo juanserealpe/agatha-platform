@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -152,4 +153,31 @@ func (r *MeasurementRepository) SaveBatch(
 	)
 
 	return nil
+}
+func (r *MeasurementRepository) Exists(
+	ctx context.Context,
+	deviceID string,
+	metricID string,
+	timestamp time.Time,
+) (bool, error) {
+
+	var count int64
+
+	err := r.db.
+		WithContext(ctx).
+		Model(&models.RawMeasurementModel{}).
+		Where(
+			"device_id = ? AND metric_id = ? AND timestamp = ?",
+			deviceID,
+			metricID,
+			timestamp,
+		).
+		Count(&count).
+		Error
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }

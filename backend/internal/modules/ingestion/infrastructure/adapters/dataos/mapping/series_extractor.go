@@ -8,10 +8,24 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
+// SeriesExtractor se encarga de extraer las series de datos contenidas
+// en la respuesta obtenida desde DataOS.
+//
+// Utiliza el logger para registrar el proceso de extracción, incluyendo
+// los componentes procesados, las series encontradas y posibles errores
+// durante la decodificación de los datos.
 type SeriesExtractor struct {
 	logger *logger.Logger
 }
 
+// NewSeriesExtractor crea una nueva instancia de SeriesExtractor.
+//
+// Recibe:
+//   - logger: instancia del logger utilizada para registrar información,
+//     advertencias y errores durante la extracción.
+//
+// Devuelve:
+//   - *SeriesExtractor: nueva instancia configurada con el logger recibido.
 func NewSeriesExtractor(
 	logger *logger.Logger,
 ) *SeriesExtractor {
@@ -20,6 +34,25 @@ func NewSeriesExtractor(
 	}
 }
 
+// Extract procesa los componentes de una respuesta de DataOS y extrae
+// las series de datos contenidas en ellos.
+//
+// El método recorre los componentes de la respuesta, descarta aquellos
+// que contienen errores o no tienen datos, decodifica el JSON de cada
+// componente y obtiene las series definidas en su estructura.
+//
+// Recibe:
+//   - response: respuesta obtenida desde DataOS que contiene los
+//     componentes y sus datos.
+//
+// Devuelve:
+//   - []dashboard.Series: lista de todas las series encontradas en los
+//     componentes procesados.
+//   - error: nil si la extracción fue exitosa; en caso contrario,
+//     devuelve el error producido durante la decodificación de los datos.
+//
+// Los componentes que contienen errores o datos vacíos son omitidos y
+// no generan un error en la operación.
 func (e *SeriesExtractor) Extract(
 	response *dashboard.RenderResponse,
 ) ([]dashboard.Series, error) {
@@ -27,24 +60,29 @@ func (e *SeriesExtractor) Extract(
 	var series []dashboard.Series
 
 	e.logger.Info(
-		"starting DataOS series extraction",
+		"INICIO extracción de series",
 		"components", len(response.Components),
 	)
 
-	for _, component := range response.Components {
+	for componentIndex, component := range response.Components {
 
 		e.logger.Info(
-			"processing DataOS component",
+			"procesando componente",
+			"index", componentIndex,
 			"component_id", component.ID,
 			"type", component.Type,
 			"title", component.Title,
 			"data_size", len(component.Data),
 		)
 
+		// ---------------------------------------------------------
+		// 1. Componente con error
+		// ---------------------------------------------------------
+
 		if component.Error != nil {
 
 			e.logger.Warn(
-				"DataOS component contains an error",
+				"componente contiene error",
 				"component_id", component.ID,
 				"error", *component.Error,
 			)
@@ -52,15 +90,33 @@ func (e *SeriesExtractor) Extract(
 			continue
 		}
 
+		// ---------------------------------------------------------
+		// 2. Componente sin datos
+		// ---------------------------------------------------------
+
 		if len(component.Data) == 0 {
 
 			e.logger.Warn(
-				"DataOS component has empty data",
+				"componente tiene data vacía",
 				"component_id", component.ID,
 			)
 
 			continue
 		}
+
+		// ---------------------------------------------------------
+		// 3. Mostrar JSON crudo recibido desde DataOS
+		// ---------------------------------------------------------
+
+		e.logger.Info(
+			"DATA CRUDA RECIBIDA DE DATAOS",
+			"component_id", component.ID,
+			"raw_data", string(component.Data),
+		)
+
+		// ---------------------------------------------------------
+		// 4. Decodificar JSON
+		// ---------------------------------------------------------
 
 		var chartData dashboard.ChartData
 
@@ -70,9 +126,10 @@ func (e *SeriesExtractor) Extract(
 		); err != nil {
 
 			e.logger.Error(
-				"failed to decode DataOS component data",
+				"falló decode de component.Data",
 				"component_id", component.ID,
 				"error", err,
+				"raw_data", string(component.Data),
 			)
 
 			return nil, fmt.Errorf(
@@ -82,30 +139,44 @@ func (e *SeriesExtractor) Extract(
 			)
 		}
 
+		// ---------------------------------------------------------
+		// 5. Resultado de la decodificación
+		// ---------------------------------------------------------
+
 		e.logger.Info(
-			"DataOS component decoded",
+			"componente decodificado",
 			"component_id", component.ID,
 			"series", len(chartData.Series),
 		)
 
-		for _, serie := range chartData.Series {
+		// ---------------------------------------------------------
+		// 6. Procesar series
+		// ---------------------------------------------------------
+
+		for seriesIndex, serie := range chartData.Series {
 
 			e.logger.Info(
-				"DataOS series discovered",
+				"serie encontrada",
 				"component_id", component.ID,
-				"metric", serie.Name,
+				"series_index", seriesIndex,
+				"name", serie.Name,
 				"unit", serie.Unit,
 				"data_points", len(serie.DataPoints),
 			)
 
-			// Temporalmente NO descartamos series con 0 puntos.
-			// Queremos comprobar exactamente qué está devolviendo DataOS.
-			series = append(series, serie)
+			series = append(
+				series,
+				serie,
+			)
 		}
 	}
 
+	// ---------------------------------------------------------
+	// 7. Resultado final
+	// ---------------------------------------------------------
+
 	e.logger.Info(
-		"DataOS series extraction completed",
+		"FIN extracción de series",
 		"series_count", len(series),
 	)
 

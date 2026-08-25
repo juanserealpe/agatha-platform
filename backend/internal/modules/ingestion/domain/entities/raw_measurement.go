@@ -9,5 +9,4 @@ type RawMeasurement struct {
 	Timestamp   time.Time
 	Value       float64
 	Source      string
-	ExternalKey string
 }

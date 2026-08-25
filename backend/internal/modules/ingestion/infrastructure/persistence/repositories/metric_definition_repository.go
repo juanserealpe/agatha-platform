@@ -55,7 +55,6 @@ func (r *MetricDefinitionRepository) FindByID(
 	return mappers.ToMetricDefinitionEntity(&model), nil
 }
 
-
 func (r *MetricDefinitionRepository) ListByDevice(
 	ctx context.Context,
 	deviceID string,
@@ -91,4 +90,29 @@ func (r *MetricDefinitionRepository) ListByDevice(
 	}
 
 	return result, nil
+}
+
+func (r *MetricDefinitionRepository) FindByKey(
+	ctx context.Context,
+	key string,
+) (*entities.MetricDefinition, error) {
+
+	var model models.MetricDefinitionModel
+
+	err := r.db.
+		WithContext(ctx).
+		Where("key = ?", key).
+		First(&model).
+		Error
+
+	if err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return mappers.ToMetricDefinitionEntity(&model), nil
 }

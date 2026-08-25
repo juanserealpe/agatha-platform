@@ -15,11 +15,6 @@ type MeasurementRepository interface {
 		measurements []entities.RawMeasurement,
 	) error
 
-	FindLastTimestamp(
-		ctx context.Context,
-		deviceID string,
-	) (*time.Time, error)
-
 	Exists(
 		ctx context.Context,
 		deviceID string,

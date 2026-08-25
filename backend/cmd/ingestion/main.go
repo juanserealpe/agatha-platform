@@ -1,15 +1,24 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/juanserealpe/agatha-platform/backend/database"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/services"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/enums"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/auth"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/dashboard"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/mapping"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/models"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/repositories"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 	"gorm.io/gorm"
 )
@@ -67,205 +76,198 @@ func main() {
 		log.Error("failed to seed metric definitions", "error", err)
 		return
 	}
+	/*
+		devices := []models.DeviceModel{
+			{
+				ID:               "11556",
+				MeasuringPointID: 11556,
+				Name:             "Agatha 02",
+				Active:           true,
+				CreatedAt:        time.Now(),
+				UpdatedAt:        time.Now(),
+			},
+		}
 
-	devices := []models.DeviceModel{
-		{
-			ID:               "11556",
-			MeasuringPointID: 11556,
-			Name:             "Agatha 02",
-			Active:           true,
-			CreatedAt:        time.Now(),
-			UpdatedAt:        time.Now(),
-		},
-	}
+		if err := db.Create(&devices).Error; err != nil {
+			log.Error("failed to seed devices", "error", err)
+		}
 
-	if err := db.Create(&devices).Error; err != nil {
-		log.Error("failed to seed devices", "error", err)
-	}
-
-	log.Info("Devices seeded successfully")
-
+		log.Info("Devices seeded successfully")
+	*/
 	// ---------------------------------------------------------
 	// Credenciales
 	// ---------------------------------------------------------
-	/*
-		username := os.Getenv("DATAOS_USERNAME")
-		password := os.Getenv("DATAOS_PASSWORD")
 
-		if username == "" || password == "" {
-			log.Error(
-				"las credenciales de DataOS no están configuradas",
-				"required_variables", "DATAOS_USERNAME, DATAOS_PASSWORD",
-			)
+	username := os.Getenv("DATAOS_USERNAME")
+	password := os.Getenv("DATAOS_PASSWORD")
 
-			os.Exit(1)
-		}
-
-		// ---------------------------------------------------------
-		// Cliente HTTP + Cookie Jar
-		// ---------------------------------------------------------
-
-		jar, err := cookiejar.New(nil)
-		if err != nil {
-			log.Error(
-				"falló la creación del contenedor de cookies HTTP",
-				"error", err,
-			)
-
-			os.Exit(1)
-		}
-
-		httpClient := &http.Client{
-			Jar:     jar,
-			Timeout: 30 * time.Second,
-		}
-
-		// ---------------------------------------------------------
-		// Cliente de Autenticación DataOS
-		// ---------------------------------------------------------
-
-		authClient := auth.NewClient(
-			httpClient,
-			dataOSBaseURL,
-			username,
-			password,
+	if username == "" || password == "" {
+		log.Error(
+			"las credenciales de DataOS no están configuradas",
+			"required_variables", "DATAOS_USERNAME, DATAOS_PASSWORD",
 		)
 
-		// ---------------------------------------------------------
-		// Cliente de Dashboard DataOS
-		// ---------------------------------------------------------
+		os.Exit(1)
+	}
 
-		dashboardClient := dashboard.NewClient(
-			httpClient,
-			dataOSBaseURL,
+	// ---------------------------------------------------------
+	// Cliente HTTP + Cookie Jar
+	// ---------------------------------------------------------
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		log.Error(
+			"falló la creación del contenedor de cookies HTTP",
+			"error", err,
 		)
 
-		// ---------------------------------------------------------
-		// Fachada DataOS
-		// ---------------------------------------------------------
+		os.Exit(1)
+	}
 
-		dataosClient := dataos.NewClient(
-			authClient,
-			dashboardClient,
+	httpClient := &http.Client{
+		Jar:     jar,
+		Timeout: 30 * time.Second,
+	}
+
+	// ---------------------------------------------------------
+	// Cliente de Autenticación DataOS
+	// ---------------------------------------------------------
+
+	authClient := auth.NewClient(
+		httpClient,
+		dataOSBaseURL,
+		username,
+		password,
+	)
+
+	// ---------------------------------------------------------
+	// Cliente de Dashboard DataOS
+	// ---------------------------------------------------------
+
+	dashboardClient := dashboard.NewClient(
+		httpClient,
+		dataOSBaseURL,
+	)
+
+	// ---------------------------------------------------------
+	// Fachada DataOS
+	// ---------------------------------------------------------
+
+	dataosClient := dataos.NewClient(
+		authClient,
+		dashboardClient,
+	)
+
+	// ---------------------------------------------------------
+	// Catálogo de Métricas
+	// ---------------------------------------------------------
+
+	// ---------------------------------------------------------
+	// Analizador de Timestamps
+	// ---------------------------------------------------------
+
+	timestampParser, err := mapping.NewTimestampParser()
+	if err != nil {
+		log.Error(
+			"falló la creación del analizador de timestamps",
+			"error", err,
 		)
 
-		// ---------------------------------------------------------
-		// Catálogo de Métricas
-		// ---------------------------------------------------------
+		os.Exit(1)
+	}
 
-		metricCatalog := mapping.NewMetricCatalog()
+	// ---------------------------------------------------------
+	// Mapeador
+	// ---------------------------------------------------------
 
-		// ---------------------------------------------------------
-		// Analizador de Timestamps
-		// ---------------------------------------------------------
+	mapper := mapping.NewMapper(
+		timestampParser,
+	)
 
-		timestampParser, err := mapping.NewTimestampParser()
-		if err != nil {
-			log.Error(
-				"falló la creación del analizador de timestamps",
-				"error", err,
-			)
+	// ---------------------------------------------------------
+	// Extractor de Series
+	// ---------------------------------------------------------
 
-			os.Exit(1)
-		}
+	seriesExtractor := mapping.NewSeriesExtractor(
+		log,
+	)
 
-		// ---------------------------------------------------------
-		// Mapeador
-		// ---------------------------------------------------------
+	// ---------------------------------------------------------
+	// Repositorios
+	//
+	// TEMPORAL:
+	// Todavía no usamos persistencia.
+	// ---------------------------------------------------------
+	deviceRepository := repositories.NewDeviceRepository(db)
 
-		mapper := mapping.NewMapper(
-			metricCatalog,
-			timestampParser,
+	metricDefinitionRepository :=
+		repositories.NewMetricDefinitionRepository(db)
+
+	measurementRepository :=
+		repositories.NewMeasurementRepository(db, logger.New("INFO"))
+	// ---------------------------------------------------------
+	// Servicio de Ingesta
+	// ---------------------------------------------------------
+
+	service := services.NewIngestService(
+		dataosClient,
+		mapper,
+		seriesExtractor,
+		deviceRepository,
+		metricDefinitionRepository,
+		measurementRepository,
+		log,
+	)
+
+	// ---------------------------------------------------------
+	// Dispositivo temporal para pruebas
+	// ---------------------------------------------------------
+
+	// ---------------------------------------------------------
+	// Período de prueba
+	// ---------------------------------------------------------
+
+	end := time.Date(
+		2026, 8, 23,
+		02, 59, 59,
+		0,
+		time.Local,
+	)
+
+	start := time.Date(
+		2026, 8, 23,
+		0, 0, 0,
+		0,
+		time.Local,
+	)
+
+	ctx := context.Background()
+	// ---------------------------------------------------------
+	// Ejecutar Ingesta
+	// ---------------------------------------------------------
+
+	if err := service.Ingest(
+		ctx,
+		"11556",
+		start,
+		end,
+	); err != nil {
+
+		log.Error(
+			"falló la prueba de ingesta",
+			"error", err,
 		)
 
-		// ---------------------------------------------------------
-		// Extractor de Series
-		// ---------------------------------------------------------
+		os.Exit(1)
+	}
 
-		seriesExtractor := mapping.NewSeriesExtractor(
-			log,
-		)
+	// ---------------------------------------------------------
+	// Finalizado
+	// ---------------------------------------------------------
 
-		// ---------------------------------------------------------
-		// Repositorios
-		//
-		// TEMPORAL:
-		// Todavía no usamos persistencia.
-		// ---------------------------------------------------------
-		deviceRepository := repositories.NewDeviceRepository(db)
-
-		metricDefinitionRepository :=
-			repositories.NewMetricDefinitionRepository(db)
-
-		measurementRepository :=
-			repositories.NewMeasurementRepository(db)
-		// ---------------------------------------------------------
-		// Servicio de Ingesta
-		// ---------------------------------------------------------
-
-		service := services.NewIngestService(
-			dataosClient,
-			mapper,
-			seriesExtractor,
-			deviceRepository,
-			metricDefinitionRepository,
-			measurementRepository,
-			log,
-		)
-
-		// ---------------------------------------------------------
-		// Dispositivo temporal para pruebas
-		// ---------------------------------------------------------
-
-		device := &entities.Device{
-			ID:               "test-device",
-			MeasuringPointID: 11556,
-			Name:             "DataOS Test Device",
-			Active:           true,
-		}
-
-		// ---------------------------------------------------------
-		// Período de prueba
-		// ---------------------------------------------------------
-
-		end := time.Now()
-
-		start := end.Add(-1 * time.Hour)
-
-		log.Info(
-			"iniciando prueba de ingesta",
-			"measuring_point_id", device.MeasuringPointID,
-			"start", start,
-			"end", end,
-		)
-
-		// ---------------------------------------------------------
-		// Ejecutar Ingesta
-		// ---------------------------------------------------------
-
-		if err := service.Ingest(
-			ctx,
-			device,
-			start,
-			end,
-		); err != nil {
-
-			log.Error(
-				"falló la prueba de ingesta",
-				"error", err,
-			)
-
-			os.Exit(1)
-		}
-
-		// ---------------------------------------------------------
-		// Finalizado
-		// ---------------------------------------------------------
-
-		log.Info(
-			"prueba de ingesta completada exitosamente",
-		)
-	*/
+	log.Info(
+		"prueba de ingesta completada exitosamente",
+	)
 }
 
 func seedMetricDefinitions(
@@ -399,12 +401,6 @@ func seedMetricDefinitions(
 		},
 
 		// Status
-		{
-			Key:      "fuga_sospechada",
-			Name:     "Fuga sospechada",
-			Category: string(enums.CategoryStatus),
-			Active:   true,
-		},
 	}
 
 	for _, metric := range metrics {
