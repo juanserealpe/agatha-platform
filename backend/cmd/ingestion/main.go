@@ -34,27 +34,29 @@ func main() {
 	//ctx := context.Background()
 
 	// ---------------------------------------------------------
-	// Logger
+	// Loggers
 	// ---------------------------------------------------------
 
-	log := logger.New("INFO")
+	logDb := logger.New("DataBaseInit", "Info")
+	logAuthorization := logger.New("Authorization", "Info")
+	logIngestion := logger.New("Ingestion", "Info")
 
 	// ---------------------------------------------------------
 	// Base de Datos
 	// ---------------------------------------------------------
 	if err := godotenv.Load(); err != nil {
-		log.Error("No .env file found, using environment variables")
+		logDb.Error("No .env file found, using environment variables")
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
 
 	if dsn == "" {
-		log.Error("DATABASE_URL is not configured")
+		logDb.Error("DATABASE_URL is not configured")
 	}
 
 	db, err := database.NewPostgres(dsn)
 	if err != nil {
-		log.Error("failed to connect to database", "error", err)
+		logDb.Error("failed to connect to database", "error", err)
 	}
 
 	_ = db
@@ -68,12 +70,12 @@ func main() {
 	)
 
 	if err != nil {
-		log.Error("failed to migrate database", "error", err)
+		logDb.Error("failed to migrate database", "error", err)
 		return
 	}
 
-	if err := seedMetricDefinitions(db, log); err != nil {
-		log.Error("failed to seed metric definitions", "error", err)
+	if err := seedMetricDefinitions(db, logDb); err != nil {
+		logDb.Error("failed to seed metric definitions", "error", err)
 		return
 	}
 	/*
@@ -102,7 +104,7 @@ func main() {
 	password := os.Getenv("DATAOS_PASSWORD")
 
 	if username == "" || password == "" {
-		log.Error(
+		logAuthorization.Error(
 			"las credenciales de DataOS no están configuradas",
 			"required_variables", "DATAOS_USERNAME, DATAOS_PASSWORD",
 		)
@@ -116,7 +118,7 @@ func main() {
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		log.Error(
+		logAuthorization.Error(
 			"falló la creación del contenedor de cookies HTTP",
 			"error", err,
 		)
@@ -168,7 +170,7 @@ func main() {
 
 	timestampParser, err := mapping.NewTimestampParser()
 	if err != nil {
-		log.Error(
+		logIngestion.Error(
 			"falló la creación del analizador de timestamps",
 			"error", err,
 		)
@@ -189,7 +191,7 @@ func main() {
 	// ---------------------------------------------------------
 
 	seriesExtractor := mapping.NewSeriesExtractor(
-		log,
+		logIngestion,
 	)
 
 	// ---------------------------------------------------------
@@ -204,7 +206,7 @@ func main() {
 		repositories.NewMetricDefinitionRepository(db)
 
 	measurementRepository :=
-		repositories.NewMeasurementRepository(db, logger.New("INFO"))
+		repositories.NewMeasurementRepository(db)
 	// ---------------------------------------------------------
 	// Servicio de Ingesta
 	// ---------------------------------------------------------
@@ -216,7 +218,7 @@ func main() {
 		deviceRepository,
 		metricDefinitionRepository,
 		measurementRepository,
-		log,
+		logIngestion,
 	)
 
 	// ---------------------------------------------------------
@@ -253,7 +255,7 @@ func main() {
 		end,
 	); err != nil {
 
-		log.Error(
+		logIngestion.Error(
 			"falló la prueba de ingesta",
 			"error", err,
 		)
@@ -265,7 +267,7 @@ func main() {
 	// Finalizado
 	// ---------------------------------------------------------
 
-	log.Info(
+	logIngestion.Info(
 		"prueba de ingesta completada exitosamente",
 	)
 }
