@@ -7,7 +7,6 @@ import (
 
 func ToDeviceModel(entity *entities.Device) *models.DeviceModel {
 	return &models.DeviceModel{
-		ID:               entity.ID,
 		MeasuringPointID: entity.MeasuringPointID,
 		Name:             entity.Name,
 		Active:           entity.Active,
@@ -18,7 +17,6 @@ func ToDeviceModel(entity *entities.Device) *models.DeviceModel {
 
 func ToDeviceEntity(model *models.DeviceModel) *entities.Device {
 	return &entities.Device{
-		ID:               model.ID,
 		MeasuringPointID: model.MeasuringPointID,
 		Name:             model.Name,
 		Active:           model.Active,

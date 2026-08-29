@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 )
@@ -14,11 +13,4 @@ type MeasurementRepository interface {
 		ctx context.Context,
 		measurements []entities.RawMeasurement,
 	) error
-
-	Exists(
-		ctx context.Context,
-		deviceID string,
-		metricID string,
-		timestamp time.Time,
-	) (bool, error)
 }

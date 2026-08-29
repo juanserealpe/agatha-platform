@@ -3,7 +3,6 @@ package mapping
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/dashboard"
 )
@@ -29,6 +28,28 @@ var metricKeyMap = map[string]string{
 	"Planitud espectral":    "planitud_espectral",
 	"Deriva (grados)":       "deriva",
 }
+var metricIDMap = map[string]uint64{
+	"pitch":               1,
+	"roll":                2,
+	"voltaje":             3,
+	"corriente":           4,
+	"bateria":             5,
+	"rms":                 6,
+	"centroide_espectral": 7,
+	"planitud_espectral":  8,
+	"deriva":              9,
+	"actividad":           10,
+	"mag_promedio":        11,
+	"act_pico":            12,
+	"razib_r":             13,
+	"b0_viento_30_300hz":  14,
+	"b1_fuga_500_1200hz":  15,
+	"b2_fuga_1200_2000hz": 16,
+	"b3_guarda_2_2_4khz":  17,
+	"pitch_base":          18,
+	"roll_base":           19,
+	"rms_acustico":        20,
+}
 
 func MetricKeyFromDataOS(name string) (string, bool) {
 	key, ok := metricKeyMap[name]
@@ -51,8 +72,15 @@ func (m *Mapper) MapSeries(
 	device *entities.Device,
 	series dashboard.Series,
 	metricKey string,
-	metricID uint64,
 ) ([]entities.RawMeasurement, error) {
+
+	metricID, ok := metricIDMap[metricKey]
+	if !ok {
+		return nil, fmt.Errorf(
+			"metric ID not found for metric key %q",
+			metricKey,
+		)
+	}
 
 	measurements := make(
 		[]entities.RawMeasurement,
@@ -76,12 +104,11 @@ func (m *Mapper) MapSeries(
 		}
 
 		measurement := entities.RawMeasurement{
-			ID:        uuid.NewString(),
-			DeviceID:  device.ID,
-			MetricID:  metricID,
-			Timestamp: timestamp,
-			Value:     point.Value,
-			Source:    "dataos",
+			MeasuringPointID: device.MeasuringPointID,
+			MetricID:         metricID,
+			Timestamp:        timestamp,
+			Value:            point.Value,
+			Source:           "dataos",
 		}
 
 		measurements = append(

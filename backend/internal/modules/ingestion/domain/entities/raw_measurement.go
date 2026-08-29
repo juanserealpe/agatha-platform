@@ -3,10 +3,9 @@ package entities
 import "time"
 
 type RawMeasurement struct {
-	ID          string
-	DeviceID    string
-	MetricID    uint64
-	Timestamp   time.Time
-	Value       float64
-	Source      string
+	Timestamp        time.Time
+	MeasuringPointID int64
+	MetricID         uint64
+	Value            float64
+	Source           string
 }

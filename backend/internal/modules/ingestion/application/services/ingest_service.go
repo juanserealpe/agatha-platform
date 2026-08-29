@@ -5,19 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/ports"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/repositories"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/dashboard"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/mapping"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
 type IngestService struct {
-	dataosClient    *dataos.Client
-	mapper          *mapping.Mapper
-	seriesExtractor *mapping.SeriesExtractor
-
+	dataProvider               ports.DataProvider
 	deviceRepository           repositories.DeviceRepository
 	metricDefinitionRepository repositories.MetricDefinitionRepository
 	measurementRepository      repositories.MeasurementRepository
@@ -26,18 +21,14 @@ type IngestService struct {
 }
 
 func NewIngestService(
-	dataosClient *dataos.Client,
-	mapper *mapping.Mapper,
-	seriesExtractor *mapping.SeriesExtractor,
+	dataProvider ports.DataProvider,
 	deviceRepository repositories.DeviceRepository,
 	metricDefinitionRepository repositories.MetricDefinitionRepository,
 	measurementRepository repositories.MeasurementRepository,
 	logger *logger.Logger,
 ) *IngestService {
 	return &IngestService{
-		dataosClient:               dataosClient,
-		mapper:                     mapper,
-		seriesExtractor:            seriesExtractor,
+		dataProvider:               dataProvider,
 		deviceRepository:           deviceRepository,
 		metricDefinitionRepository: metricDefinitionRepository,
 		measurementRepository:      measurementRepository,
@@ -64,21 +55,17 @@ func NewIngestService(
 // Retorna error si alguna etapa del proceso falla.
 func (s *IngestService) Ingest(
 	ctx context.Context,
-	deviceID string,
+	MeasuringPointID int64,
 	start time.Time,
 	end time.Time,
 ) error {
 
-	device, err := s.getActiveDevice(ctx, deviceID)
+	device, err := s.getActiveDevice(ctx, MeasuringPointID)
 	if err != nil {
 		return err
 	}
 
-	if err := s.authenticate(ctx); err != nil {
-		return err
-	}
-
-	response, err := s.fetchDataOSData(
+	measurements, err := s.dataProvider.GetMeasurements(
 		ctx,
 		device,
 		start,
@@ -88,34 +75,20 @@ func (s *IngestService) Ingest(
 		return err
 	}
 
-	series, err := s.seriesExtractor.Extract(response)
-	if err != nil {
-		return fmt.Errorf("extract DataOS series: %w", err)
-	}
-
-	measurements, err := s.mapSeries(
-		ctx,
-		device,
-		series,
-	)
-	if err != nil {
-		return err
-	}
-
-	return s.saveMeasurements(ctx, device.ID, measurements)
+	return s.saveMeasurements(ctx, device.MeasuringPointID, measurements)
 }
 
 func (s *IngestService) getActiveDevice(
 	ctx context.Context,
-	deviceID string,
+	MeasuringPointID int64,
 ) (*entities.Device, error) {
 
-	device, err := s.deviceRepository.FindByID(ctx, deviceID)
+	device, err := s.deviceRepository.FindByMeasuringPointID(ctx, MeasuringPointID)
 
 	if err != nil {
 		return nil, fmt.Errorf(
 			"find device %q: %w",
-			deviceID,
+			MeasuringPointID,
 			err,
 		)
 	}
@@ -123,135 +96,23 @@ func (s *IngestService) getActiveDevice(
 	if device == nil {
 		return nil, fmt.Errorf(
 			"device %q not found",
-			deviceID,
+			MeasuringPointID,
 		)
 	}
 
 	if !device.Active {
 		return nil, fmt.Errorf(
 			"device %q is inactive",
-			device.ID,
+			device.MeasuringPointID,
 		)
 	}
 
 	return device, nil
 }
-func (s *IngestService) authenticate(
-	ctx context.Context,
-) error {
-
-	if err := s.dataosClient.Login(ctx); err != nil {
-		return fmt.Errorf(
-			"authenticate with DataOS: %w",
-			err,
-		)
-	}
-
-	return nil
-}
-
-func (s *IngestService) fetchDataOSData(
-	ctx context.Context,
-	device *entities.Device,
-	start time.Time,
-	end time.Time,
-) (*dashboard.RenderResponse, error) {
-
-	request := dashboard.RenderRequest{
-		Period: dashboard.Period{
-			Type:  "absolute",
-			Start: start.Format("2006-01-02T15:04:05"),
-			End:   end.Format("2006-01-02T15:04:05"),
-		},
-		Timezone:         "America/Bogota",
-		MeasuringPointID: device.MeasuringPointID,
-	}
-
-	response, err := s.dataosClient.Render(ctx, request)
-
-	if err != nil {
-		return nil, fmt.Errorf(
-			"fetch DataOS measurements: %w",
-			err,
-		)
-	}
-
-	return response, nil
-}
-
-func (s *IngestService) mapSeries(
-	ctx context.Context,
-	device *entities.Device,
-	series []dashboard.Series,
-) ([]entities.RawMeasurement, error) {
-
-	var measurements []entities.RawMeasurement
-
-	for _, serie := range series {
-
-		metricKey, ok := mapping.MetricKeyFromDataOS(
-			serie.Name,
-		)
-
-		if !ok {
-			s.logger.Warn(
-				"métrica de DataOS no reconocida",
-				"metric", serie.Name,
-			)
-
-			continue
-		}
-
-		metricDefinition, err :=
-			s.metricDefinitionRepository.FindByKey(
-				ctx,
-				metricKey,
-			)
-
-		if err != nil {
-			return nil, fmt.Errorf(
-				"find metric definition %q: %w",
-				metricKey,
-				err,
-			)
-		}
-
-		if metricDefinition == nil {
-			s.logger.Warn(
-				"definición de métrica no encontrada",
-				"metric_key", metricKey,
-			)
-
-			continue
-		}
-
-		mapped, err := s.mapper.MapSeries(
-			device,
-			serie,
-			metricKey,
-			metricDefinition.ID,
-		)
-
-		if err != nil {
-			return nil, fmt.Errorf(
-				"map metric %q: %w",
-				serie.Name,
-				err,
-			)
-		}
-
-		measurements = append(
-			measurements,
-			mapped...,
-		)
-	}
-
-	return measurements, nil
-}
 
 func (s *IngestService) saveMeasurements(
 	ctx context.Context,
-	deviceID string,
+	deviceID int64,
 	measurements []entities.RawMeasurement,
 ) error {
 

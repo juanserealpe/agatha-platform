@@ -81,7 +81,6 @@ func main() {
 	/*
 		devices := []models.DeviceModel{
 			{
-				ID:               "11556",
 				MeasuringPointID: 11556,
 				Name:             "Agatha 02",
 				Active:           true,
@@ -91,12 +90,12 @@ func main() {
 		}
 
 		if err := db.Create(&devices).Error; err != nil {
-			log.Error("failed to seed devices", "error", err)
+			logDb.Error("failed to seed devices", "error", err)
 		}
 
-		log.Info("Devices seeded successfully")
+		logDb.Info("Devices seeded successfully")
 	*/
-	// ---------------------------------------------------------
+	// --------------------------------------------------------
 	// Credenciales
 	// ---------------------------------------------------------
 
@@ -155,9 +154,22 @@ func main() {
 	// Fachada DataOS
 	// ---------------------------------------------------------
 
+	seriesExtractor := mapping.NewSeriesExtractor(
+		logIngestion,
+	)
+
+	timestampParser, err := mapping.NewTimestampParser()
+	if err != nil {
+		logIngestion.Error("create timestamp parser:", err)
+	}
+
+	mapper := mapping.NewMapper(timestampParser)
+
 	dataosClient := dataos.NewClient(
 		authClient,
 		dashboardClient,
+		seriesExtractor,
+		mapper,
 	)
 
 	// ---------------------------------------------------------
@@ -165,40 +177,8 @@ func main() {
 	// ---------------------------------------------------------
 
 	// ---------------------------------------------------------
-	// Analizador de Timestamps
-	// ---------------------------------------------------------
-
-	timestampParser, err := mapping.NewTimestampParser()
-	if err != nil {
-		logIngestion.Error(
-			"falló la creación del analizador de timestamps",
-			"error", err,
-		)
-
-		os.Exit(1)
-	}
-
-	// ---------------------------------------------------------
-	// Mapeador
-	// ---------------------------------------------------------
-
-	mapper := mapping.NewMapper(
-		timestampParser,
-	)
-
-	// ---------------------------------------------------------
-	// Extractor de Series
-	// ---------------------------------------------------------
-
-	seriesExtractor := mapping.NewSeriesExtractor(
-		logIngestion,
-	)
-
-	// ---------------------------------------------------------
 	// Repositorios
 	//
-	// TEMPORAL:
-	// Todavía no usamos persistencia.
 	// ---------------------------------------------------------
 	deviceRepository := repositories.NewDeviceRepository(db)
 
@@ -207,14 +187,13 @@ func main() {
 
 	measurementRepository :=
 		repositories.NewMeasurementRepository(db)
+
 	// ---------------------------------------------------------
 	// Servicio de Ingesta
 	// ---------------------------------------------------------
 
 	service := services.NewIngestService(
 		dataosClient,
-		mapper,
-		seriesExtractor,
 		deviceRepository,
 		metricDefinitionRepository,
 		measurementRepository,
@@ -230,14 +209,14 @@ func main() {
 	// ---------------------------------------------------------
 
 	end := time.Date(
-		2026, 8, 23,
-		02, 59, 59,
+		2026, 8, 27,
+		02, 00, 00,
 		0,
 		time.Local,
 	)
 
 	start := time.Date(
-		2026, 8, 23,
+		2026, 8, 27,
 		0, 0, 0,
 		0,
 		time.Local,
@@ -250,7 +229,7 @@ func main() {
 
 	if err := service.Ingest(
 		ctx,
-		"11556",
+		11556,
 		start,
 		end,
 	); err != nil {
