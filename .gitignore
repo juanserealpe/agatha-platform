@@ -24,3 +24,9 @@ backend/internal/shared//README.MD
 # OS files
 .DS_Store
 Thumbs.db
+
+# Frontend - Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
