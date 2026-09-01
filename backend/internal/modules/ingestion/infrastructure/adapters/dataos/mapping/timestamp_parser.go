@@ -4,27 +4,17 @@ import "time"
 
 const dataOSTimeFormat = "2006-01-02T15:04:05"
 
-type TimestampParser struct {
-	location *time.Location
-}
+type TimestampParser struct{}
 
-func NewTimestampParser() (*TimestampParser, error) {
-	location, err := time.LoadLocation("America/Bogota")
-	if err != nil {
-		return nil, err
-	}
-
-	return &TimestampParser{
-		location: location,
-	}, nil
+func NewTimestampParser() *TimestampParser {
+	return &TimestampParser{}
 }
 
 func (p *TimestampParser) Parse(
 	value string,
 ) (time.Time, error) {
-	return time.ParseInLocation(
+	return time.Parse(
 		dataOSTimeFormat,
 		value,
-		p.location,
 	)
 }

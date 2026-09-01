@@ -8,14 +8,17 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/ports"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/repositories"
+	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
+// IngestService orquesta el proceso de ingesta de datos.
 type IngestService struct {
-	dataProvider               ports.DataProvider
-	deviceRepository           repositories.DeviceRepository
-	metricDefinitionRepository repositories.MetricDefinitionRepository
-	measurementRepository      repositories.MeasurementRepository
+	dataProvider          ports.DataProvider
+	deviceRepository      repositories.DeviceRepository
+	ingestStateRepository repositories.IngestionStateRepository
+	unitOfWork            ports.IngestionUnitOfWork
+	processingService     *ProcessingService
 
 	logger *logger.Logger
 }
@@ -23,47 +26,129 @@ type IngestService struct {
 func NewIngestService(
 	dataProvider ports.DataProvider,
 	deviceRepository repositories.DeviceRepository,
-	metricDefinitionRepository repositories.MetricDefinitionRepository,
-	measurementRepository repositories.MeasurementRepository,
+	ingestStateRepository repositories.IngestionStateRepository,
+	processingService *ProcessingService,
+	unitOfWork ports.IngestionUnitOfWork,
 	logger *logger.Logger,
 ) *IngestService {
 	return &IngestService{
-		dataProvider:               dataProvider,
-		deviceRepository:           deviceRepository,
-		metricDefinitionRepository: metricDefinitionRepository,
-		measurementRepository:      measurementRepository,
-		logger:                     logger,
+		dataProvider:          dataProvider,
+		deviceRepository:      deviceRepository,
+		ingestStateRepository: ingestStateRepository,
+		processingService:     processingService,
+		logger:                logger,
+		unitOfWork:            unitOfWork,
 	}
 }
 
-// Ingest orquesta el proceso completo de ingesta de mediciones para un dispositivo.
-//
-// Recibe:
-//   - ctx: contexto de ejecución.
-//   - deviceID: identificador del dispositivo.
-//   - start: inicio del período de consulta.
-//   - end: fin del período de consulta.
-//
-// Utiliza helpers para:
-//   - validar el dispositivo: getActiveDevice
-//   - autenticar con DataOS: authenticate
-//   - consultar datos: fetchDataOSData
-//   - extraer series: seriesExtractor.Extract
-//   - mapear mediciones: mapSeries
-//   - guardar mediciones: saveMeasurements
-//
-// Retorna error si alguna etapa del proceso falla.
-func (s *IngestService) Ingest(
+func (s *IngestService) IngestDataOs(
 	ctx context.Context,
-	MeasuringPointID int64,
+	measuringPointID int64,
 	start time.Time,
 	end time.Time,
 ) error {
 
-	device, err := s.getActiveDevice(ctx, MeasuringPointID)
-	if err != nil {
+	// ---------------------------------------------------------
+	// 1. Validar rango básico
+	// ---------------------------------------------------------
+
+	now := time.Now()
+
+	if err := s.validateIngestionRange(
+		nil,
+		start,
+		end,
+		now,
+	); err != nil {
 		return err
 	}
+
+	// ---------------------------------------------------------
+	// 2. Buscar dispositivo
+	// ---------------------------------------------------------
+
+	device, err := s.getActiveDevice(
+		ctx,
+		measuringPointID,
+	)
+	if err != nil {
+
+		s.logger.Error(
+			"no fue posible obtener el dispositivo",
+			"measuring_point_id", measuringPointID,
+			"error", err,
+		)
+
+		return err
+	}
+
+	// ---------------------------------------------------------
+	// 3. Buscar último estado de ingesta
+	// ---------------------------------------------------------
+
+	lastState, err := s.ingestStateRepository.FindLatestByMeasuringPointID(
+		ctx,
+		measuringPointID,
+	)
+	if err != nil {
+
+		s.logger.Error(
+			"no fue posible consultar el último estado de ingesta",
+			"measuring_point_id", measuringPointID,
+			"error", err,
+		)
+
+		return fmt.Errorf(
+			"consultar último estado de ingesta: %w",
+			err,
+		)
+	}
+
+	// ---------------------------------------------------------
+	// 4. Validar rango contra ingestas anteriores
+	// ---------------------------------------------------------
+
+	if lastState != nil {
+
+		if err := s.validateIngestionRange(
+			lastState,
+			start,
+			end,
+			now,
+		); err != nil {
+
+			s.logger.Error(
+				"el rango solicitado entra en conflicto con una ingesta anterior",
+				"measuring_point_id", measuringPointID,
+				"error", err,
+			)
+
+			return err
+		}
+
+	} else {
+
+		s.logger.Info(
+			"no existe un estado de ingesta anterior; se realizará la primera ingesta",
+			"measuring_point_id", measuringPointID,
+		)
+	}
+
+	// ---------------------------------------------------------
+	// 5. Crear estado de la nueva ejecución
+	// ---------------------------------------------------------
+
+	state := &entities.IngestionState{
+		MeasuringPointID: uint64(measuringPointID),
+		Source:           "dataos",
+		InitialDate:      start,
+		LastIngestedAt:   nil,
+		ReceivedRecords:  0,
+	}
+
+	// ---------------------------------------------------------
+	// 6. Consultar DataOS
+	// ---------------------------------------------------------
 
 	measurements, err := s.dataProvider.GetMeasurements(
 		ctx,
@@ -72,37 +157,199 @@ func (s *IngestService) Ingest(
 		end,
 	)
 	if err != nil {
-		return err
+
+		s.logger.Error(
+			"ocurrió un error al obtener mediciones desde DataOS",
+			"measuring_point_id", measuringPointID,
+			"error", err,
+		)
+
+		return fmt.Errorf(
+			"obtener mediciones desde DataOS: %w",
+			err,
+		)
 	}
 
-	return s.saveMeasurements(ctx, device.MeasuringPointID, measurements)
+	s.logger.Info(
+		"mediciones obtenidas desde DataOS",
+		"measuring_point_id", measuringPointID,
+		"cantidad", len(measurements),
+	)
+
+	// ---------------------------------------------------------
+	// 7. Procesar / normalizar
+	// ---------------------------------------------------------
+
+	processedMeasurements, err := s.processingService.Process(
+		ctx,
+		measurements,
+	)
+	if err != nil {
+
+		s.logger.Error(
+			"ocurrió un error durante el procesamiento de las mediciones",
+			"measuring_point_id", measuringPointID,
+			"error", err,
+		)
+
+		return fmt.Errorf(
+			"procesar mediciones: %w",
+			err,
+		)
+	}
+
+	// ---------------------------------------------------------
+	// 8. Actualizar estado en memoria
+	// ---------------------------------------------------------
+
+	state.ReceivedRecords = len(processedMeasurements)
+
+	latest := getLatestMeasurementTimestamp(
+		processedMeasurements,
+	)
+
+	if latest != nil {
+
+		state.LastIngestedAt = latest
+
+		s.logger.Info(
+			"se identificó la última medición recibida",
+			"measuring_point_id", measuringPointID,
+			"last_ingested_at", *latest,
+		)
+
+	} else {
+
+		s.logger.Info(
+			"DataOS no devolvió mediciones para el rango solicitado",
+			"measuring_point_id", measuringPointID,
+			"fecha_inicio", start,
+			"fecha_fin", end,
+		)
+	}
+
+	// ---------------------------------------------------------
+	// 9. Persistencia transaccional
+	// ---------------------------------------------------------
+
+	err = s.unitOfWork.Execute(
+		ctx,
+		func(
+			ctx context.Context,
+			measurementRepository repositories.MeasurementRepository,
+			ingestionStateRepository repositories.IngestionStateRepository,
+		) error {
+
+			// ---------------------------------------------
+			// Guardar mediciones
+			// ---------------------------------------------
+
+			if len(processedMeasurements) > 0 {
+
+				if err := measurementRepository.SaveBatch(
+					ctx,
+					processedMeasurements,
+				); err != nil {
+
+					return fmt.Errorf(
+						"guardar mediciones: %w",
+						err,
+					)
+				}
+
+				s.logger.Info(
+					"mediciones guardadas correctamente",
+					"measuring_point_id", measuringPointID,
+					"cantidad", len(processedMeasurements),
+				)
+
+			} else {
+
+				s.logger.Info(
+					"no hay mediciones para guardar",
+					"measuring_point_id", measuringPointID,
+				)
+			}
+
+			// ---------------------------------------------
+			// Guardar estado histórico
+			// ---------------------------------------------
+
+			if err := ingestionStateRepository.Save(
+				ctx,
+				state,
+			); err != nil {
+
+				return fmt.Errorf(
+					"guardar estado de ingesta: %w",
+					err,
+				)
+			}
+
+			s.logger.Info(
+				"estado de ingesta guardado correctamente",
+				"measuring_point_id", measuringPointID,
+				"received_records", state.ReceivedRecords,
+				"last_ingested_at", state.LastIngestedAt,
+			)
+
+			return nil
+		},
+	)
+
+	if err != nil {
+
+		s.logger.Error(
+			"la transacción de ingesta falló y fue revertida",
+			"measuring_point_id", measuringPointID,
+			"error", err,
+		)
+
+		return fmt.Errorf(
+			"persistir ingesta: %w",
+			err,
+		)
+	}
+
+	s.logger.Info(
+		"ingesta completada correctamente",
+		"measuring_point_id", measuringPointID,
+		"received_records", state.ReceivedRecords,
+	)
+
+	return nil
 }
 
 func (s *IngestService) getActiveDevice(
 	ctx context.Context,
-	MeasuringPointID int64,
+	measuringPointID int64,
 ) (*entities.Device, error) {
 
-	device, err := s.deviceRepository.FindByMeasuringPointID(ctx, MeasuringPointID)
+	device, err := s.deviceRepository.FindByMeasuringPointID(
+		ctx,
+		measuringPointID,
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf(
 			"find device %q: %w",
-			MeasuringPointID,
+			measuringPointID,
 			err,
 		)
 	}
 
 	if device == nil {
 		return nil, fmt.Errorf(
-			"device %q not found",
-			MeasuringPointID,
+			"%w: dispositivo %d",
+			appErrors.ErrNotFound,
+			measuringPointID,
 		)
 	}
 
 	if !device.Active {
 		return nil, fmt.Errorf(
-			"device %q is inactive",
+			"%w: dispositivo %d",
+			appErrors.ErrDeviceInactive,
 			device.MeasuringPointID,
 		)
 	}
@@ -110,28 +357,76 @@ func (s *IngestService) getActiveDevice(
 	return device, nil
 }
 
-func (s *IngestService) saveMeasurements(
-	ctx context.Context,
-	deviceID int64,
-	measurements []entities.RawMeasurement,
+func (s *IngestService) validateIngestionRange(
+	lastState *entities.IngestionState,
+	start time.Time,
+	end time.Time,
+	now time.Time,
 ) error {
 
-	s.logger.Info(
-		"guardando mediciones en BD",
-		"device_id", deviceID,
-		"measurements", len(measurements),
-	)
+	if start.IsZero() || end.IsZero() {
+		return appErrors.ErrInvalidRange
+	}
 
-	if err := s.measurementRepository.SaveBatch(
-		ctx,
-		measurements,
-	); err != nil {
+	if !start.Before(end) {
+		return fmt.Errorf(
+			"%w: la fecha de inicio debe ser anterior a la fecha final",
+			appErrors.ErrInvalidRange,
+		)
+	}
+
+	if end.After(now) {
+		return fmt.Errorf(
+			"%w: fecha final %s",
+			appErrors.ErrFutureDate,
+			end,
+		)
+	}
+
+	if lastState == nil {
+		return nil
+	}
+
+	if start.Before(lastState.InitialDate) {
+		return fmt.Errorf(
+			"%w: inicio %s, fecha inicial %s",
+			appErrors.ErrBeforeInitialDate,
+			start,
+			lastState.InitialDate,
+		)
+	}
+
+	if lastState.LastIngestedAt != nil &&
+		!start.After(*lastState.LastIngestedAt) {
 
 		return fmt.Errorf(
-			"save measurements: %w",
-			err,
+			"%w: inicio %s, última fecha ingerida %s",
+			appErrors.ErrAlreadyIngested,
+			start,
+			*lastState.LastIngestedAt,
 		)
 	}
 
 	return nil
+}
+
+func getLatestMeasurementTimestamp(
+	measurements []entities.RawMeasurement,
+) *time.Time {
+
+	if len(measurements) == 0 {
+		return nil
+	}
+
+	var latest time.Time
+
+	for _, measurement := range measurements {
+		if latest.IsZero() ||
+			measurement.Timestamp.After(latest) {
+
+			latest = measurement.Timestamp
+		}
+	}
+
+	return &latest
 }

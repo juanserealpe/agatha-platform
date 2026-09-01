@@ -14,4 +14,8 @@ type DataProvider interface {
 		start time.Time,
 		end time.Time,
 	) ([]entities.RawMeasurement, error)
+
+	
 }
+
+

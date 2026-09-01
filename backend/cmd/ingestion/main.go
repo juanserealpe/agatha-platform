@@ -67,6 +67,7 @@ func main() {
 		&models.DeviceModel{},
 		&models.MetricDefinitionModel{},
 		&models.RawMeasurementModel{},
+		&models.IngestionStateModel{},
 	)
 
 	if err != nil {
@@ -158,10 +159,7 @@ func main() {
 		logIngestion,
 	)
 
-	timestampParser, err := mapping.NewTimestampParser()
-	if err != nil {
-		logIngestion.Error("create timestamp parser:", err)
-	}
+	timestampParser := mapping.NewTimestampParser()
 
 	mapper := mapping.NewMapper(timestampParser)
 
@@ -182,11 +180,20 @@ func main() {
 	// ---------------------------------------------------------
 	deviceRepository := repositories.NewDeviceRepository(db)
 
-	metricDefinitionRepository :=
-		repositories.NewMetricDefinitionRepository(db)
+	//measurementRepository :=
+	//	repositories.NewMeasurementRepository(db)
 
-	measurementRepository :=
-		repositories.NewMeasurementRepository(db)
+	processingService := services.NewProcessingService(logIngestion)
+
+	ingestStateRepository := repositories.NewIngestionStateRepository(db)
+
+	// ---------------------------------------------------------
+	// Servicio de Ingesta
+	// ---------------------------------------------------------
+
+	unitOfWork := repositories.NewUnitOfWork(
+		db,
+	)
 
 	// ---------------------------------------------------------
 	// Servicio de Ingesta
@@ -195,31 +202,45 @@ func main() {
 	service := services.NewIngestService(
 		dataosClient,
 		deviceRepository,
-		metricDefinitionRepository,
-		measurementRepository,
+		ingestStateRepository,
+		processingService,
+		unitOfWork,
 		logIngestion,
 	)
-
-	// ---------------------------------------------------------
-	// Dispositivo temporal para pruebas
-	// ---------------------------------------------------------
 
 	// ---------------------------------------------------------
 	// Período de prueba
 	// ---------------------------------------------------------
 
-	end := time.Date(
-		2026, 8, 27,
-		02, 00, 00,
-		0,
-		time.Local,
-	)
+	location, err := time.LoadLocation("America/Bogota")
+	if err != nil {
+		logIngestion.Error(
+			"no fue posible cargar la zona horaria de Colombia",
+			"error", err,
+		)
+		os.Exit(1)
+	}
 
 	start := time.Date(
-		2026, 8, 27,
-		0, 0, 0,
+		2026,
+		8,
+		30,
+		11,
+		00,
 		0,
-		time.Local,
+		0,
+		location,
+	)
+
+	end := time.Date(
+		2026,
+		8,
+		30,
+		20,
+		00,
+		0,
+		0,
+		location,
 	)
 
 	ctx := context.Background()
@@ -227,7 +248,7 @@ func main() {
 	// Ejecutar Ingesta
 	// ---------------------------------------------------------
 
-	if err := service.Ingest(
+	if err := service.IngestDataOs(
 		ctx,
 		11556,
 		start,
