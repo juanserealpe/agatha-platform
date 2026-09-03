@@ -36,26 +36,14 @@ func (c *Client) Login(ctx context.Context) error {
 	return c.authClient.Login(ctx)
 }
 
-func (c *Client) GetMeasurements(
-	ctx context.Context,
-	device *entities.Device,
-	start time.Time,
-	end time.Time,
+func (c *Client) GetMeasurements(ctx context.Context, device *entities.Device, start time.Time, end time.Time,
 ) ([]entities.RawMeasurement, error) {
 
 	if err := c.authClient.Login(ctx); err != nil {
-		return nil, fmt.Errorf(
-			"login to DataOS: %w",
-			err,
-		)
+		return nil, fmt.Errorf("login to DataOS: %w", err)
 	}
 
-	response, err := c.fetchDataOSData(
-		ctx,
-		device,
-		start,
-		end,
-	)
+	response, err := c.fetchDataOSData(ctx, device, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -65,11 +53,7 @@ func (c *Client) GetMeasurements(
 		return nil, err
 	}
 
-	measurements, err := c.mapSeriesMethod(
-		ctx,
-		device,
-		series,
-	)
+	measurements, err := c.mapSeriesMethod(ctx, device, series)
 	if err != nil {
 		return nil, err
 	}
@@ -77,30 +61,26 @@ func (c *Client) GetMeasurements(
 	return measurements, nil
 }
 
-func (c *Client) fetchDataOSData(
-	ctx context.Context,
-	device *entities.Device,
-	start time.Time,
-	end time.Time,
-) (*dashboard.RenderResponse, error) {
-
+func (c *Client) fetchDataOSData(ctx context.Context, device *entities.Device, start time.Time, end time.Time) (*dashboard.RenderResponse, error) {
 	request := dashboard.RenderRequest{
 		Period: dashboard.Period{
 			Type:  "absolute",
 			Start: start.Format("2006-01-02T15:04:05"),
 			End:   end.Format("2006-01-02T15:04:05"),
 		},
-		Timezone:         "America/Bogota",
+		Timezone:         "UTC",
 		MeasuringPointID: device.MeasuringPointID,
 	}
-
+	fmt.Printf(
+		"DATAOS REQUEST: start=%s end=%s timezone=%s\n",
+		request.Period.Start,
+		request.Period.End,
+		request.Timezone,
+	)
 	response, err := c.dashboardClient.Render(ctx, request)
 
 	if err != nil {
-		return nil, fmt.Errorf(
-			"fetch DataOS measurements: %w",
-			err,
-		)
+		return nil, fmt.Errorf("fetch DataOS measurements: %w", err)
 	}
 
 	return response, nil
@@ -115,19 +95,10 @@ func (c *Client) mapSeriesMethod(ctx context.Context, device *entities.Device, s
 			continue
 		}
 
-		mapped, err := c.mapSeries.MapSeries(
-			device,
-			serie,
-			metricKey,
-		)
+		mapped, err := c.mapSeries.MapSeries(device, serie, metricKey)
 
 		if err != nil {
-			return nil, fmt.Errorf(
-				"map series %q for device %q: %w",
-				serie.Name,
-				device.MeasuringPointID,
-				err,
-			)
+			return nil, fmt.Errorf("map series %q for device %q: %w", serie.Name, device.MeasuringPointID, err)
 		}
 
 		measurements = append(measurements, mapped...)
