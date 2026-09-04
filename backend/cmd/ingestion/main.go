@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/bootstrap"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/scheduler"
 )
 
 func main() {
@@ -21,18 +20,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	ingestionScheduler := scheduler.NewIngestionScheduler(
-		app.IngestService,
-		app.Logger,
-		11556,
-		15*time.Minute,
-		location,
-		45*time.Second,
-	)
-
 	ctx := context.Background()
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, location)
+	end := time.Date(2026, 9, 3, 11, 10, 0, 0, location)
+	if err := app.IngestService.IngestDataOs(ctx, 11556, start, end); err != nil {
+		app.Logger.Error("error durante la ingesta programada", "error", err)
+		return
+	}
 
 	app.Logger.Info("aplicación de ingesta iniciada")
-
-	ingestionScheduler.Start(ctx)
 }

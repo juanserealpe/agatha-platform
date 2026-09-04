@@ -43,7 +43,7 @@ func (c *Client) GetMeasurements(ctx context.Context, device *entities.Device, s
 		return nil, fmt.Errorf("login to DataOS: %w", err)
 	}
 
-	response, err := c.fetchDataOSData(ctx, device, start, end)
+	response, err := c.fetchDataOSData(ctx, device.MeasuringPointID, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (c *Client) GetMeasurements(ctx context.Context, device *entities.Device, s
 	return measurements, nil
 }
 
-func (c *Client) fetchDataOSData(ctx context.Context, device *entities.Device, start time.Time, end time.Time) (*dashboard.RenderResponse, error) {
+func (c *Client) fetchDataOSData(ctx context.Context, measuringPointID int64, start time.Time, end time.Time) (*dashboard.RenderResponse, error) {
 	request := dashboard.RenderRequest{
 		Period: dashboard.Period{
 			Type:  "absolute",
@@ -69,7 +69,7 @@ func (c *Client) fetchDataOSData(ctx context.Context, device *entities.Device, s
 			End:   end.Format("2006-01-02T15:04:05"),
 		},
 		Timezone:         "UTC",
-		MeasuringPointID: device.MeasuringPointID,
+		MeasuringPointID: measuringPointID,
 	}
 	fmt.Printf(
 		"DATAOS REQUEST: start=%s end=%s timezone=%s\n",

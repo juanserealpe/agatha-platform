@@ -1,0 +1,12 @@
+services:
+  ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: agatha-ingestion
+
+    env_file:
+      - .env
+
+    restart: unless-stopped

@@ -23,19 +23,19 @@ func NewIngestionValidator(
 }
 
 func (s *IngestionValidator) validateRange(start time.Time, end time.Time, now time.Time) error {
-	fmt.Print("validateRange: start: ", start, " end: ", end, " now: ", now)
+	fmt.Println("2. Validando el rango de fechas: start: ", start, " end: ", end, " now: ", now)
 	if start.IsZero() || end.IsZero() {
-		return appErrors.ErrInvalidRange
+		return fmt.Errorf("%w: 2.1 La fecha de inicio o final es inválida", appErrors.ErrInvalidRange)
 	}
 
 	if !start.Before(end) {
-		return fmt.Errorf("%w: la fecha de inicio debe ser anterior a la fecha final", appErrors.ErrInvalidRange)
+		return fmt.Errorf("%w: 2.2 la fecha de inicio debe ser anterior a la fecha final", appErrors.ErrInvalidRange)
 	}
 
 	if end.After(now) {
-		return fmt.Errorf("%w: fecha final %s", appErrors.ErrFutureDate, end)
+		return fmt.Errorf("%w: 2.3 fecha final %s", appErrors.ErrFutureDate, end)
 	}
-	fmt.Print("validateRange: rango válido")
+	fmt.Print("2. Validación de rango de fechas exitosa ")
 	return nil
 }
 
