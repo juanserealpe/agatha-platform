@@ -79,16 +79,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			s.logger.Error("el rango solicitado entra en conflicto con una ingesta anterior", "measuring_point_id", measuringPointID, "error", err)
 			return err
 		}
-
-		// Si existe estado anterior pero todavía no tiene
-		// LastIngestedAt, utilizamos el start solicitado.
-		if lastState.LastIngestedAt != nil {
-			ingestionStart = *lastState.LastIngestedAt
-
-			s.logger.Info("se continuará la ingesta desde la última medición registrada", "measuring_point_id", measuringPointID, "last_ingested_at", lastState.LastIngestedAt, "fecha_fin", end)
-		} else {
-			s.logger.Info("existe un estado de ingesta sin última medición; se utilizará el inicio solicitado", "measuring_point_id", measuringPointID, "fecha_inicio", start, "fecha_fin", end)
-		}
 	}
 
 	// 5. Normalizar las fechas antes de enviarlas al proveedor.
