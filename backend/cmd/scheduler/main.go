@@ -27,7 +27,7 @@ func main() {
 		11556,
 		15*time.Minute,
 		location,
-		45*time.Second,
+		50*time.Second,
 	)
 
 	ctx := context.Background()

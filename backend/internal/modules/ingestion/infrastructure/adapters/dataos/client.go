@@ -53,7 +53,7 @@ func (c *Client) GetMeasurements(ctx context.Context, device *entities.Device, s
 		return nil, err
 	}
 
-	measurements, err := c.mapSeriesMethod(ctx, device, series)
+	measurements, err := c.mapSeriesMethod(device, series)
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +71,7 @@ func (c *Client) fetchDataOSData(ctx context.Context, measuringPointID int64, st
 		Timezone:         "UTC",
 		MeasuringPointID: measuringPointID,
 	}
-	fmt.Printf(
-		"DATAOS REQUEST: start=%s end=%s timezone=%s\n",
-		request.Period.Start,
-		request.Period.End,
-		request.Timezone,
-	)
+	fmt.Printf("DATAOS REQUEST: start=%s end=%s timezone=%s\n", request.Period.Start, request.Period.End, request.Timezone)
 	response, err := c.dashboardClient.Render(ctx, request)
 
 	if err != nil {
@@ -85,20 +80,24 @@ func (c *Client) fetchDataOSData(ctx context.Context, measuringPointID int64, st
 
 	return response, nil
 }
-func (c *Client) mapSeriesMethod(ctx context.Context, device *entities.Device, series []dashboard.Series) ([]entities.RawMeasurement, error) {
+func (c *Client) mapSeriesMethod(
+	device *entities.Device,
+	series []dashboard.Series,
+) ([]entities.RawMeasurement, error) {
 
 	var measurements []entities.RawMeasurement
 
 	for _, serie := range series {
-		metricKey, ok := mapping.MetricKeyFromDataOS(serie.Name)
-		if !ok {
-			continue
-		}
 
-		mapped, err := c.mapSeries.MapSeries(device, serie, metricKey)
+		mapped, err := c.mapSeries.MapSeries(device, serie)
 
 		if err != nil {
-			return nil, fmt.Errorf("map series %q for device %q: %w", serie.Name, device.MeasuringPointID, err)
+			return nil, fmt.Errorf("map series %q for device %d: %w", serie.Name, device.MeasuringPointID, err)
+		}
+
+		if mapped == nil {
+			fmt.Println("[Ingestion] serie ignorada: métrica no encontrada", "series_name", serie.Name, "measuring_point_id", device.MeasuringPointID)
+			continue
 		}
 
 		measurements = append(measurements, mapped...)

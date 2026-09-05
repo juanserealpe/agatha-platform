@@ -50,10 +50,9 @@ func (r *IngestionStateRepository) FindLatestByMeasuringPointID(ctx context.Cont
 	}
 
 	fmt.Printf(
-		"3.3 Estado encontrado: id=%v, measuring_point_id=%d, initial_date=%v, last_ingested_at=%v, created_at=%v, updated_at=%v\n",
+		"3.3 Estado encontrado: id=%v, measuring_point_id=%d, last_ingested_at=%v, created_at=%v, updated_at=%v\n",
 		model.ID,
 		model.MeasuringPointID,
-		model.InitialDate,
 		model.LastIngestedAt,
 		model.CreatedAt,
 		model.UpdatedAt,

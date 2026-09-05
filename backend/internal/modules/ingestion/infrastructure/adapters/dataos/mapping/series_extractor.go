@@ -59,10 +59,7 @@ func (e *SeriesExtractor) Extract(
 
 	var series []dashboard.Series
 
-	e.logger.Info(
-		"INICIO extracción de series",
-		"components", len(response.Components),
-	)
+	e.logger.Info("INICIO extracción de series", "components", len(response.Components))
 
 	for componentIndex, component := range response.Components {
 
@@ -75,10 +72,7 @@ func (e *SeriesExtractor) Extract(
 			"data_size", len(component.Data),
 		)
 
-		// ---------------------------------------------------------
 		// 1. Componente con error
-		// ---------------------------------------------------------
-
 		if component.Error != nil {
 
 			e.logger.Warn(
@@ -90,10 +84,7 @@ func (e *SeriesExtractor) Extract(
 			continue
 		}
 
-		// ---------------------------------------------------------
 		// 2. Componente sin datos
-		// ---------------------------------------------------------
-
 		if len(component.Data) == 0 {
 
 			e.logger.Warn(
@@ -103,10 +94,7 @@ func (e *SeriesExtractor) Extract(
 
 			continue
 		}
-
-		// ---------------------------------------------------------
 		// 3. Mostrar JSON crudo recibido desde DataOS
-		// ---------------------------------------------------------
 
 		e.logger.Info(
 			"DATA CRUDA RECIBIDA DE DATAOS",
@@ -114,10 +102,7 @@ func (e *SeriesExtractor) Extract(
 			"raw_data", string(component.Data),
 		)
 
-		// ---------------------------------------------------------
 		// 4. Decodificar JSON
-		// ---------------------------------------------------------
-
 		var chartData dashboard.ChartData
 
 		if err := json.Unmarshal(
@@ -139,20 +124,14 @@ func (e *SeriesExtractor) Extract(
 			)
 		}
 
-		// ---------------------------------------------------------
 		// 5. Resultado de la decodificación
-		// ---------------------------------------------------------
-
 		e.logger.Info(
 			"componente decodificado",
 			"component_id", component.ID,
 			"series", len(chartData.Series),
 		)
 
-		// ---------------------------------------------------------
 		// 6. Procesar series
-		// ---------------------------------------------------------
-
 		for seriesIndex, serie := range chartData.Series {
 
 			e.logger.Info(
@@ -171,14 +150,7 @@ func (e *SeriesExtractor) Extract(
 		}
 	}
 
-	// ---------------------------------------------------------
 	// 7. Resultado final
-	// ---------------------------------------------------------
-
-	e.logger.Info(
-		"FIN extracción de series",
-		"series_count", len(series),
-	)
-
+	e.logger.Info("FIN extracción de series", "series_count", len(series))
 	return series, nil
 }

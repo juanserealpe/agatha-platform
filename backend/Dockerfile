@@ -1,6 +1,3 @@
-# =========================
-# Build
-# =========================
 FROM golang:1.25.7-alpine AS builder
 
 WORKDIR /app
@@ -12,19 +9,15 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -o ingestion \
-    ./cmd/ingestion
+    -o scheduler \
+    ./cmd/scheduler
 
-
-# =========================
-# Runtime
-# =========================
 FROM alpine:latest
 
 WORKDIR /app
 
 RUN apk --no-cache add ca-certificates tzdata
 
-COPY --from=builder /app/ingestion .
+COPY --from=builder /app/scheduler .
 
-CMD ["./ingestion"]
+CMD ["./scheduler"]

@@ -1,10 +1,10 @@
 services:
-  ingestion:
+  scheduler:
     build:
       context: .
       dockerfile: Dockerfile
 
-    container_name: agatha-ingestion
+    container_name: agatha-scheduler
 
     env_file:
       - .env

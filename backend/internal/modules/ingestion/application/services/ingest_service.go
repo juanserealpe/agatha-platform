@@ -47,11 +47,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	// 1. Obtener dispositivo activo.
 	device, err := s.ingestionValidator.getActiveDevice(ctx, measuringPointID)
 	if err != nil {
-		s.logger.Error(
-			"no fue posible obtener el dispositivo",
-			"measuring_point_id", measuringPointID,
-			"error", err,
-		)
+		s.logger.Error("no fue posible obtener el dispositivo", "measuring_point_id", measuringPointID, "error", err)
 		return err
 	}
 
@@ -61,10 +57,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	}
 
 	// 3. Buscar el último estado de ingesta.
-	lastState, err := s.ingestStateRepository.FindLatestByMeasuringPointID(
-		ctx,
-		measuringPointID,
-	)
+	lastState, err := s.ingestStateRepository.FindLatestByMeasuringPointID(ctx, measuringPointID)
 	if err != nil {
 		s.logger.Error("no fue posible consultar el último estado de ingesta", "measuring_point_id", measuringPointID, "error", err)
 		return fmt.Errorf("consultar último estado de ingesta: %w", err)
@@ -133,21 +126,15 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	//
 	// Para ingestas posteriores:
 	//     conservamos el InitialDate original.
-	initialDate := start
-
-	if lastState != nil {
-		initialDate = lastState.InitialDate
-	}
 
 	state := &entities.IngestionState{
 		MeasuringPointID: uint64(measuringPointID),
 		Source:           "dataos",
-		InitialDate:      initialDate,
 		ReceivedRecords:  len(processedMeasurements),
 		LastIngestedAt:   lastIngestedAt,
 	}
 
-	s.logger.Info("se preparó el estado de la ingesta", "measuring_point_id", measuringPointID, "initial_date", state.InitialDate,
+	s.logger.Info("se preparó el estado de la ingesta", "measuring_point_id", measuringPointID,
 		"received_records", state.ReceivedRecords, "last_ingested_at", state.LastIngestedAt)
 
 	// 11. Persistir mediciones y estado dentro de la misma transacción.
@@ -155,8 +142,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 		ctx,
 		func(
 			ctx context.Context,
-			measurementRepository repositories.MeasurementRepository,
-			ingestionStateRepository repositories.IngestionStateRepository,
+			measurementRepository repositories.MeasurementRepository, ingestionStateRepository repositories.IngestionStateRepository,
 		) error {
 
 			// Guardar mediciones.
@@ -174,7 +160,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 				return fmt.Errorf("guardar estado de ingesta: %w", err)
 			}
 
-			s.logger.Info("estado de ingesta guardado correctamente", "measuring_point_id", measuringPointID, "initial_date", state.InitialDate, "received_records",
+			s.logger.Info("estado de ingesta guardado correctamente", "measuring_point_id", measuringPointID, "received_records",
 				state.ReceivedRecords, "last_ingested_at", state.LastIngestedAt)
 
 			return nil

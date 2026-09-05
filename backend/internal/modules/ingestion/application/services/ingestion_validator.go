@@ -45,9 +45,9 @@ func (s *IngestionValidator) validateIngestionRangeHistorical(lastState *entitie
 		return nil
 	}
 
-	if start.Before(lastState.InitialDate) {
-		return fmt.Errorf("%w: inicio %s, fecha inicial %s", appErrors.ErrBeforeInitialDate, start, lastState.InitialDate)
-	}
+	/*if start.Before(*lastState.LastIngestedAt) {
+		return fmt.Errorf("%w: inicio %s, fecha inicial %s", appErrors.ErrBeforeInitialDate, start, lastState.LastIngestedAt)
+	}*/
 
 	if lastState.LastIngestedAt != nil && !start.After(*lastState.LastIngestedAt) {
 		return fmt.Errorf("%w: inicio %s, última fecha ingerida %s", appErrors.ErrAlreadyIngested, start, *lastState.LastIngestedAt)
