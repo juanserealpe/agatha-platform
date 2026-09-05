@@ -39,18 +39,17 @@ func (s *IngestionValidator) validateRange(start time.Time, end time.Time, now t
 	return nil
 }
 
-func (s *IngestionValidator) validateIngestionRangeHistorical(lastState *entities.IngestionState, start time.Time, end time.Time, now time.Time) error {
+func (s *IngestionValidator) validateIngestionRangeHistorical(
+	lastState *entities.IngestionState,
+	start time.Time,
+	end time.Time,
+	now time.Time,
+) error {
+
+	fmt.Printf("tiempos : ", start, end, now)
 
 	if lastState == nil {
 		return nil
-	}
-
-	/*if start.Before(*lastState.LastIngestedAt) {
-		return fmt.Errorf("%w: inicio %s, fecha inicial %s", appErrors.ErrBeforeInitialDate, start, lastState.LastIngestedAt)
-	}*/
-
-	if lastState.LastIngestedAt != nil && !start.After(*lastState.LastIngestedAt) {
-		return fmt.Errorf("%w: inicio %s, última fecha ingerida %s", appErrors.ErrAlreadyIngested, start, *lastState.LastIngestedAt)
 	}
 
 	return nil
