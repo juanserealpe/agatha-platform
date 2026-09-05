@@ -66,29 +66,21 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	// 4. Determinar desde qué fecha se debe consultar DataOS.
 	//
 	// Primera ingesta:
-	//     Se utiliza el inicio de la ventana programada.
+	//     no existe lastState -> se utiliza start.
 	//
 	// Ingestas posteriores:
-	//     Se consulta desde la última medición registrada para
-	//     recuperar posibles datos atrasados o pendientes.
+	//     existe lastState -> se continúa desde LastIngestedAt.
 	ingestionStart := start
 
 	if lastState == nil {
-		s.logger.Info(
-			"no existe un estado de ingesta anterior; se utilizará el inicio de la ventana programada", "measuring_point_id", measuringPointID, "fecha_inicio", ingestionStart,
-			"fecha_fin", end)
-	} else if lastState.LastIngestedAt != nil {
-
-		ingestionStart = *lastState.LastIngestedAt
-
-		s.logger.Info(
-			"se continuará la ingesta desde la última medición registrada", "measuring_point_id", measuringPointID,
-			"last_ingested_at", ingestionStart, "fecha_fin", end)
+		s.logger.Info("no existe un estado de ingesta anterior; se realizará la primera ingesta", "measuring_point_id", measuringPointID, "fecha_inicio", start, "fecha_fin", end)
 	} else {
-		s.logger.Info(
-			"existe un estado sin última medición; se utilizará el inicio de la ventana programada",
-			"measuring_point_id", measuringPointID, "fecha_inicio", ingestionStart, "fecha_fin", end)
+		if err := s.ingestionValidator.validateIngestionRangeHistorical(lastState, start, end, now); err != nil {
+			s.logger.Error("el rango solicitado entra en conflicto con una ingesta anterior", "measuring_point_id", measuringPointID, "error", err)
+			return err
+		}
 	}
+
 	// 5. Normalizar las fechas antes de enviarlas al proveedor.
 	s.logger.Info("consultando mediciones", "measuring_point_id", measuringPointID, "fecha_inicio", ingestionStart, "fecha_fin", end)
 
