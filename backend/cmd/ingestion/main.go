@@ -8,6 +8,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/bootstrap"
 )
 
+// test
 func main() {
 	app, err := bootstrap.NewIngestionApplication()
 	if err != nil {
@@ -21,7 +22,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	start := time.Date(2026, 9, 4, 22 ,40, 0, 0, location)
+	start := time.Date(2026, 9, 4, 22, 40, 0, 0, location)
 	end := time.Date(2026, 9, 4, 22, 47, 43, 0, location)
 	if err := app.IngestService.IngestDataOs(ctx, 11556, start, end); err != nil {
 		app.Logger.Error("error durante la ingesta programada", "error", err)
