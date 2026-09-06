@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
     MapContainer,
     TileLayer,
     Polyline,
     Marker,
     Tooltip,
-    useMap,
     useMapEvent,
     Rectangle,
 } from "react-leaflet";
@@ -15,6 +14,8 @@ import "leaflet/dist/leaflet.css";
 import type { Sensor } from "@/services/types";
 import { ROUTE_COORDINATES, FLEXIBLE_SEGMENTS, CITIES } from "./data/pipelineData";
 import { getMarkerColor } from "@/theme/severity";
+import { RIOS, QUEBRADAS } from "./data/hydrographyData";
+
 
 const ESRI_SATELLITE_URL =
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -50,7 +51,17 @@ interface PipelineLayersProps {
 function PipelineLayers({ sensores, onSensorClick }: PipelineLayersProps) {
     return (
         <>
-            <Polyline positions={ROUTE_COORDINATES} pathOptions={{ color: "#94a3b8", weight: 4, opacity: 0.9 }} />
+            {RIOS.map((rio, i) => (
+                <Polyline key={`rio-${i}`} positions={rio.coords} pathOptions={{ color: "#38bdf8", weight: 2.5, opacity: 0.75 }}>
+                    {rio.name && <Tooltip sticky>{rio.name}</Tooltip>}
+                </Polyline>
+            ))}
+            {QUEBRADAS.map((q, i) => (
+                <Polyline key={`quebrada-${i}`} positions={q.coords} pathOptions={{ color: "#7dd3fc", weight: 1.2, opacity: 0.6 }}>
+                    {q.name && <Tooltip sticky>{q.name}</Tooltip>}
+                </Polyline>
+            ))}
+            <Polyline positions={ROUTE_COORDINATES} pathOptions={{ color: "#fde047", weight: 4, opacity: 0.95 }} />
             {FLEXIBLE_SEGMENTS.map((seg, i) => (
                 <Polyline key={i} positions={seg} pathOptions={{ color: "#f97316", weight: 5, opacity: 0.95 }} />
             ))}
@@ -81,7 +92,7 @@ function PipelineLayers({ sensores, onSensorClick }: PipelineLayersProps) {
 
 // --- Minimapa: patrón oficial de react-leaflet, dos MapContainer sincronizados ---
 function MinimapViewport({ parentMap, sensores }: { parentMap: L.Map; sensores: Sensor[] }) {
-    const minimap = useMap();
+    //const minimap = useMap();
     const [bounds, setBounds] = useState(parentMap.getBounds());
     const [hoverLatLng, setHoverLatLng] = useState<L.LatLng | null>(null);
 
@@ -128,7 +139,7 @@ function MinimapViewport({ parentMap, sensores }: { parentMap: L.Map; sensores: 
 
     return (
         <>
-            <Polyline positions={ROUTE_COORDINATES} pathOptions={{ color: "#f8fafc", weight: 3, opacity: 1 }} />
+            <Polyline positions={ROUTE_COORDINATES} pathOptions={{ color: "#fde047", weight: 3, opacity: 1 }} />
             {FLEXIBLE_SEGMENTS.map((seg, i) => (
                 <Polyline key={i} positions={seg} pathOptions={{ color: "#f97316", weight: 3 }} />
             ))}
@@ -196,8 +207,10 @@ export function PipelineMap({ sensores, onSensorClick }: PipelineMapProps) {
             {mainMap && <MiniMap parentMap={mainMap} sensores={sensores} />}
 
             <div className="absolute bottom-3 right-3 z-[1000] bg-white/90 backdrop-blur rounded-lg p-2.5 text-xs font-data-mono shadow-md flex flex-col gap-1">
-                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#94a3b8] inline-block rounded" /> Acero</div>
+                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#fde047] inline-block rounded" /> Acero</div>
                 <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#f97316] inline-block rounded" /> Flexible</div>
+                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#38bdf8] inline-block rounded" /> Río</div>
+                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#7dd3fc] inline-block rounded" /> Quebrada</div>
             </div>
         </div>
     );
