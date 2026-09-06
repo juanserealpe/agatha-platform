@@ -9,6 +9,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/auth"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/dashboard"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/mapping"
+	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
 type Client struct {
@@ -16,6 +17,7 @@ type Client struct {
 	dashboardClient *dashboard.Client
 	seriesExtractor *mapping.SeriesExtractor
 	mapSeries       *mapping.Mapper
+	logger          *logger.Logger
 }
 
 func NewClient(
@@ -23,12 +25,14 @@ func NewClient(
 	dashboardClient *dashboard.Client,
 	seriesExtractor *mapping.SeriesExtractor,
 	mapSeries *mapping.Mapper,
+	logger *logger.Logger,
 ) *Client {
 	return &Client{
 		authClient:      authClient,
 		dashboardClient: dashboardClient,
 		seriesExtractor: seriesExtractor,
 		mapSeries:       mapSeries,
+		logger:          logger,
 	}
 }
 
@@ -71,7 +75,7 @@ func (c *Client) fetchDataOSData(ctx context.Context, measuringPointID int64, st
 		Timezone:         "UTC",
 		MeasuringPointID: measuringPointID,
 	}
-	fmt.Printf("DATAOS REQUEST: start=%s end=%s timezone=%s\n", request.Period.Start, request.Period.End, request.Timezone)
+	c.logger.Info("Request para DataOS", "Inicio", request.Period.Start, "Fin", request.Period.End, "Zona horaria", request.Timezone)
 	response, err := c.dashboardClient.Render(ctx, request)
 
 	if err != nil {

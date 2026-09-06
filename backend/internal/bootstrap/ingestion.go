@@ -109,6 +109,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 		dashboardClient,
 		seriesExtractor,
 		mapper,
+		logIngestion,
 	)
 
 	// ---------------------------------------------------------
@@ -123,7 +124,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 	// ---------------------------------------------------------
 
 	processingService := services.NewProcessingService(logIngestion)
-	ingestionValidator := services.NewIngestionValidator(deviceRepository)
+	ingestionValidator := services.NewIngestionValidator(deviceRepository, logIngestion)
 
 	// ---------------------------------------------------------
 	// Unit of Work

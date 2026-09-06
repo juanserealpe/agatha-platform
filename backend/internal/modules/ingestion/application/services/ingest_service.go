@@ -74,12 +74,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 
 	if lastState == nil {
 		s.logger.Info("no existe un estado de ingesta anterior; se realizará la primera ingesta", "measuring_point_id", measuringPointID, "fecha_inicio", start, "fecha_fin", end)
-	} else {
-		if err := s.ingestionValidator.validateIngestionRangeHistorical(lastState, start, end, now); err != nil {
-			s.logger.Error("el rango solicitado entra en conflicto con una ingesta anterior", "measuring_point_id", measuringPointID, "error", err)
-			return err
-		}
-	}
+	} 
 
 	// 5. Normalizar las fechas antes de enviarlas al proveedor.
 	s.logger.Info("consultando mediciones", "measuring_point_id", measuringPointID, "fecha_inicio", ingestionStart, "fecha_fin", end)

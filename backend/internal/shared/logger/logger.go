@@ -3,6 +3,7 @@ package logger
 import (
 	"log"
 	"strings"
+	"time"
 )
 
 type Level string
@@ -16,6 +17,17 @@ const (
 type Logger struct {
 	module string
 	level  Level
+}
+
+// Configurar zona horaria de Colombia (Bogotá)
+func init() {
+	loc, err := time.LoadLocation("America/Bogota")
+	if err != nil {
+		log.Printf("Error loading timezone America/Bogota: %v, usando UTC", err)
+	} else {
+		time.Local = loc
+		log.Printf("Timezone configurado a: America/Bogota (UTC-5)")
+	}
 }
 
 func New(module string, level string) *Logger {
@@ -42,8 +54,12 @@ func (l *Logger) log(
 	msg string,
 	keysAndValues ...interface{},
 ) {
+	// Obtener hora actual en zona horaria de Bogotá
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+
 	log.Printf(
-		"[%s] [%s] %s %v",
+		"[%s] [%s] [%s] %s %v",
+		timestamp,
 		level,
 		l.module,
 		msg,

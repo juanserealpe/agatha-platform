@@ -62,16 +62,7 @@ func (e *SeriesExtractor) Extract(
 	e.logger.Info("INICIO extracción de series", "components", len(response.Components))
 
 	for componentIndex, component := range response.Components {
-
-		e.logger.Info(
-			"procesando componente",
-			"index", componentIndex,
-			"component_id", component.ID,
-			"type", component.Type,
-			"title", component.Title,
-			"data_size", len(component.Data),
-		)
-
+		e.logger.Info("Procesando componente", "index", componentIndex, "component_id", component.ID)
 		// 1. Componente con error
 		if component.Error != nil {
 
