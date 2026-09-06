@@ -8,6 +8,7 @@ import {
     Tooltip,
     useMapEvent,
     Rectangle,
+    useMap,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -16,13 +17,12 @@ import { ROUTE_COORDINATES, FLEXIBLE_SEGMENTS, CITIES } from "./data/pipelineDat
 import { getMarkerColor } from "@/theme/severity";
 import { RIOS, QUEBRADAS } from "./data/hydrographyData";
 
-
 const ESRI_SATELLITE_URL =
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const ESRI_ATTRIBUTION =
     "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics";
 
-const CENTER: [number, number] = [5.94, -73.58]; // centro aprox. del corredor
+//const CENTER: [number, number] = [5.94, -73.58]; // centro aprox. del corredor
 const FULL_BOUNDS = L.latLngBounds(ROUTE_COORDINATES);
 
 function sensorIcon(sensor: Sensor) {
@@ -51,6 +51,7 @@ interface PipelineLayersProps {
 function PipelineLayers({ sensores, onSensorClick }: PipelineLayersProps) {
     return (
         <>
+
             {RIOS.map((rio, i) => (
                 <Polyline key={`rio-${i}`} positions={rio.coords} pathOptions={{ color: "#38bdf8", weight: 2.5, opacity: 0.75 }}>
                     {rio.name && <Tooltip sticky>{rio.name}</Tooltip>}
@@ -174,9 +175,10 @@ function MinimapViewport({ parentMap, sensores }: { parentMap: L.Map; sensores: 
 function MiniMap({ parentMap, sensores }: { parentMap: L.Map; sensores: Sensor[] }) {
     return (
         <div className="absolute top-3 left-3 z-[1000] w-48 h-48 rounded-lg overflow-hidden border-2 border-white shadow-lg cursor-crosshair">
-            <MapContainer center={CENTER} zoom={8.5} style={{ height: "100%", width: "100%" }} zoomControl={false} attributionControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false}>
+            <MapContainer bounds={FULL_BOUNDS} style={{ height: "100%", width: "100%" }} zoomControl={false} attributionControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false}>
                 <TileLayer url={ESRI_SATELLITE_URL} attribution={ESRI_ATTRIBUTION} />
                 <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" />
+                <FitBoundsOnMount bounds={FULL_BOUNDS} />
                 <MinimapViewport parentMap={parentMap} sensores={sensores} />
             </MapContainer>
         </div>
@@ -188,27 +190,34 @@ interface PipelineMapProps {
     onSensorClick: (sensor: Sensor) => void;
 }
 
+function FitBoundsOnMount({ bounds }: { bounds: L.LatLngBounds }) {
+    const map = useMap();
+    useEffect(() => {
+        map.fitBounds(bounds, { padding: [40, 40] });
+    }, [map, bounds]);
+    return null;
+}
+
 export function PipelineMap({ sensores, onSensorClick }: PipelineMapProps) {
     const [mainMap, setMainMap] = useState<L.Map | null>(null);
 
     return (
         <div className="relative w-full h-[500px] rounded-xl overflow-hidden border border-border">
             <MapContainer
-                center={CENTER}
-                zoom={12}
                 bounds={FULL_BOUNDS}
                 style={{ height: "100%", width: "100%" }}
                 ref={setMainMap}
             >
                 <TileLayer url={ESRI_SATELLITE_URL} attribution={ESRI_ATTRIBUTION} />
                 <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" />
+                <FitBoundsOnMount bounds={FULL_BOUNDS} />
                 <PipelineLayers sensores={sensores} onSensorClick={onSensorClick} />
             </MapContainer>
             {mainMap && <MiniMap parentMap={mainMap} sensores={sensores} />}
 
             <div className="absolute bottom-3 right-3 z-[1000] bg-white/90 backdrop-blur rounded-lg p-2.5 text-xs font-data-mono shadow-md flex flex-col gap-1">
-                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#fde047] inline-block rounded" /> Acero</div>
-                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#f97316] inline-block rounded" /> Flexible</div>
+                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#fde047] inline-block rounded" /> Tubo Acero</div>
+                <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#f97316] inline-block rounded" /> Tubo Flexible</div>
                 <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#38bdf8] inline-block rounded" /> Río</div>
                 <div className="flex items-center gap-2"><span className="w-4 h-1 bg-[#7dd3fc] inline-block rounded" /> Quebrada</div>
             </div>
