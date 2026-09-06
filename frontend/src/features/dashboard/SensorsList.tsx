@@ -1,4 +1,4 @@
-import { getBatteryVisual, getSignalIcon, getAlertVisual, formatUltimaComunicacion } from "@/theme/severity";
+import { getBatteryVisual, getSignalIcon, getAlertVisual } from "@/theme/severity";
 import { MapPin } from "lucide-react";
 import type { Sensor } from "@/services/types";
 
@@ -42,7 +42,7 @@ export function SensorsList({ sensores, onSensorClick }: SensorsListProps) {
                                     {sensor.nombre}
                                 </p>
                                 <p className="text-xs text-gray-400">
-                                    {formatUltimaComunicacion(sensor.ultimaComunicacion)}
+                                    Última comunicación: {new Date(sensor.ultimaComunicacion).toLocaleString()}
                                 </p>
                             </div>
 
