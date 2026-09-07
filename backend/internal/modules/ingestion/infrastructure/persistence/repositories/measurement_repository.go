@@ -70,6 +70,10 @@ func (r *MeasurementRepository) SaveBatch(
 			&entitiesList[i],
 		)
 
+		fmt.Println("GUARDANDO DATOS MEASUREMENT, fecha: ", model.Timestamp,
+			" valor: ", model.Value,
+			" measuringPoint: ", model.MeasuringPointID)
+
 		if model != nil {
 			modelsList = append(
 				modelsList,
