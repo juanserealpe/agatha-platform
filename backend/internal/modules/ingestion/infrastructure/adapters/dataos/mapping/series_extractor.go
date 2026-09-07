@@ -85,13 +85,6 @@ func (e *SeriesExtractor) Extract(
 
 			continue
 		}
-		// 3. Mostrar JSON crudo recibido desde DataOS
-
-		e.logger.Info(
-			"DATA CRUDA RECIBIDA DE DATAOS",
-			"component_id", component.ID,
-			"raw_data", string(component.Data),
-		)
 
 		// 4. Decodificar JSON
 		var chartData dashboard.ChartData
@@ -115,19 +108,11 @@ func (e *SeriesExtractor) Extract(
 			)
 		}
 
-		// 5. Resultado de la decodificación
-		e.logger.Info(
-			"componente decodificado",
-			"component_id", component.ID,
-			"series", len(chartData.Series),
-		)
-
 		// 6. Procesar series
 		for seriesIndex, serie := range chartData.Series {
 
 			e.logger.Info(
 				"serie encontrada",
-				"component_id", component.ID,
 				"series_index", seriesIndex,
 				"name", serie.Name,
 				"unit", serie.Unit,
