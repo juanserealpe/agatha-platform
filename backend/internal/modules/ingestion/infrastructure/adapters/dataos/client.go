@@ -72,7 +72,7 @@ func (c *Client) fetchDataOSData(ctx context.Context, measuringPointID int64, st
 			Start: start.Format("2006-01-02T15:04:05"),
 			End:   end.Format("2006-01-02T15:04:05"),
 		},
-		Timezone:         "UTC",
+		Timezone:         "America/Bogota",
 		MeasuringPointID: measuringPointID,
 	}
 	c.logger.Info("Request para DataOS", "Inicio", request.Period.Start, "Fin", request.Period.End, "Zona horaria", request.Timezone)

@@ -2,8 +2,6 @@ package mapping
 
 import "time"
 
-const dataOSTimeFormat = "2006-01-02T15:04:05"
-
 type TimestampParser struct {
 	location *time.Location
 }
@@ -15,9 +13,10 @@ func NewTimestampParser(location *time.Location) *TimestampParser {
 }
 
 func (p *TimestampParser) Parse(value string) (time.Time, error) {
-	return time.ParseInLocation(
-		dataOSTimeFormat,
-		value,
-		p.location,
-	)
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return t.In(p.location), nil
 }
