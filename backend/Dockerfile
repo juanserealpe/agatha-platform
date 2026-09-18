@@ -8,9 +8,11 @@ RUN go mod download
 
 COPY . .
 
+ARG APP
+
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -o scheduler \
-    ./cmd/scheduler
+    -o app \
+    ./cmd/${APP}
 
 FROM alpine:latest
 
@@ -18,6 +20,6 @@ WORKDIR /app
 
 RUN apk --no-cache add ca-certificates tzdata
 
-COPY --from=builder /app/scheduler .
+COPY --from=builder /app/app .
 
-CMD ["./scheduler"]
+CMD ["./app"]

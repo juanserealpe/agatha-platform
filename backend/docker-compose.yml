@@ -1,12 +1,32 @@
 services:
+
   scheduler:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP: scheduler
 
     container_name: agatha-scheduler
 
     env_file:
       - .env
+
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP: api
+
+    container_name: agatha-api
+
+    env_file:
+      - .env
+
+    ports:
+      - "8080:8080"
 
     restart: unless-stopped
