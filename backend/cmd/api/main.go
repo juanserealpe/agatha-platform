@@ -11,6 +11,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/services"
 	dashboardHTTP "github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/infrastructure/http"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/infrastructure/persistence/repositories"
+	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
 func main() {
@@ -36,9 +37,13 @@ func main() {
 	// 4. Repository
 	deviceRepository := repositories.NewDeviceRepository(db)
 
+	//5 LOGGER
+	logDashboard := logger.New("Dashboard", "Info")
+
 	// 5. Service
 	dashboardService := services.NewDashboardService(
 		deviceRepository,
+		logDashboard,
 	)
 
 	// 6. Handler

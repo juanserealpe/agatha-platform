@@ -60,15 +60,32 @@ func (s *IngestionScheduler) getNextRun(now time.Time) time.Time {
 
 func (s *IngestionScheduler) run(ctx context.Context, executionTime time.Time) {
 
-	end := executionTime.Add(-s.delay)
+	end := executionTime
 	start := end.Add(-s.interval)
 
-	s.logger.Info("iniciando ingesta programada", "start", start, "end", end, "execution_time", executionTime)
+	s.logger.Info(
+		"iniciando ingesta programada",
+		"start", start,
+		"end", end,
+		"execution_time", executionTime,
+	)
 
-	if err := s.service.IngestDataOs(ctx, s.measuringPointID, start, end); err != nil {
-		s.logger.Error("error durante la ingesta programada", "error", err)
+	if err := s.service.IngestDataOs(
+		ctx,
+		s.measuringPointID,
+		start,
+		end,
+	); err != nil {
+		s.logger.Error(
+			"error durante la ingesta programada",
+			"error", err,
+		)
 		return
 	}
 
-	s.logger.Info("ingesta programada completada correctamente", "start", start, "end", end)
+	s.logger.Info(
+		"ingesta programada completada correctamente",
+		"start", start,
+		"end", end,
+	)
 }
