@@ -24,8 +24,7 @@ func ToMetricDefinitionModel(
 	}
 }
 
-func ToMetricDefinitionEntity(
-	model *models.MetricDefinitionModel,
+func ToMetricDefinitionEntity(model *models.MetricDefinitionModel,
 ) *entities.MetricDefinition {
 
 	if model == nil {

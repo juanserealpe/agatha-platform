@@ -21,9 +21,7 @@ func NewMetricDefinitionRepository(db *gorm.DB) *MetricDefinitionRepository {
 	}
 }
 
-func (r *MetricDefinitionRepository) Save(
-	ctx context.Context,
-	entity entities.MetricDefinition,
+func (r *MetricDefinitionRepository) Save(ctx context.Context, entity entities.MetricDefinition,
 ) error {
 	model := mappers.ToMetricDefinitionModel(&entity)
 
@@ -33,9 +31,7 @@ func (r *MetricDefinitionRepository) Save(
 		Error
 }
 
-func (r *MetricDefinitionRepository) FindByID(
-	ctx context.Context,
-	id string,
+func (r *MetricDefinitionRepository) FindByID(ctx context.Context, id string,
 ) (*entities.MetricDefinition, error) {
 	var model models.MetricDefinitionModel
 
@@ -55,9 +51,7 @@ func (r *MetricDefinitionRepository) FindByID(
 	return mappers.ToMetricDefinitionEntity(&model), nil
 }
 
-func (r *MetricDefinitionRepository) ListByDevice(
-	ctx context.Context,
-	deviceID string,
+func (r *MetricDefinitionRepository) ListByDevice(ctx context.Context, deviceID string,
 ) ([]entities.MetricDefinition, error) {
 
 	var modelsList []models.MetricDefinitionModel
@@ -92,9 +86,7 @@ func (r *MetricDefinitionRepository) ListByDevice(
 	return result, nil
 }
 
-func (r *MetricDefinitionRepository) FindByKey(
-	ctx context.Context,
-	key string,
+func (r *MetricDefinitionRepository) FindByKey(ctx context.Context, key string,
 ) (*entities.MetricDefinition, error) {
 
 	var model models.MetricDefinitionModel

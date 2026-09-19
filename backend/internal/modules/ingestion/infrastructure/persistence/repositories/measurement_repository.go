@@ -2,36 +2,32 @@ package repositories
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/mappers"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/models"
+	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
 type MeasurementRepository struct {
-	db *gorm.DB
+	db     *gorm.DB
+	logger *logger.Logger
 }
 
-func NewMeasurementRepository(
-	db *gorm.DB,
+func NewMeasurementRepository(db *gorm.DB,
+	logger *logger.Logger,
 ) *MeasurementRepository {
 	return &MeasurementRepository{
-		db: db,
+		db:     db,
+		logger: logger,
 	}
 }
 
-func (r *MeasurementRepository) Save(
-	ctx context.Context,
-	entity entities.RawMeasurement,
+func (r *MeasurementRepository) Save(ctx context.Context, entity entities.RawMeasurement,
 ) error {
 	model := mappers.ToRawMeasurementModel(&entity)
-
-	fmt.Println("GUARDANDO DATOS MEASUREMENT, fecha: ", model.Timestamp,
-		" valor: ", model.Value,
-		" measuringPoint: ", model.MeasuringPointID)
 
 	if model == nil {
 		return nil
@@ -49,12 +45,11 @@ func (r *MeasurementRepository) Save(
 	return nil
 }
 
-func (r *MeasurementRepository) SaveBatch(
-	ctx context.Context,
-	entitiesList []entities.RawMeasurement,
+func (r *MeasurementRepository) SaveBatch(ctx context.Context, entitiesList []entities.RawMeasurement,
 ) error {
-
+	r.logger.Info("[SAVE BATCH] Iniciando proceso de guardado de mediciones en la base de datos", "cantidad", len(entitiesList))
 	if len(entitiesList) == 0 {
+		r.logger.Warn("[SAVE BATCH] No hay mediciones para guardar en la base de datos")
 		return nil
 	}
 
@@ -63,17 +58,11 @@ func (r *MeasurementRepository) SaveBatch(
 		0,
 		len(entitiesList),
 	)
-
+	r.logger.Info("[SAVE BATCH] iniciando el MAPPER")
 	for i := range entitiesList {
-
 		model := mappers.ToRawMeasurementModel(
 			&entitiesList[i],
 		)
-
-		fmt.Println("GUARDANDO DATOS MEASUREMENT, fecha: ", model.Timestamp,
-			" valor: ", model.Value,
-			" measuringPoint: ", model.MeasuringPointID)
-
 		if model != nil {
 			modelsList = append(
 				modelsList,
@@ -81,8 +70,9 @@ func (r *MeasurementRepository) SaveBatch(
 			)
 		}
 	}
-
+	r.logger.Info("[SAVE BATCH] finalizó el MAPPER", "cantidad", len(modelsList))
 	if len(modelsList) == 0 {
+		r.logger.Warn("[SAVE BATCH] No hay modelos para guardar en la base de datos")
 		return nil
 	}
 	err := r.db.
@@ -91,6 +81,7 @@ func (r *MeasurementRepository) SaveBatch(
 		Error
 
 	if err != nil {
+		r.logger.Error("[SAVE BATCH] Error al guardar las mediciones en la base de datos", "error", err)
 		return err
 	}
 

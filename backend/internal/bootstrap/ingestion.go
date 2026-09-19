@@ -10,10 +10,10 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/juanserealpe/agatha-platform/backend/database"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/services"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/auth"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/dashboard"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/mapping"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/auth"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/dashboard"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/mapping"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/models"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/repositories"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -130,7 +130,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 	// Unit of Work
 	// ---------------------------------------------------------
 
-	unitOfWork := repositories.NewUnitOfWork(db)
+	unitOfWork := repositories.NewUnitOfWork(db, logIngestion)
 
 	// ---------------------------------------------------------
 	// Ingestion Service

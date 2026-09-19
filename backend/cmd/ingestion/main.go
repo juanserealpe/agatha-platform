@@ -8,7 +8,6 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/bootstrap"
 )
 
-// test 2
 func main() {
 	app, err := bootstrap.NewIngestionApplication()
 	if err != nil {

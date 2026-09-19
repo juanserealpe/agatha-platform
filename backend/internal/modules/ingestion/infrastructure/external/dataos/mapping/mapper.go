@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/adapters/dataos/dashboard"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/dashboard"
 )
 
 var metricIDMap = map[string]uint64{
@@ -50,6 +50,7 @@ func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series,
 
 	metricID, ok := metricIDMap[series.Name]
 	if !ok {
+		fmt.Errorf("no se encontró un ID de métrica para la serie %q", series.Name)
 		return nil, nil
 	}
 
@@ -59,7 +60,12 @@ func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series,
 
 		timestamp, err := m.timestampParser.Parse(point.Timestamp)
 		if err != nil {
-			return nil, fmt.Errorf("parse timestamp %q for metric %q: %w", point.Timestamp, series.Name, err)
+			return nil, fmt.Errorf(
+				"parse timestamp %q for metric %q: %w",
+				point.Timestamp,
+				series.Name,
+				err,
+			)
 		}
 
 		measurement := entities.RawMeasurement{
