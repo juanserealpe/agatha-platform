@@ -36,18 +36,25 @@ func main() {
 
 	// 4. Repository
 	deviceRepository := repositories.NewDeviceRepository(db)
+	measurementRepository := repositories.NewMeasurementRepository(db)
 
 	//5 LOGGER
 	logDashboard := logger.New("Dashboard", "Info")
 
 	// 5. Service
+
 	dashboardService := services.NewDashboardService(
 		deviceRepository,
 		logDashboard,
+		measurementRepository,
 	)
 
 	// 6. Handler
 	deviceHandler := dashboardHTTP.NewDeviceHandler(
+		dashboardService,
+	)
+
+	measurementHandler := dashboardHTTP.NewMeasurementHandler(
 		dashboardService,
 	)
 
@@ -57,6 +64,11 @@ func main() {
 	mux.HandleFunc(
 		"GET /api/dashboard/devices",
 		deviceHandler.GetAllDevices,
+	)
+
+	mux.HandleFunc(
+		"GET /api/dashboard/measurements",
+		measurementHandler.GetMeasurements,
 	)
 
 	// 8. Levantar servidor
