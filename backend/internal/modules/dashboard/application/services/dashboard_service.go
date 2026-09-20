@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/dtos"
@@ -11,26 +12,25 @@ import (
 
 type DashboardService struct {
 	deviceRepository      repositories.DeviceRepository
-	dashboardLogger       *logger.Logger
 	measurementRepository repositories.MeasurementRepository
+	dashboardLogger       *logger.Logger
 }
 
 func NewDashboardService(
 	deviceRepository repositories.DeviceRepository,
-	dashboardLogger *logger.Logger,
 	measurementRepository repositories.MeasurementRepository,
+	dashboardLogger *logger.Logger,
 ) *DashboardService {
 	return &DashboardService{
 		deviceRepository:      deviceRepository,
-		dashboardLogger:       dashboardLogger,
 		measurementRepository: measurementRepository,
+		dashboardLogger:       dashboardLogger,
 	}
 }
 
-func (s *DashboardService) GetAllDevices(
-	ctx context.Context,
+func (s *DashboardService) GetAllDevices(ctx context.Context,
 ) ([]dtos.DeviceResponse, error) {
-
+	s.dashboardLogger.Info("[DashboardService] Obteniendo todos los dispositivos")
 	devices, err := s.deviceRepository.GetAllDeviceSummaries(ctx)
 	if err != nil {
 		return nil, err
@@ -45,20 +45,25 @@ func (s *DashboardService) GetAllDevices(
 			LastConnection:   device.LastConnection,
 			LastBatteryLevel: device.LastBatteryLevel,
 		})
-		s.dashboardLogger.Info("dispositivo obtenido", "device_id", device.ID, "device_name", device.Name,
-			"last_connection", device.LastConnection, "last_battery_level", device.LastBatteryLevel)
+		s.dashboardLogger.Info("[DashboardService] Dispositivo recibido: ID=%d, Name=%s", device.ID, device.Name)
 	}
-
+	s.dashboardLogger.Info("[DashboardService] Total de dispositivos obtenidos: %d", len(response))
 	return response, nil
 }
 
-func (s *DashboardService) GetMeasurements(
-	ctx context.Context,
-	deviceID int64,
-	startDate time.Time,
-	endDate time.Time,
+func (s *DashboardService) GetMeasurements(ctx context.Context, deviceID int64, startDate time.Time, endDate time.Time,
 ) (*dtos.MeasurementsResponse, error) {
 
+	existDeviceResponse, err := s.deviceRepository.ExistsDevice(ctx, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("error checking device existence: %w", err)
+	}
+
+	if !existDeviceResponse {
+		return nil, fmt.Errorf("device with ID %d does not exist", deviceID)
+	}
+
+	s.dashboardLogger.Info("[DashboardService] Obteniendo mediciones para el dispositivo ID=%d desde %s hasta %s", deviceID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
 	measurements, err := s.measurementRepository.GetMeasurements(
 		ctx,
 		deviceID,

@@ -8,10 +8,6 @@ import (
 )
 
 type MeasurementRepository interface {
-	GetMeasurements(
-		ctx context.Context,
-		deviceID int64,
-		startDate time.Time,
-		endDate time.Time,
+	GetMeasurements(ctx context.Context, deviceID int64, startDate time.Time, endDate time.Time,
 	) ([]entities.RawMeasurement, error)
 }

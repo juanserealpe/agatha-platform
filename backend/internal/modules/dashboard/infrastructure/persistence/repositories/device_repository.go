@@ -69,3 +69,17 @@ func (r *DeviceRepository) GetAllDeviceSummaries(
 
 	return result, nil
 }
+
+func (r *DeviceRepository) ExistsDevice(ctx context.Context, deviceID int64) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Table("devices").
+		Where("id = ?", deviceID).
+		Count(&count).Error
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
