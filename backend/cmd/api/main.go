@@ -45,8 +45,8 @@ func main() {
 
 	dashboardService := services.NewDashboardService(
 		deviceRepository,
-		logDashboard,
 		measurementRepository,
+		logDashboard,
 	)
 
 	// 6. Handler

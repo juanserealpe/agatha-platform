@@ -124,7 +124,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 	// ---------------------------------------------------------
 
 	processingService := services.NewProcessingService(logIngestion)
-	ingestionValidator := services.NewIngestionValidator(deviceRepository, logIngestion)
+	ingestionValidator := services.NewIngestionValidator(logIngestion)
 
 	// ---------------------------------------------------------
 	// Unit of Work
@@ -139,6 +139,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 	ingestService := services.NewIngestService(
 		dataOSClient,
 		ingestionStateRepository,
+		deviceRepository,
 		processingService,
 		unitOfWork,
 		logIngestion,
