@@ -5,12 +5,15 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func NewPostgres(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(
 		postgres.Open(dsn),
-		&gorm.Config{},
+		&gorm.Config{
+			Logger: logger.Default.LogMode(logger.Error),
+		},
 	)
 
 	if err != nil {

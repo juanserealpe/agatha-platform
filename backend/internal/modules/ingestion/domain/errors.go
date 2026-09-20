@@ -3,42 +3,33 @@ package domain
 import "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 
 var (
-
 	ErrBeforeInitialDate = &errors.AppError{
-		Code:    CodeBeforeInitialDate,
+		Code:    errors.CodeBeforeInitialDate,
 		Message: "la fecha solicitada es anterior a la fecha inicial de ingesta",
 	}
 
 	ErrAlreadyIngested = &errors.AppError{
-		Code:    CodeAlreadyIngested,
+		Code:    errors.CodeAlreadyIngested,
 		Message: "el rango solicitado ya fue ingerido",
 	}
 
 	ErrInvalidMeasuringPointID = &errors.AppError{
-		Code:    CodeInvalidMeasuringPointID,
+		Code:    errors.CodeInvalidMeasuringPointID,
 		Message: "el punto de medición no es válido",
 	}
 
 	ErrConsultingLastState = &errors.AppError{
-		Code:    CodeConsultingLastState,
+		Code:    errors.CodeConsultingLastState,
 		Message: "error consultando el último estado de ingesta",
 	}
 
 	ErrGettingIngestedDataInDataOS = &errors.AppError{
-		Code:    CodeGettingIngestedData,
+		Code:    errors.CodeGettingIngestedData,
 		Message: "error consultando los datos desde DataOS",
 	}
 
 	ErrRecivingIngestedData = &errors.AppError{
-		Code:    CodeGettingIngestedData,
+		Code:    errors.CodeGettingIngestedData,
 		Message: "No se recibieron mediciones desde DataOS para el rango solicitado",
 	}
-)
-
-const (
-	CodeAlreadyIngested         errors.ErrorCode = "ALREADY_INGESTED"
-	CodeBeforeInitialDate       errors.ErrorCode = "BEFORE_INITIAL_DATE"
-	CodeInvalidMeasuringPointID errors.ErrorCode = "INVALID_MEASURING_POINT_ID"
-	CodeConsultingLastState     errors.ErrorCode = "CONSULTING_LAST_STATE"
-	CodeGettingIngestedData     errors.ErrorCode = "GETTING_INGESTED_DATA"
 )

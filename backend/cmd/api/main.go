@@ -55,10 +55,12 @@ func main() {
 	// 6. Handler
 	deviceHandler := dashboardHTTP.NewDeviceHandler(
 		dashboardService,
+		logDashboard,
 	)
 
 	measurementHandler := dashboardHTTP.NewMeasurementHandler(
 		dashboardService,
+		logDashboard,
 	)
 
 	// 7. Router

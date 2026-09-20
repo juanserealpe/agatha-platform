@@ -1,170 +1,63 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
+
+	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
+	sharedhttp "github.com/juanserealpe/agatha-platform/backend/internal/shared/http"
+	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/services"
 )
 
 type MeasurementHandler struct {
 	dashboardService *services.DashboardService
+	dashboardLogger  *logger.Logger
 }
 
-func NewMeasurementHandler(
-	dashboardService *services.DashboardService,
-) *MeasurementHandler {
-
+func NewMeasurementHandler(dashboardService *services.DashboardService,
+	dashboardLogger *logger.Logger) *MeasurementHandler {
 	return &MeasurementHandler{
 		dashboardService: dashboardService,
+		dashboardLogger:  dashboardLogger,
 	}
 }
 
-func (h *MeasurementHandler) GetMeasurements(
-	w http.ResponseWriter,
-	r *http.Request,
-) {
+func (h *MeasurementHandler) GetMeasurements(w http.ResponseWriter, r *http.Request) {
 
-	// ==========================================
-	// 1. Obtener deviceId
-	// ==========================================
+	h.dashboardLogger.Info("[ENDPOINT/MEASUREMENT] GET - Iniciando procesamiento de solicitud")
 
-	deviceIDParam := r.URL.Query().Get("deviceId")
+	query := r.URL.Query()
 
-	if deviceIDParam == "" {
-		http.Error(
-			w,
-			"deviceId is required",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
-	deviceID, err := strconv.ParseInt(
-		deviceIDParam,
-		10,
-		64,
-	)
-
-	if err != nil || deviceID <= 0 {
-		http.Error(
-			w,
-			"deviceId must be a valid positive integer",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
-	// ==========================================
-	// 2. Obtener startDate
-	// ==========================================
-
-	startDateParam := r.URL.Query().Get("startDate")
-
-	if startDateParam == "" {
-		http.Error(
-			w,
-			"startDate is required",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
-	startDate, err := time.Parse(
-		time.RFC3339,
-		startDateParam,
-	)
-
+	deviceID, err := strconv.ParseInt(query.Get("deviceId"), 10, 64)
 	if err != nil {
-		http.Error(
-			w,
-			"startDate must be a valid RFC3339 date",
-			http.StatusBadRequest,
-		)
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al parsear deviceId")
+		sharedhttp.HandleError(w, appErrors.ErrInvalidDate)
 		return
 	}
 
-	// ==========================================
-	// 3. Obtener endDate
-	// ==========================================
-
-	endDateParam := r.URL.Query().Get("endDate")
-
-	if endDateParam == "" {
-		http.Error(
-			w,
-			"endDate is required",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
-	endDate, err := time.Parse(
-		time.RFC3339,
-		endDateParam,
-	)
-
+	startDate, err := time.Parse(time.RFC3339, query.Get("startDate"))
 	if err != nil {
-		http.Error(
-			w,
-			"endDate must be a valid RFC3339 date",
-			http.StatusBadRequest,
-		)
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al parsear startDate")
+		sharedhttp.HandleError(w, appErrors.ErrInvalidDate)
 		return
 	}
 
-	// ==========================================
-	// 4. Validar rango
-	// ==========================================
-
-	if !startDate.Before(endDate) {
-		http.Error(
-			w,
-			"startDate must be before endDate",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
-	// ==========================================
-	// 5. Consultar Service
-	// ==========================================
-
-	response, err := h.dashboardService.GetMeasurements(
-		r.Context(),
-		deviceID,
-		startDate,
-		endDate,
-	)
-
+	endDate, err := time.Parse(time.RFC3339, query.Get("endDate"))
 	if err != nil {
-		http.Error(
-			w,
-			"failed to get measurements",
-			http.StatusInternalServerError,
-		)
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al parsear endDate")
+		sharedhttp.HandleError(w, appErrors.ErrInvalidDate)
 		return
 	}
 
-	// ==========================================
-	// 6. Responder JSON
-	// ==========================================
-
-	w.Header().Set(
-		"Content-Type",
-		"application/json",
-	)
-
-	w.WriteHeader(http.StatusOK)
-
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(
-			w,
-			"failed to encode response",
-			http.StatusInternalServerError,
-		)
+	response, err := h.dashboardService.GetMeasurements(r.Context(), deviceID, startDate, endDate)
+	if err != nil {
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al obtener mediciones")
+		sharedhttp.HandleError(w, err)
 		return
 	}
+	h.dashboardLogger.Info("[ENDPOINT/MEASUREMENT] GET - Mediciones obtenidas correctamente")
+	sharedhttp.WriteJSON(w, http.StatusOK, response)
 }
