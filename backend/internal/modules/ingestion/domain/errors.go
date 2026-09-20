@@ -3,15 +3,6 @@ package domain
 import "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 
 var (
-	ErrInvalidRange = &errors.AppError{
-		Code:    errors.CodeInvalidInput,
-		Message: "rango de fechas inválido",
-	}
-
-	ErrFutureDate = &errors.AppError{
-		Code:    CodeFutureDate,
-		Message: "la fecha solicitada no puede ser futura",
-	}
 
 	ErrBeforeInitialDate = &errors.AppError{
 		Code:    CodeBeforeInitialDate,
@@ -46,7 +37,6 @@ var (
 
 const (
 	CodeAlreadyIngested         errors.ErrorCode = "ALREADY_INGESTED"
-	CodeFutureDate              errors.ErrorCode = "FUTURE_DATE"
 	CodeBeforeInitialDate       errors.ErrorCode = "BEFORE_INITIAL_DATE"
 	CodeInvalidMeasuringPointID errors.ErrorCode = "INVALID_MEASURING_POINT_ID"
 	CodeConsultingLastState     errors.ErrorCode = "CONSULTING_LAST_STATE"

@@ -43,9 +43,12 @@ func main() {
 
 	// 5. Service
 
+	dashboardValidator := services.NewDashboardValidator(logDashboard)
+
 	dashboardService := services.NewDashboardService(
 		deviceRepository,
 		measurementRepository,
+		dashboardValidator,
 		logDashboard,
 	)
 

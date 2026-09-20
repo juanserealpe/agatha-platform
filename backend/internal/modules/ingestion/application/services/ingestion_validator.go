@@ -3,7 +3,8 @@ package services
 import (
 	"time"
 
-	ingestionErrors "github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain"
+	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
+
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
@@ -21,15 +22,15 @@ func NewIngestionValidator(
 
 func (s *IngestionValidator) validateRange(start time.Time, end time.Time, now time.Time) error {
 	if start.IsZero() || end.IsZero() {
-		return ingestionErrors.ErrInvalidRange
+		return appErrors.ErrInvalidDate
 	}
 
 	if !start.Before(end) {
-		return ingestionErrors.ErrInvalidRange
+		return appErrors.ErrInvalidDate
 	}
 
 	if end.After(now) {
-		return ingestionErrors.ErrFutureDate
+		return appErrors.ErrInvalidDate
 	}
 	return nil
 }

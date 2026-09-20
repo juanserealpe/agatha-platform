@@ -2,28 +2,31 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/dtos"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain/repositories"
+	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
 type DashboardService struct {
 	deviceRepository      repositories.DeviceRepository
 	measurementRepository repositories.MeasurementRepository
+	dashboardValidator    *DashboardValidator
 	dashboardLogger       *logger.Logger
 }
 
 func NewDashboardService(
 	deviceRepository repositories.DeviceRepository,
 	measurementRepository repositories.MeasurementRepository,
+	dashboardValidator *DashboardValidator,
 	dashboardLogger *logger.Logger,
 ) *DashboardService {
 	return &DashboardService{
 		deviceRepository:      deviceRepository,
 		measurementRepository: measurementRepository,
+		dashboardValidator:    dashboardValidator,
 		dashboardLogger:       dashboardLogger,
 	}
 }
@@ -53,17 +56,49 @@ func (s *DashboardService) GetAllDevices(ctx context.Context,
 
 func (s *DashboardService) GetMeasurements(ctx context.Context, deviceID int64, startDate time.Time, endDate time.Time,
 ) (*dtos.MeasurementsResponse, error) {
+	err := s.dashboardValidator.ValidateDateRange(startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.dashboardValidator.ValidateFutureDate(startDate)
+	if err != nil {
+		return nil, err
+	}
 
 	existDeviceResponse, err := s.deviceRepository.ExistsDevice(ctx, deviceID)
+
 	if err != nil {
-		return nil, fmt.Errorf("error checking device existence: %w", err)
+		s.dashboardLogger.Error(
+			"[DashboardService] Error verificando existencia del dispositivo",
+			"device_id", deviceID,
+			"error", err,
+		)
+
+		return nil, err
 	}
 
 	if !existDeviceResponse {
-		return nil, fmt.Errorf("device with ID %d does not exist", deviceID)
+		s.dashboardLogger.Error(
+			"[DashboardService] Dispositivo no encontrado",
+			"device_id", deviceID,
+		)
+
+		return nil, appErrors.ErrDeviceNotFound
 	}
 
-	s.dashboardLogger.Info("[DashboardService] Obteniendo mediciones para el dispositivo ID=%d desde %s hasta %s", deviceID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
+	s.dashboardLogger.Info(
+		"[DashboardService] Dispositivo encontrado",
+		"device_id", deviceID,
+	)
+
+	s.dashboardLogger.Info(
+		"[DashboardService] Obteniendo mediciones para el dispositivo",
+		"device_id", deviceID,
+		"start_date", startDate.Format(time.RFC3339),
+		"end_date", endDate.Format(time.RFC3339),
+	)
+
 	measurements, err := s.measurementRepository.GetMeasurements(
 		ctx,
 		deviceID,
@@ -74,7 +109,6 @@ func (s *DashboardService) GetMeasurements(ctx context.Context, deviceID int64, 
 	if err != nil {
 		return nil, err
 	}
-
 	metrics := make(map[uint64]*dtos.MetricMeasurementsResponse)
 
 	for _, measurement := range measurements {

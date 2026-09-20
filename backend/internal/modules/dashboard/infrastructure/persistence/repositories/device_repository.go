@@ -6,7 +6,6 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/infrastructure/persistence/mappers"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/infrastructure/persistence/models"
-
 	"gorm.io/gorm"
 )
 
@@ -74,7 +73,7 @@ func (r *DeviceRepository) ExistsDevice(ctx context.Context, deviceID int64) (bo
 	var count int64
 	err := r.db.WithContext(ctx).
 		Table("devices").
-		Where("id = ?", deviceID).
+		Where("measuring_point_id = ?", deviceID).
 		Count(&count).Error
 
 	if err != nil {
