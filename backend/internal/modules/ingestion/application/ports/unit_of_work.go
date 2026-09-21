@@ -13,6 +13,7 @@ type IngestionUnitOfWork interface {
 			ctx context.Context,
 			measurementRepository repositories.MeasurementRepository,
 			ingestionStateRepository repositories.IngestionStateRepository,
+			ingestionGapRepository repositories.IngestionGapRepository,
 		) error,
 	) error
 }

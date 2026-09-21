@@ -26,7 +26,7 @@ func NewUnitOfWork(
 func (u *UnitOfWork) Execute(
 	ctx context.Context,
 	fn func(ctx context.Context, measurementRepository domainRepositories.MeasurementRepository,
-		ingestionStateRepository domainRepositories.IngestionStateRepository,
+		ingestionStateRepository domainRepositories.IngestionStateRepository, ingestionGapRepository domainRepositories.IngestionGapRepository,
 	) error,
 ) error {
 
@@ -35,8 +35,9 @@ func (u *UnitOfWork) Execute(
 
 			measurementRepository := NewMeasurementRepository(tx, u.logger)
 			ingestionStateRepository := NewIngestionStateRepository(tx)
+			ingestionGapRepository := NewGormIngestionGapRepository(tx)
 
-			return fn(ctx, measurementRepository, ingestionStateRepository)
+			return fn(ctx, measurementRepository, ingestionStateRepository, ingestionGapRepository)
 		},
 	)
 }

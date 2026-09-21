@@ -61,6 +61,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 		&models.MetricDefinitionModel{},
 		&models.RawMeasurementModel{},
 		&models.IngestionStateModel{},
+		&models.IngestionGapModel{},
 	); err != nil {
 		logDB.Error("falló la migración de la base de datos", "error", err)
 		return nil, err

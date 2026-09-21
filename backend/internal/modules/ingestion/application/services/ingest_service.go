@@ -113,7 +113,9 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 		ctx,
 		func(
 			ctx context.Context,
-			measurementRepository repositories.MeasurementRepository, ingestionStateRepository repositories.IngestionStateRepository,
+			measurementRepository repositories.MeasurementRepository,
+			ingestionStateRepository repositories.IngestionStateRepository,
+			ingestionGapRepository repositories.IngestionGapRepository,
 		) error {
 
 			// Guardar mediciones.
@@ -124,26 +126,54 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 				return fmt.Errorf("guardar mediciones: %w", err)
 			}
 
-			s.logger.Info("mediciones guardadas correctamente", "measuring_point_id", measuringPointID, "cantidad", len(processedMeasurements))
+			s.logger.Info(
+				"mediciones guardadas correctamente",
+				"measuring_point_id", measuringPointID,
+				"cantidad", len(processedMeasurements),
+			)
 
 			// Guardar estado.
-			if err := ingestionStateRepository.Save(ctx, state); err != nil {
+			if err := ingestionStateRepository.Save(
+				ctx,
+				state,
+			); err != nil {
 				return fmt.Errorf("guardar estado de ingesta: %w", err)
 			}
 
-			s.logger.Info("estado de ingesta guardado correctamente", "measuring_point_id", measuringPointID, "received_records",
-				state.ReceivedRecords, "last_ingested_at", state.LastIngestedAt)
+			s.logger.Info(
+				"estado de ingesta guardado correctamente",
+				"measuring_point_id", measuringPointID,
+				"received_records", state.ReceivedRecords,
+				"last_ingested_at", state.LastIngestedAt,
+			)
+
+			// Guardar/actualizar gap de ingesta.
+			// Aquí irá la lógica cuando tengamos el gap detectado.
+			// Por ahora no se persiste nada.
+
+			_ = ingestionGapRepository
 
 			return nil
 		},
 	)
 
 	if err != nil {
-		s.logger.Error("la transacción de ingesta falló y fue revertida", "measuring_point_id", measuringPointID, "error", err)
+		s.logger.Error(
+			"la transacción de ingesta falló y fue revertida",
+			"measuring_point_id", measuringPointID,
+			"error", err,
+		)
+
 		return fmt.Errorf("persistir ingesta: %w", err)
 	}
 
-	s.logger.Info("ingesta completada correctamente", "measuring_point_id", measuringPointID, "received_records", state.ReceivedRecords, "last_ingested_at", state.LastIngestedAt)
+	s.logger.Info(
+		"ingesta completada correctamente",
+		"measuring_point_id", measuringPointID,
+		"received_records", state.ReceivedRecords,
+		"last_ingested_at", state.LastIngestedAt,
+	)
+
 	return nil
 }
 

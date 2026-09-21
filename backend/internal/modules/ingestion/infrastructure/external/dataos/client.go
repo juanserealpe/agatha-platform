@@ -93,14 +93,6 @@ func (c *Client) fetchDataOSData(
 		MeasuringPointID: measuringPointID,
 	}
 
-	c.logger.Info(
-		"[FetchDataOsData] Request para DataOS",
-		"measuring_point_id", request.MeasuringPointID,
-		"start", request.Period.Start,
-		"end", request.Period.End,
-		"timezone", request.Timezone,
-	)
-
 	response, err := c.dashboardClient.Render(ctx, request)
 	if err != nil {
 		c.logger.Error(
@@ -138,13 +130,6 @@ func (c *Client) mapSeriesMethod(device *entities.Device, series []dashboard.Ser
 
 		c.logger.Info("[mapSeriesMethod] mapeando serie", "serie", serie.Name)
 		mapped, err := c.mapSeries.MapSeries(device, serie)
-
-		c.logger.Info(
-			"[mapSeriesMethod] resultado del mapeo",
-			"serie", serie.Name,
-			"data_points", len(serie.DataPoints),
-			"mediciones", len(mapped),
-		)
 
 		if err != nil {
 			c.logger.Error("[mapSeriesMethod] error al mapear serie", "serie", serie.Name, "device", device.MeasuringPointID, "error", err)
