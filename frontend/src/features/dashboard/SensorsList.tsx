@@ -21,7 +21,7 @@ export function SensorsList({ devices, onSensorClick, selectedDeviceId }: Sensor
             <div className="flex flex-col gap-2 overflow-y-auto">
                 {devices.map((device) => {
                     const status = getDeviceStatus(device.lastConnection);
-                    const battery = getBatteryVisual(device.lastBatteryLevel);
+                    const battery = getBatteryVisual(device.lastBatteryLevel ?? 0);
                     const isSelected = device.id === selectedDeviceId;
 
                     return (
@@ -38,13 +38,13 @@ export function SensorsList({ devices, onSensorClick, selectedDeviceId }: Sensor
                                 <p className="text-sm font-medium text-gray-900 truncate">{device.name}</p>
                                 <p className="text-xs text-gray-400">
                                     {DEVICE_STATUS_LABEL[status]} <br /> Última comunicación:{" "}
-                                    {new Date(device.lastConnection).toLocaleString()}
+                                    {device.lastConnection ? new Date(device.lastConnection).toLocaleString() : "Nunca"}
                                 </p>
                             </div>
 
                             <div className={`flex items-center gap-1 shrink-0 ${battery.colorClass}`}>
                                 <battery.Icon size={16} />
-                                <span className="font-data-mono text-xs">{device.lastBatteryLevel}%</span>
+                                <span className="font-data-mono text-xs">{device.lastBatteryLevel ?? "—"}%</span>
                             </div>
                         </button>
                     );
