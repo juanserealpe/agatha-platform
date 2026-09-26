@@ -5,6 +5,8 @@ import type { FiltersState, Sensor } from "@/services/types";
 import { AlertModal } from "@/features/alerts";
 import { AlertBanner } from "@/features/alerts";
 import { PipelineMap } from "@/features/map";
+import { useDevices } from "@/features/dashboard/hooks/useDevices";
+import type { Device } from "@/services/dashboard/dashboard.types";
 
 // TODO: reemplazar por datos reales desde el backend (REST API, sección 8 del documento)
 const GASODUCTOS_MOCK = [
@@ -59,12 +61,15 @@ function Placeholder({ label }: { label: string }) {
 function App() {
   //const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
   const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null); // para el panel real
   const [modalOpen, setModalOpen] = useState(false);
 
-  function handleSensorClick(sensor: Sensor) {
-    setSelectedSensor(sensor);
-    setModalOpen(true);
-  }
+  // function handleSensorClick(sensor: Sensor) {
+  //   setSelectedSensor(sensor);
+  //   setModalOpen(true);
+  // }
+
+  const { data: devices = [], isLoading, error } = useDevices();
 
   const [filters, setFilters] = useState<FiltersState>({
     gasoducto: "",
@@ -102,7 +107,17 @@ function App() {
           />
         }
         recentEvents={
-          <SensorsList sensores={SENSORES_MOCK} onSensorClick={setSelectedSensor} />
+          isLoading ? (
+            <Placeholder label="Cargando sensores..." />
+          ) : error ? (
+            <Placeholder label="Error al cargar sensores" />
+          ) : (
+            <SensorsList
+              devices={devices}
+              selectedDeviceId={selectedDevice?.id}
+              onSensorClick={setSelectedDevice}
+            />
+          )
         }
         telemetry={<Placeholder label="Telemetry accordions (features/telemetry)" />}
       />
