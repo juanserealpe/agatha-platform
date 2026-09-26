@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/mappers"
@@ -20,9 +21,7 @@ func NewIngestionStateRepository(db *gorm.DB) *IngestionStateRepository {
 	}
 }
 
-func (r *IngestionStateRepository) FindLatestByMeasuringPointID(
-	ctx context.Context,
-	measuringPointID int64,
+func (r *IngestionStateRepository) FindLatestByMeasuringPointID(ctx context.Context, measuringPointID int64,
 ) (*entities.IngestionState, error) {
 	var model models.IngestionStateModel
 
@@ -38,15 +37,14 @@ func (r *IngestionStateRepository) FindLatestByMeasuringPointID(
 			return nil, nil
 		}
 
+		fmt.Println("3.2 Error al obtener estado:", err)
+
 		return nil, err
 	}
-
 	return mappers.ToIngestionStateEntity(&model), nil
 }
 
-func (r *IngestionStateRepository) Save(
-	ctx context.Context,
-	state *entities.IngestionState,
+func (r *IngestionStateRepository) Save(ctx context.Context, state *entities.IngestionState,
 ) error {
 	model := mappers.ToIngestionStateModel(state)
 
@@ -56,9 +54,7 @@ func (r *IngestionStateRepository) Save(
 		Error
 }
 
-func (r *IngestionStateRepository) Update(
-	ctx context.Context,
-	state *entities.IngestionState,
+func (r *IngestionStateRepository) Update(ctx context.Context, state *entities.IngestionState,
 ) error {
 	model := mappers.ToIngestionStateModel(state)
 

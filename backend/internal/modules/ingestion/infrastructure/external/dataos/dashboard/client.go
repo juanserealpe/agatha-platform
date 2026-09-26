@@ -23,9 +23,7 @@ func NewClient(
 	}
 }
 
-func (c *Client) Render(
-	ctx context.Context,
-	request RenderRequest,
+func (c *Client) Render(ctx context.Context,request RenderRequest,
 ) (*RenderResponse, error) {
 
 	body, err := json.Marshal(request)

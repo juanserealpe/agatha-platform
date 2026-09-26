@@ -21,8 +21,7 @@ func ToRawMeasurementModel(
 	}
 }
 
-func ToRawMeasurementEntity(
-	model *models.RawMeasurementModel,
+func ToRawMeasurementEntity(model *models.RawMeasurementModel,
 ) *entities.RawMeasurement {
 	if model == nil {
 		return nil

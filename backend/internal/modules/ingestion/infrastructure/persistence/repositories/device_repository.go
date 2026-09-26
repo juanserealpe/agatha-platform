@@ -21,21 +21,13 @@ func NewDeviceRepository(db *gorm.DB) *DeviceRepository {
 	}
 }
 
-func (r *DeviceRepository) Save(
-	ctx context.Context,
-	entity entities.Device,
+func (r *DeviceRepository) Save(ctx context.Context, entity entities.Device,
 ) error {
 	model := mappers.ToDeviceModel(&entity)
-
-	return r.db.
-		WithContext(ctx).
-		Create(model).
-		Error
+	return r.db.WithContext(ctx).Create(model).Error
 }
 
-func (r *DeviceRepository) FindByMeasuringPointID(
-	ctx context.Context,
-	measuringPointID int64,
+func (r *DeviceRepository) FindByMeasuringPointID(ctx context.Context, measuringPointID int64,
 ) (*entities.Device, error) {
 
 	var model models.DeviceModel
@@ -57,8 +49,7 @@ func (r *DeviceRepository) FindByMeasuringPointID(
 	return mappers.ToDeviceEntity(&model), nil
 }
 
-func (r *DeviceRepository) List(
-	ctx context.Context,
+func (r *DeviceRepository) List(ctx context.Context,
 ) ([]entities.Device, error) {
 
 	var modelsList []models.DeviceModel

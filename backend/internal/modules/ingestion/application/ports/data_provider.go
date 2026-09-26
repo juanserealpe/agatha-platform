@@ -8,14 +8,6 @@ import (
 )
 
 type DataProvider interface {
-	GetMeasurements(
-		ctx context.Context,
-		Device *entities.Device,
-		start time.Time,
-		end time.Time,
+	GetMeasurements(ctx context.Context, Device *entities.Device, start time.Time, end time.Time,
 	) ([]entities.RawMeasurement, error)
-
-	
 }
-
-

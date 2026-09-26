@@ -8,17 +8,6 @@ import (
 )
 
 type MeasurementRepository interface {
-	Save(ctx context.Context, measurement entities.RawMeasurement) error
-
-	SaveBatch(
-		ctx context.Context,
-		measurements []entities.RawMeasurement,
-	) error
-
-	Exists(
-		ctx context.Context,
-		deviceID string,
-		metricID string,
-		timestamp time.Time,
-	) (bool, error)
+	GetMeasurements(ctx context.Context, deviceID int64, startDate time.Time, endDate time.Time,
+	) ([]entities.RawMeasurement, error)
 }
