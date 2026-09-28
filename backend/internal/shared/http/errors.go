@@ -15,8 +15,10 @@ var errorStatus = map[appErrors.ErrorCode]int{
 	appErrors.CodeBeforeInitialDate:       http.StatusBadRequest,
 	appErrors.CodeInvalidMeasuringPointID: http.StatusBadRequest,
 
-	appErrors.CodeConsultingLastState: http.StatusInternalServerError,
-	appErrors.CodeGettingIngestedData: http.StatusBadGateway,
+	appErrors.CodeConsultingLastState:    http.StatusInternalServerError,
+	appErrors.CodeGettingIngestedData:    http.StatusBadGateway,
+	appErrors.CodeConsultingDevices:      http.StatusInternalServerError,
+	appErrors.CodeConsultingMeasurements: http.StatusInternalServerError,
 }
 
 func HandleError(w http.ResponseWriter, err error) {

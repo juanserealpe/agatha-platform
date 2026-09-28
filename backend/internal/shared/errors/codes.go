@@ -11,4 +11,6 @@ const (
 	CodeInvalidMeasuringPointID ErrorCode = "INVALID_MEASURING_POINT_ID"
 	CodeConsultingLastState     ErrorCode = "CONSULTING_LAST_STATE"
 	CodeGettingIngestedData     ErrorCode = "GETTING_INGESTED_DATA"
+	CodeConsultingDevices       ErrorCode = "CONSULTING_DEVICES"
+	CodeConsultingMeasurements  ErrorCode = "CONSULTING_MEASUREMENTS"
 )
