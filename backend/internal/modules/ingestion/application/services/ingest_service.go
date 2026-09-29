@@ -51,17 +51,20 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	// 1. Obtener dispositivo.
 	device, err := s.deviceRepository.FindByMeasuringPointID(ctx, measuringPointID)
 	if device == nil {
+		s.logger.Error("[IngestDataOs] no se encontró un dispositivo asociado al punto de medición", "measuring_point_id", measuringPointID)
 		return appErrors.ErrDeviceNotFound
 	}
 
 	// 2. Validar rango solicitado.
 	if err := s.ingestionValidator.validateRange(start, end, now); err != nil {
+		s.logger.Error("[IngestDataOs] rango de fechas inválido", "measuring_point_id", measuringPointID, "start", start, "end", end, "now", now, "error", err)
 		return err
 	}
 
 	// 3. Buscar el último estado de ingesta.
 	lastState, err := s.ingestStateRepository.FindLatestByMeasuringPointID(ctx, measuringPointID)
 	if err != nil {
+		s.logger.Error("[IngestDataOs] error consultando el último estado de ingesta", "measuring_point_id", measuringPointID, "error", err)
 		return ingestionErrors.ErrConsultingLastState
 	}
 

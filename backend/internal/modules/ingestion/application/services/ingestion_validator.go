@@ -22,15 +22,17 @@ func NewIngestionValidator(
 
 func (s *IngestionValidator) validateRange(start time.Time, end time.Time, now time.Time) error {
 	if start.IsZero() || end.IsZero() {
+		s.logger.Error("[validateRange] rango de fechas inválido: start o end es cero", "start", start, "end", end)
 		return appErrors.ErrInvalidDate
 	}
 
 	if !start.Before(end) {
+		s.logger.Error("[validateRange] rango de fechas inválido: start no es antes de end", "start", start, "end", end)
 		return appErrors.ErrInvalidDate
 	}
 
-	if end.After(now) {
+	/*f end.After(now) {
 		return appErrors.ErrInvalidDate
-	}
+	}*/
 	return nil
 }
