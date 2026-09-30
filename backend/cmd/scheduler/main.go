@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/bootstrap"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/scheduler"
 )
 
 func main() {
@@ -15,22 +16,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	location, err := time.LoadLocation("America/Bogota")
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := app.Close(shutdownCtx); err != nil {
+			app.Logger.Error("el bus de eventos no terminó de drenar antes del cierre", "error", err)
+		}
+	}()
+
+	ingestionScheduler, err := app.NewScheduler()
 	if err != nil {
-		app.Logger.Error("no fue posible cargar la zona horaria de Colombia", "error", err)
+		app.Logger.Error("no fue posible crear el scheduler de ingesta", "error", err)
 		os.Exit(1)
 	}
 
-	ingestionScheduler := scheduler.NewIngestionScheduler(
-		app.IngestService,
-		app.Logger,
-		11556,
-		15*time.Minute,
-		location,
-		50*time.Second,
-	)
-
-	ctx := context.Background()
+	// SIGINT/SIGTERM detienen el scheduler para que el bus drene en el defer.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	app.Logger.Info("aplicación de ingesta iniciada")
 

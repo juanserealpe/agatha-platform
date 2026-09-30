@@ -1,85 +1,36 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/joho/godotenv"
-
-	"github.com/juanserealpe/agatha-platform/backend/database"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/services"
-	dashboardHTTP "github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/infrastructure/http"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/infrastructure/persistence/repositories"
+	"github.com/juanserealpe/agatha-platform/backend/internal/bootstrap"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
+const httpAddr = ":8080"
+
 func main() {
+	log := logger.New("Api", "Info")
 
-	// 1. Cargar .env
-	if err := godotenv.Load(); err != nil {
-		fmt.Println("No se encontró archivo .env")
-	}
-
-	// 2. Obtener conexión
-	dsn := os.Getenv("DATABASE_URL")
-
-	if dsn == "" {
-		panic("DATABASE_URL no está configurada")
-	}
-
-	// 3. Crear DB
-	db, err := database.NewPostgres(dsn)
+	platform, err := bootstrap.NewPlatform()
 	if err != nil {
-		panic(err)
+		os.Exit(1)
 	}
 
-	// 4. Repository
-	deviceRepository := repositories.NewDeviceRepository(db)
-	measurementRepository := repositories.NewMeasurementRepository(db)
-
-	//5 LOGGER
-	logDashboard := logger.New("Dashboard", "Info")
-
-	// 5. Service
-
-	dashboardValidator := services.NewDashboardValidator(logDashboard)
-
-	dashboardService := services.NewDashboardService(
-		deviceRepository,
-		measurementRepository,
-		dashboardValidator,
-		logDashboard,
-	)
-
-	// 6. Handler
-	deviceHandler := dashboardHTTP.NewDeviceHandler(
-		dashboardService,
-		logDashboard,
-	)
-
-	measurementHandler := dashboardHTTP.NewMeasurementHandler(
-		dashboardService,
-		logDashboard,
-	)
-
-	// 7. Router
 	mux := http.NewServeMux()
+	bootstrap.NewDashboardModule(platform).RegisterRoutes(mux)
 
-	mux.HandleFunc(
-		"GET /api/dashboard/devices",
-		deviceHandler.GetAllDevices,
-	)
+	server := &http.Server{
+		Addr:              httpAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
-	mux.HandleFunc(
-		"GET /api/dashboard/measurements",
-		measurementHandler.GetMeasurements,
-	)
-
-	// 8. Levantar servidor
-	fmt.Println("Servidor iniciado en http://localhost:8080")
-	err = http.ListenAndServe(":8080", mux)
-	if err != nil {
-		panic(err)
+	log.Info("servidor HTTP iniciado", "addr", httpAddr)
+	if err := server.ListenAndServe(); err != nil {
+		log.Error("el servidor HTTP terminó con error", "error", err)
+		os.Exit(1)
 	}
 }

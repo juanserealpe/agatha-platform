@@ -56,3 +56,29 @@ Métodos: `Info(msg, kv...)`, `Warn(msg, kv...)`, `Error(msg, kv...)`. Timezone 
 log := logger.New("ingestion", "INFO")
 log.Error("falló extracción", "deviceID", id, "err", err)
 ```
+
+## 4. Event Bus (`shared/eventbus`)
+
+Bus de eventos en memoria para comunicar módulos **sin importarse entre sí**. `Publish` nunca bloquea ni falla; cada suscripción tiene su cola acotada y un worker FIFO. Semántica best-effort: los eventos son **pistas**, la BD es la fuente de verdad.
+
+| Elemento | Firma / Uso |
+|---|---|
+| Crear | `eventbus.NewInMemory(log, opts...)` — solo en `internal/bootstrap` |
+| Publicar | `eventbus.PublishTyped(ctx, bus, topic, event)` |
+| Suscribir | `eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("<consumidor>.<evento>"))` |
+| Cerrar | `bus.Close(ctx)` — drena hasta el deadline de `ctx` |
+
+**Reglas clave** (detalle, recetas y catálogo de eventos en [`eventbus/README.md`](eventbus/README.md)):
+
+- El evento y su tópico viven en `modules/<publicador>/contract/` (solo stdlib).
+- El consumidor **no** importa al publicador: define su propio tipo y `internal/bootstrap` traduce.
+- `domain`/`application` no importan `shared/eventbus`; se publica vía port `EventPublisher`.
+- Publicar **después del commit**; un error de publicación se loguea y nunca falla la operación.
+
+```go
+// internal/bootstrap
+bus := eventbus.NewInMemory(logger.New("EventBus", "Info"))
+publisher := events.NewBusEventPublisher(bus) // adaptador del módulo publicador
+registerProcessingSubscribers(bus, logger.New("Processing", "Info"))
+defer bus.Close(shutdownCtx)
+```

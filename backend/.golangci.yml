@@ -1,0 +1,44 @@
+version: "2"
+
+# Solo reglas de arquitectura (imports). Los demás linters quedan apagados para
+# no cambiar el comportamiento actual del repo.
+linters:
+  default: none
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        # shared/eventbus: solo stdlib y shared/logger.
+        eventbus:
+          list-mode: strict
+          files:
+            - "**/internal/shared/eventbus/**"
+          allow:
+            - $gostd
+            - github.com/juanserealpe/agatha-platform/backend/internal/shared/logger
+            - github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+        # Ingestion: domain y application no conocen el bus (solo infrastructure/events y el composition root).
+        ingestion-core-no-eventbus:
+          list-mode: lax
+          files:
+            - "**/internal/modules/ingestion/domain/**"
+            - "**/internal/modules/ingestion/application/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "domain/application no importan el bus; usar el port EventPublisher"
+        # Contrato público de Ingestion: solo stdlib (lo importan otros módulos).
+        ingestion-contract-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/modules/ingestion/contract/**"
+          allow:
+            - $gostd
+        # Processing no conoce a Ingestion: el composition root traduce los eventos.
+        processing-no-ingestion:
+          list-mode: lax
+          files:
+            - "**/internal/modules/processing/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "processing no importa ingestion (ni su contract); la traducción vive en bootstrap"

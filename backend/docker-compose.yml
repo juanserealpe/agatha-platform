@@ -1,32 +1,25 @@
 services:
 
-  scheduler:
+  # Monolito completo: Ingestion (scheduler) + Processing (bus en memoria) + Dashboard (API).
+  # Un único servicio: el bus de eventos es en proceso y no cruza contenedores.
+  platform:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        APP: scheduler
+        APP: platform
 
-    container_name: agatha-scheduler
+    image: agatha-platform:latest
 
-    env_file:
-      - .env
-
-    restart: unless-stopped
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP: api
-
-    container_name: agatha-api
+    container_name: agatha-platform
 
     env_file:
       - .env
 
     ports:
       - "8080:8080"
+
+    # Deja tiempo al apagado ordenado (servidor, scheduler y drenado del bus: 10 s).
+    stop_grace_period: 15s
 
     restart: unless-stopped

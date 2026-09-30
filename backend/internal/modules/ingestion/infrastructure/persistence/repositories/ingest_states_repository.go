@@ -45,13 +45,21 @@ func (r *IngestionStateRepository) FindLatestByMeasuringPointID(ctx context.Cont
 }
 
 func (r *IngestionStateRepository) Save(ctx context.Context, state *entities.IngestionState,
-) error {
+) (entities.SaveStateResult, error) {
 	model := mappers.ToIngestionStateModel(state)
 
-	return r.db.
-		WithContext(ctx).
-		Create(model).
-		Error
+	if err := r.db.WithContext(ctx).Create(model).Error; err != nil {
+		return entities.SaveStateResult{}, err
+	}
+
+	// ingestion_logs es append-only (una fila por lote): el id autoincremental
+	// asignado dentro de la transacción es el cursor monótono del lote.
+	result := entities.SaveStateResult{BatchSeq: int64(model.ID)}
+	if model.LastIngestedAt != nil {
+		result.LastIngestedAt = *model.LastIngestedAt
+	}
+
+	return result, nil
 }
 
 func (r *IngestionStateRepository) Update(ctx context.Context, state *entities.IngestionState,
