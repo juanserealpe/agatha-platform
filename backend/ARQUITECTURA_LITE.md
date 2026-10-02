@@ -43,7 +43,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 
 | Tópico | Publicador | Consumidores |
 |---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Processing (log) |
+| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Processing (lee la última ingesta del punto y la registra en log) |
 
 ## Errors (`shared/errors`)
 
@@ -140,13 +140,15 @@ var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no
 
 **Responsabilidad**: Reaccionar a los lotes de mediciones ingeridos. Detalle en `modules/processing/README.MD`.
 
-**Estado actual**: solo consume `ingestion.measurements_ingested` y registra la recepción en log. No lee ni escribe BD.
+**Estado actual**: consume `ingestion.measurements_ingested` y lee de la BD (solo lectura) la última fecha ingerida del punto de medición con todas sus variables; el resultado solo se registra en log. No escribe BD.
 
 | Trigger | Accion | Componente |
 |---|---|---|
-| Evento `ingestion.measurements_ingested` | Log `"evento de mediciones ingeridas recibido"` | `infrastructure/events.MeasurementsIngestedSubscriber.Handle(ctx, MeasurementsIngestedNotice)` |
+| Evento `ingestion.measurements_ingested` | Lee `MAX(timestamp)` de `raw_measurements` del punto + variables de esa fecha (JOIN `metric_definitions`) → log | `MeasurementsIngestedSubscriber.Handle` → `LatestIngestionService.GetLatestIngestion` → `MeasurementRepository.GetLatestMeasurements` |
 
-**Aislamiento**: Processing NO importa `modules/ingestion/...`. `internal/bootstrap/processing.go` traduce `contract.MeasurementsIngested` → `MeasurementsIngestedNotice` y registra la suscripción `processing.measurements_ingested`.
+**Errores**: `processing/domain/errors.go` (`ErrInvalidMeasuringPointID`, `ErrConsultingLatestMeasurements`, `ErrLatestMeasurementsNotFound`) reutilizando códigos de `shared/errors`. Al no haber HTTP, el subscriber registra el `AppError` (`code` + mensaje) en log y no reintenta.
+
+**Aislamiento**: Processing NO importa `modules/ingestion/...` (tampoco sus entidades: tiene su propia vista `RawMeasurement`/`MetricDefinition` de las mismas tablas). `internal/bootstrap/processing.go` traduce `contract.MeasurementsIngested` → `MeasurementsIngestedNotice` y registra la suscripción `processing.measurements_ingested`.
 
 **Inicialización**: `bootstrap.NewProcessingModule(platform)`. Debe correr en el MISMO proceso que Ingestion (bus en memoria) y antes de que se publique.
 

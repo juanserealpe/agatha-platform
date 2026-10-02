@@ -4,7 +4,9 @@ import (
 	"context"
 
 	ingestionContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/contract"
+	processingServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/application/services"
 	processingEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/infrastructure/events"
+	processingRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/infrastructure/persistence/repositories"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
@@ -23,8 +25,14 @@ type ProcessingModule struct {
 // Debe llamarse ANTES de que Ingestion empiece a publicar: un evento sin
 // suscriptores se descarta en silencio.
 func NewProcessingModule(platform *Platform) *ProcessingModule {
+	logProcessing := logger.New("Processing", "Info")
+
+	measurementRepository := processingRepositories.NewMeasurementRepository(platform.DB)
+	latestIngestionService := processingServices.NewLatestIngestionService(measurementRepository, logProcessing)
+	subscriber := processingEvents.NewMeasurementsIngestedSubscriber(latestIngestionService, logProcessing)
+
 	return &ProcessingModule{
-		Unsubscribe: registerProcessingSubscribers(platform.EventBus, logger.New("Processing", "Info")),
+		Unsubscribe: registerProcessingSubscribers(platform.EventBus, subscriber, logProcessing),
 	}
 }
 
@@ -32,8 +40,11 @@ func NewProcessingModule(platform *Platform) *ProcessingModule {
 //
 // Es el único punto que conoce ambos módulos: traduce el contrato de Ingestion
 // al tipo propio de Processing (capa anticorrupción).
-func registerProcessingSubscribers(bus eventbus.Bus, log *logger.Logger) (unsubscribe func()) {
-	subscriber := processingEvents.NewMeasurementsIngestedSubscriber(log)
+func registerProcessingSubscribers(
+	bus eventbus.Bus,
+	subscriber *processingEvents.MeasurementsIngestedSubscriber,
+	log *logger.Logger,
+) (unsubscribe func()) {
 
 	return eventbus.SubscribeTyped(
 		bus,
@@ -50,11 +61,6 @@ func registerProcessingSubscribers(bus eventbus.Bus, log *logger.Logger) (unsubs
 func toMeasurementsIngestedNotice(event ingestionContract.MeasurementsIngested) processingEvents.MeasurementsIngestedNotice {
 	return processingEvents.MeasurementsIngestedNotice{
 		MeasuringPointID: event.MeasuringPointID,
-		Source:           event.Source,
-		From:             event.From,
-		To:               event.To,
-		Watermark:        event.Watermark,
-		BatchSeq:         event.BatchSeq,
 		InsertedRecords:  event.InsertedRecords,
 	}
 }

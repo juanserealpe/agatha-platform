@@ -100,9 +100,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 		return ingestionErrors.ErrRecivingIngestedData
 	}
 
-	// 9. Obtener timestamp de la última medición.
-	lastIngestedAt := getLatestMeasurementTimestamp(processedMeasurements)
-
 	// 10. Crear el estado de ingesta.
 	// Para la primera ingesta:
 	//     InitialDate = start solicitado.
@@ -111,7 +108,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 		MeasuringPointID: uint64(measuringPointID),
 		Source:           "dataos",
 		ReceivedRecords:  len(processedMeasurements),
-		LastIngestedAt:   lastIngestedAt,
 	}
 
 	s.logger.Info("se preparó el estado de la ingesta", "measuring_point_id", measuringPointID,
@@ -121,7 +117,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	// Los resultados se capturan para publicar el evento DESPUÉS del commit.
 	var (
 		batchResult entities.SaveBatchResult
-		stateResult entities.SaveStateResult
 	)
 
 	err = s.unitOfWork.Execute(
@@ -148,11 +143,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 				"cantidad", len(processedMeasurements),
 			)
 
-			// Guardar estado.
-			savedState, err := ingestionStateRepository.Save(
-				ctx,
-				state,
-			)
 			if err != nil {
 				return fmt.Errorf("guardar estado de ingesta: %w", err)
 			}
@@ -171,7 +161,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			_ = ingestionGapRepository
 
 			batchResult = savedBatch
-			stateResult = savedState
 
 			return nil
 		},
@@ -195,77 +184,24 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	)
 
 	// 12. Publicar el evento post-commit (nunca hace fallar la ingesta).
-	s.publishMeasurementsIngested(ctx, measuringPointID, state.Source, processedMeasurements, batchResult, stateResult)
+	s.publishMeasurementsIngested(ctx, measuringPointID, batchResult)
 
 	return nil
 }
 
-// publishMeasurementsIngested publica MeasurementsIngested si se insertó al menos
-// una medición. Debe llamarse solo tras un commit exitoso. Un publisher nil
-// equivale a no-op; un error del publisher se registra como warn y se ignora.
-func (s *IngestService) publishMeasurementsIngested(
-	ctx context.Context,
-	measuringPointID int64,
-	source string,
-	measurements []entities.RawMeasurement,
-	batchResult entities.SaveBatchResult,
-	stateResult entities.SaveStateResult,
+func (s *IngestService) publishMeasurementsIngested(ctx context.Context, measuringPointID int64, batchResult entities.SaveBatchResult,
 ) {
-	if s.eventPublisher == nil || batchResult.Inserted <= 0 || len(measurements) == 0 {
-		return
-	}
-
-	from, to := getMeasurementTimeRange(measurements)
 	event := contract.MeasurementsIngested{
 		MeasuringPointID: measuringPointID,
-		Source:           source,
-		From:             from.UTC(),
-		To:               to.UTC(),
-		Watermark:        stateResult.LastIngestedAt.UTC(),
-		BatchSeq:         stateResult.BatchSeq,
 		InsertedRecords:  batchResult.Inserted,
-		OccurredAt:       s.now().UTC(),
 		SchemaVersion:    contract.SchemaVersion,
 	}
 
 	if err := s.eventPublisher.PublishMeasurementsIngested(ctx, event); err != nil {
-		s.logger.Warn(
+		s.logger.Error(
 			"no se pudo publicar el evento de mediciones ingeridas; la ingesta ya fue confirmada",
 			"measuring_point_id", measuringPointID,
-			"batch_seq", event.BatchSeq,
 			"error", err,
 		)
 	}
-}
-
-// getMeasurementTimeRange devuelve el timestamp mínimo y máximo del lote.
-// Requiere al menos una medición.
-func getMeasurementTimeRange(measurements []entities.RawMeasurement) (time.Time, time.Time) {
-	from, to := measurements[0].Timestamp, measurements[0].Timestamp
-	for _, measurement := range measurements[1:] {
-		if measurement.Timestamp.Before(from) {
-			from = measurement.Timestamp
-		}
-		if measurement.Timestamp.After(to) {
-			to = measurement.Timestamp
-		}
-	}
-	return from, to
-}
-
-func getLatestMeasurementTimestamp(measurements []entities.RawMeasurement,
-) *time.Time {
-
-	if len(measurements) == 0 {
-		return nil
-	}
-
-	var latest time.Time
-
-	for _, measurement := range measurements {
-		if latest.IsZero() || measurement.Timestamp.After(latest) {
-			latest = measurement.Timestamp
-		}
-	}
-	return &latest
 }
