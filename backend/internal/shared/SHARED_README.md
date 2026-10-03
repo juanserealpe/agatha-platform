@@ -16,6 +16,10 @@ Utilidades reutilizables de consumo **OBLIGATORIO**. No reinventar — usar lo q
 | `CodeInvalidMeasuringPointID` | `INVALID_MEASURING_POINT_ID` | 400 |
 | `CodeConsultingLastState` | `CONSULTING_LAST_STATE` | 500 |
 | `CodeGettingIngestedData` | `GETTING_INGESTED_DATA` | 502 |
+| `CodeConsultingDevices` | `CONSULTING_DEVICES` | 500 |
+| `CodeConsultingMeasurements` | `CONSULTING_MEASUREMENTS` | 500 |
+| `CodeConsultingBaseline` | `CONSULTING_BASELINE` | 500 |
+| `CodePersistingBaseline` | `PERSISTING_BASELINE` | 500 |
 
 ### Errores pre-construidos
 
@@ -82,3 +86,7 @@ publisher := events.NewBusEventPublisher(bus) // adaptador del módulo publicado
 registerProcessingSubscribers(bus, logger.New("Processing", "Info"))
 defer bus.Close(shutdownCtx)
 ```
+
+## 5. Kernel de cálculo (`shared/features`)
+
+Fórmulas de la línea base y del índice I (`Normalize`, `Quantile`, `Median`, `MAD`, `Spearman`, `ComputeComponents`, `MADFloor`, `Score`). Lo usa Baseline y lo reutilizará Processing **sin reimplementar fórmulas**. Solo stdlib, sin IO ni estado; versionado con `AlgorithmVersion`. Detalle en [`features/README.md`](features/README.md).

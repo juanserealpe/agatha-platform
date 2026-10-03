@@ -1,5 +1,6 @@
 // Command platform ejecuta el monolito completo en un solo proceso:
-// Ingestion (scheduler), Processing (subscriber del bus) y Dashboard (API HTTP).
+// Baseline (scheduler de recálculo), Ingestion (scheduler), Processing
+// (subscriber del bus) y Dashboard (API HTTP).
 //
 // Los tres comparten la misma Platform (BD + bus en memoria). Por eso viven en
 // el mismo proceso: el bus no cruza procesos ni contenedores.
@@ -33,7 +34,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 2. Ingestion (publicador). Migra el esquema y valida credenciales de DataOS.
+	// 2. Baseline (solo lee la BD). Migra su esquema; su scheduler arranca antes que el de Ingestion.
+	baselineModule, err := bootstrap.NewBaselineModule(platform)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	// 3. Ingestion (publicador). Migra el esquema y valida credenciales de DataOS.
 	ingestion, err := bootstrap.NewIngestionModule(platform)
 	if err != nil {
 		os.Exit(1)
@@ -45,10 +52,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. Processing (consumidor). Se suscribe ANTES de que el scheduler publique.
+	// 4. Processing (consumidor). Se suscribe ANTES de que el scheduler publique.
 	bootstrap.NewProcessingModule(platform)
 
-	// 4. Dashboard (API HTTP de solo lectura).
+	// 5. Dashboard (API HTTP de solo lectura).
 	mux := http.NewServeMux()
 	bootstrap.NewDashboardModule(platform).RegisterRoutes(mux)
 
@@ -63,6 +70,13 @@ func main() {
 	defer stop()
 
 	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Info("scheduler de línea base iniciado")
+		baselineModule.NewScheduler().Start(ctx)
+	}()
 
 	wg.Add(1)
 	go func() {
@@ -91,7 +105,7 @@ func main() {
 		log.Error("el servidor HTTP no terminó de cerrar a tiempo", "error", err)
 	}
 
-	// Espera a que el scheduler termine su ingesta en curso antes de drenar el bus.
+	// Espera a que los schedulers (Baseline e Ingestion) terminen su ejecución en curso antes de drenar el bus.
 	wg.Wait()
 
 	if err := platform.Close(shutdownCtx); err != nil {

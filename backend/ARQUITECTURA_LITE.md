@@ -53,7 +53,11 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no encontrado"}
 ```
 
-**Códigos disponibles**: `NOT_FOUND`, `INVALID_INPUT`, `FUTURE_DATE`, `ALREADY_INGESTED`, `BEFORE_INITIAL_DATE`, `INVALID_MEASURING_POINT_ID`, `CONSULTING_LAST_STATE`, `GETTING_INGESTED_DATA`, `CONSULTING_DEVICES`, `CONSULTING_MEASUREMENTS`.
+**Códigos disponibles**: `NOT_FOUND`, `INVALID_INPUT`, `FUTURE_DATE`, `ALREADY_INGESTED`, `BEFORE_INITIAL_DATE`, `INVALID_MEASURING_POINT_ID`, `CONSULTING_LAST_STATE`, `GETTING_INGESTED_DATA`, `CONSULTING_DEVICES`, `CONSULTING_MEASUREMENTS`, `CONSULTING_BASELINE`, `PERSISTING_BASELINE`.
+
+## Kernel de cálculo (`shared/features`)
+
+Fórmulas de línea base e índice I compartidas por Baseline y (a futuro) Processing: `Normalize`, `Quantile` (tipo 7), `Median`, `MAD`, `Spearman`, `ComputeComponents`, `MADFloor`, `Score`. Solo stdlib (`depguard` `features-stdlib-only`), sin IO ni estado, versionado con `AlgorithmVersion` (persistido en cada versión de línea base). Detalle: `internal/shared/features/README.md`.
 
 ---
 
@@ -136,6 +140,24 @@ var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no
 
 
 
+# Modulo: Baseline (Device Context & Baseline)
+
+**Responsabilidad**: mantener por dispositivo, versionada en el tiempo, la línea base estadística (señal: `mediana_B2`, `θ_D = P90_B2`, `P90_Planitud`; componentes: mediana y MAD de D, P, Ex en 6 h/24 h y C en 24 h) con estimación iterativa que excluye periodos anómalos (`I(24 h) ≥ 0,18`, tope 40 %, máx. 5 pasadas). Detalle en `modules/baseline/BASELINE_README.md`.
+
+**Contrato público (congelado para Processing)**: `baseline.Facade.GetEffectiveBaseline(ctx, pointID, at)` → `EffectiveBaseline` (`types.go`, solo stdlib). Vigencia `[valid_from, valid_to)` no retroactiva; sin versión ⇒ `Status = NONE` (no es error).
+
+| Trigger | Accion | Componente |
+|---|---|---|
+| `RecalcScheduler` (al arrancar + cada hora en `BASELINE_TICK_MINUTE`) | Recalcula los puntos activos a los que les toca (sin versión ⇒ `BOOTSTRAP`; `LOW`/`NO_EXCLUSION_HISTORY` cada 24 h; resto cada 168 h) | `RecalculationService.RecalculateDue` → `Recalculate` |
+| `cmd/baseline -point -asof [-dry-run] [-json]` | Recálculo manual / validación con el analista | `RecalculationService.Recalculate` |
+| `Facade.GetEffectiveBaseline` | Versión vigente en `at` + `first_seen_at` | `QueryService.GetEffective` |
+
+**Aislamiento**: solo LEE `raw_measurements` y `devices` (modelo de lectura propio, sin FK a tablas de Ingestion) y ESCRIBE `baseline_versions` / `baseline_component_stats`. No importa `ingestion`, `processing` ni `shared/eventbus` (`depguard` `baseline-isolation`). No publica ni consume eventos.
+
+**Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingHistory` (`CONSULTING_MEASUREMENTS`), `ErrConsultingBaseline`, `ErrPersistingBaseline`, `ErrBaselineConcurrentUpdate` (no-op). `INSUFFICIENT_HISTORY` y los flags no son errores.
+
+---
+
 # Modulo: Processing
 
 **Responsabilidad**: Reaccionar a los lotes de mediciones ingeridos. Detalle en `modules/processing/README.MD`.
@@ -161,18 +183,20 @@ var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no
 | Constructor | Módulo | Notas |
 |---|---|---|
 | `NewPlatform()` | Shared | BD única + `InMemoryBus`. `Platform.Close(ctx)` drena el bus. |
+| `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Facade`, `Recalculator` y `NewScheduler()`. |
 | `NewIngestionModule(platform)` | Ingestion | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
 | `NewProcessingModule(platform)` | Processing | Registra subscribers. Llamar antes de que Ingestion publique. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
-| `NewIngestionApplication()` | Ingestion + Processing | Composición para `cmd/scheduler` y `cmd/ingestion`. |
+| `NewIngestionApplication()` | Baseline + Ingestion + Processing | Composición para `cmd/scheduler` y `cmd/ingestion` (solo `cmd/scheduler` arranca el scheduler de Baseline). |
 
 **Entrypoints (`cmd/`)**:
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Monolito completo** (default de la imagen): scheduler de Ingestion + Processing + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera al scheduler → `Platform.Close` (10 s). |
+| `cmd/platform` | **Monolito completo** (default de la imagen): `NewPlatform` → `NewBaselineModule` → Ingestion → Processing → Dashboard. Schedulers de Baseline (arranca primero) e Ingestion + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a ambos schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
-| `cmd/scheduler` | Solo Ingestion programada + Processing. |
+| `cmd/scheduler` | Ingestion programada + Processing + scheduler de Baseline. |
+| `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo) + Processing; sale al terminar. |
 
 **Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`8080:8080`, `env_file: .env`). No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
@@ -237,3 +261,16 @@ var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no
 - `received_records` (int): Cantidad de registros ingeridos en el lote.
 - *Append-only*: una fila por lote; el `id` se usa como `batch_seq` (cursor monótono) en el evento `MeasurementsIngested`.
 - `created_at`, `updated_at` (timestamptz).
+
+### 5. `baseline_versions` (Baseline — versiones de línea base)
+- `id` (PK, bigserial), `measuring_point_id` (bigint, **sin FK**), `version` (int). `UNIQUE (measuring_point_id, version)`.
+- Vigencia: `valid_from`, `valid_to` (NULL = vigente). Índice único parcial `ux_baseline_versions_current (measuring_point_id) WHERE valid_to IS NULL` ⇒ **una sola vigente por punto**. Índice `ix_baseline_versions_effective (measuring_point_id, valid_from DESC)`.
+- Histórico: `history_from`, `history_to`.
+- Señal: `median_b2`, `theta_d`, `p90_planitud` (NULL si no hay), `min_elevated_b2` (NULL ⇒ `SIGNAL_DEGENERATE`), `delta_min_b2`, `n_signal_records`, `n_planitud_records`.
+- Estimación: `confidence` (`NORMAL`|`LOW`), `exclusion_passes`, `exclusion_converged`, `excluded_ratio`, `excluded_periods` (JSONB `[{from, to, peak_i}]`), `flags` (TEXT[]), `trigger`, `algorithm_version`, `created_at`.
+
+### 6. `baseline_component_stats` (Baseline — estadísticas por componente)
+- PK `(baseline_version_id, window_hours, component)`; FK `baseline_version_id → baseline_versions(id)`.
+- `window_hours` (6|24, CHECK), `component` (`D`|`P`|`EX`|`C`, CHECK), `median`, `mad` (crudo, sin 1,4826 ni piso), `n_windows`.
+
+> Ambas tablas las crea `AutoMigrate` en `NewBaselineModule` (los tags del modelo generan índices, FK y CHECKs).

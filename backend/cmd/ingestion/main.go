@@ -29,8 +29,8 @@ func main() {
 	}
 
 	ctx := context.Background()
-	start := time.Date(2026, 9, 28, 20, 18, 0, 0, location)
-	end := time.Date(2026, 9, 28, 23, 59, 59, 0, location)
+	start := time.Date(2026, 10, 1, 18, 50, 0, 0, location)
+	end := time.Date(2026, 10, 2, 23, 59, 59, 0, location)
 	if err := app.IngestService.IngestDataOs(ctx, 11556, start, end); err != nil {
 		app.Logger.Error("error durante la ingesta programada", "error", err)
 		return
@@ -38,3 +38,5 @@ func main() {
 
 	app.Logger.Info("aplicación de ingesta iniciada")
 }
+
+

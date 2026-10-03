@@ -13,4 +13,6 @@ const (
 	CodeGettingIngestedData     ErrorCode = "GETTING_INGESTED_DATA"
 	CodeConsultingDevices       ErrorCode = "CONSULTING_DEVICES"
 	CodeConsultingMeasurements  ErrorCode = "CONSULTING_MEASUREMENTS"
+	CodeConsultingBaseline      ErrorCode = "CONSULTING_BASELINE"
+	CodePersistingBaseline      ErrorCode = "PERSISTING_BASELINE"
 )

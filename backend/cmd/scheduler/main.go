@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,7 +35,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Baseline arranca antes que Ingestion: su primera ejecución crea las
+	// versiones faltantes. Se espera a que termine antes de drenar el bus.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		app.Baseline.NewScheduler().Start(ctx)
+	}()
+
 	app.Logger.Info("aplicación de ingesta iniciada")
 
 	ingestionScheduler.Start(ctx)
+	wg.Wait()
 }

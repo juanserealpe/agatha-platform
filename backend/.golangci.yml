@@ -42,3 +42,22 @@ linters:
           deny:
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
               desc: "processing no importa ingestion (ni su contract); la traducción vive en bootstrap"
+        # Baseline es autosuficiente: solo lee tablas y expone su fachada. Nunca conoce a Processing.
+        baseline-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/baseline/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "baseline no importa ingestion; tiene su propio modelo de lectura de raw_measurements"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
+              desc: "baseline no importa processing; processing la consume vía su port y un adapter en bootstrap"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "baseline no publica ni consume eventos en el MVP"
+        # Kernel de cálculo (lo comparten Baseline y Processing): solo stdlib, sin IO ni estado.
+        features-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/shared/features/**"
+          allow:
+            - $gostd
