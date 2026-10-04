@@ -3,7 +3,9 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
@@ -28,6 +30,17 @@ type Platform struct {
 // El bus no levanta workers hasta que se registra una suscripción, por lo que
 // crearlo acá no deja goroutines vivas si un paso posterior falla.
 func NewPlatform() (*Platform, error) {
+	return newPlatform(func(dsn string) string { return dsn })
+}
+
+// NewReadOnlyPlatform es NewPlatform con todas las transacciones de la sesión
+// en solo lectura (default_transaction_read_only=on): PostgreSQL rechaza
+// cualquier escritura. La usa cmd/replay.
+func NewReadOnlyPlatform() (*Platform, error) {
+	return newPlatform(readOnlyDSN)
+}
+
+func newPlatform(dsnFor func(string) string) (*Platform, error) {
 	logDB := logger.New("DataBaseInit", "Info")
 
 	if err := godotenv.Load(); err != nil {
@@ -40,7 +53,7 @@ func NewPlatform() (*Platform, error) {
 		return nil, fmt.Errorf("DATABASE_URL no está configurada")
 	}
 
-	db, err := database.NewPostgres(dsn)
+	db, err := database.NewPostgres(dsnFor(dsn))
 	if err != nil {
 		logDB.Error("falló la conexión con la base de datos", "error", err)
 		return nil, err
@@ -50,6 +63,23 @@ func NewPlatform() (*Platform, error) {
 		DB:       db,
 		EventBus: eventbus.NewInMemory(logger.New("EventBus", "Info")),
 	}, nil
+}
+
+// readOnlyDSN agrega el parámetro de sesión default_transaction_read_only=on
+// (pgx lo envía como runtime param) a un DSN en formato URL o clave=valor.
+func readOnlyDSN(dsn string) string {
+	const param = "default_transaction_read_only"
+
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		if u, err := url.Parse(dsn); err == nil {
+			q := u.Query()
+			q.Set(param, "on")
+			u.RawQuery = q.Encode()
+			return u.String()
+		}
+	}
+
+	return strings.TrimSpace(dsn) + " " + param + "=on"
 }
 
 // Close drena el bus de eventos hasta el deadline de ctx.

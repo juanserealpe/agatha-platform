@@ -1,6 +1,6 @@
 // Command platform ejecuta el monolito completo en un solo proceso:
-// Baseline (scheduler de recálculo), Ingestion (scheduler), Processing
-// (subscriber del bus) y Dashboard (API HTTP).
+// Baseline (scheduler de recálculo), Processing (subscriber del bus +
+// reconciliador horario), Ingestion (scheduler) y Dashboard (API HTTP).
 //
 // Los tres comparten la misma Platform (BD + bus en memoria). Por eso viven en
 // el mismo proceso: el bus no cruza procesos ni contenedores.
@@ -40,7 +40,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. Ingestion (publicador). Migra el esquema y valida credenciales de DataOS.
+	// 3. Processing (consumidor). Migra feature_evaluations y se suscribe ANTES de que Ingestion publique.
+	processingModule, err := bootstrap.NewProcessingModule(platform, baselineModule)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	// 4. Ingestion (publicador). Migra el esquema y valida credenciales de DataOS.
 	ingestion, err := bootstrap.NewIngestionModule(platform)
 	if err != nil {
 		os.Exit(1)
@@ -51,9 +57,6 @@ func main() {
 		log.Error("no fue posible crear el scheduler de ingesta", "error", err)
 		os.Exit(1)
 	}
-
-	// 4. Processing (consumidor). Se suscribe ANTES de que el scheduler publique.
-	bootstrap.NewProcessingModule(platform)
 
 	// 5. Dashboard (API HTTP de solo lectura).
 	mux := http.NewServeMux()
@@ -76,6 +79,13 @@ func main() {
 		defer wg.Done()
 		log.Info("scheduler de línea base iniciado")
 		baselineModule.NewScheduler().Start(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Info("reconciliador de processing iniciado")
+		processingModule.NewScheduler().Start(ctx)
 	}()
 
 	wg.Add(1)
@@ -105,7 +115,7 @@ func main() {
 		log.Error("el servidor HTTP no terminó de cerrar a tiempo", "error", err)
 	}
 
-	// Espera a que los schedulers (Baseline e Ingestion) terminen su ejecución en curso antes de drenar el bus.
+	// Espera a que los schedulers (Baseline, Processing e Ingestion) terminen su ejecución en curso antes de drenar el bus.
 	wg.Wait()
 
 	if err := platform.Close(shutdownCtx); err != nil {

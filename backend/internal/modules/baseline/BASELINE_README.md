@@ -117,7 +117,18 @@ Un valor inválido se ignora con `Warn` y se usa el default.
 
 ## Aislamiento
 
-`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing` ni `shared/eventbus`. Solo `shared/{logger, errors, features}`. Processing consumirá la fachada a través de **su propio port** y un adapter en `internal/bootstrap`.
+`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing` ni `shared/eventbus`. Solo `shared/{logger, errors, features}`. Processing consume la fachada a través de **su propio port** (`BaselineProvider`) y el adapter `baselineProviderAdapter` en `internal/bootstrap/processing.go`.
+
+## Reproducción histórica (`replayer.go`)
+
+Segunda interfaz pública, **solo para `cmd/replay`**; no toca la `Facade` congelada:
+
+| Método | Qué hace |
+|---|---|
+| `Replayer.SimulateVersions(ctx, point, from, to)` | Versiones que **habrían existido** en `[from, to)`: reloj virtual horario (horas en punto), `RecalculationPolicy` real sobre la última versión simulada, `RobustBaselineEstimator` con **solo** los datos de `[hora − 90 d, hora)`. Orden ascendente por `ValidFrom`, `VersionID = 0`, `Version` secuencial. Una sola lectura del histórico |
+| `Replayer.ComputeAt(ctx, point, asOf)` | Una versión calculada en `asOf` (modo "línea base fija"); histórico insuficiente ⇒ `Status = NONE` |
+
+Implementación: `application/services/ReplayService`. No recibe `BaselineRepository`: **no puede** escribir. Comparte con `Recalculate` la construcción de la versión (`newVersion`). Aproximación: producción recalcula en `BASELINE_TICK_MINUTE`; la simulación, en la hora en punto. Se compone con `newBaselineReplayer(platform)` (bootstrap), sin `AutoMigrate`.
 
 ## Cableado y entrypoints
 
@@ -125,13 +136,14 @@ Un valor inválido se ignora con `Warn` y se usa el default.
 
 | Entrypoint | Baseline |
 |---|---|
-| `cmd/platform` | Se compone después de `NewPlatform` y antes de Ingestion; su scheduler arranca antes que el de Ingestion y se espera antes de `Platform.Close` |
+| `cmd/platform` | Se compone después de `NewPlatform` y antes de Processing (que recibe su `Facade`) e Ingestion; su scheduler arranca primero y se espera antes de `Platform.Close` |
 | `cmd/scheduler` | Vía `NewIngestionApplication()`; arranca su scheduler |
 | `cmd/ingestion` | Se compone (migra) pero no arranca el scheduler |
 | `cmd/baseline` | `baseline -point 11556 -asof 2026-07-01T00:00:00Z [-dry-run] [-json]` — validación con el analista (pasadas, θ_D, % excluido, ventanas, periodos excluidos) |
+| `cmd/replay` | Solo `Replayer` (lectura): `newBaselineReplayer(platform)` sobre una plataforma de solo lectura |
 
 ## Tests
 
-- `go test ./internal/modules/baseline/...` — dominio, aplicación (fakes), mappers, scheduler, fachada; incluye rendimiento (90 días < 5 s; se omite con `-short`).
+- `go test ./internal/modules/baseline/...` — dominio, aplicación (fakes), mappers, scheduler, fachada, replay (las versiones simuladas = `Recalculate` dry-run en el mismo `asOf` aunque haya datos "envenenados" después; separación 24 h con `LOW` y 168 h con `NORMAL`); incluye rendimiento (90 días < 5 s; se omite con `-short`; con `-race` supera el presupuesto por la instrumentación).
 - `go test -tags integration ./internal/modules/baseline/infrastructure/persistence/repositories/` con `DATABASE_URL` — migración/índice parcial, versionado, concurrencia, pivote.
 - **Golden del estudio (15.5, bloqueante para T8)**: `application/services/golden_study_test.go`. Se activa al poner `testdata/study_11556.csv` (timestamp RFC3339, B1, B2, Planitud) y `BASELINE_STUDY_ASOF`. Espera θ_D = 67, mediana 54, ≈ 21,8 % ± 0,5 pp, 4 pasadas, sin tope.

@@ -1,6 +1,6 @@
 # Kernel de cálculo (`shared/features`)
 
-Fórmulas de la línea base y del índice I, compartidas por **Baseline** (ya) y **Processing** (después). Ningún módulo reimplementa fórmulas: las consume de acá.
+Fórmulas de la línea base y del índice I, compartidas por **Baseline** y **Processing** (`WindowEvaluator`). Ningún módulo reimplementa fórmulas: las consume de acá.
 
 **Reglas**: solo stdlib (`depguard` `features-stdlib-only`), sin IO, sin estado, sin tipos de módulos. Todo cambio de fórmula, piso o constante sube `AlgorithmVersion` (hoy `1.0.0`), que se persiste en cada versión de línea base.
 

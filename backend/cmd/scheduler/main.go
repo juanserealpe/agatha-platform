@@ -37,11 +37,16 @@ func main() {
 
 	// Baseline arranca antes que Ingestion: su primera ejecución crea las
 	// versiones faltantes. Se espera a que termine antes de drenar el bus.
+	// Luego Processing: su reconciliador completa las horas sin fila.
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		app.Baseline.NewScheduler().Start(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		app.Processing.NewScheduler().Start(ctx)
 	}()
 
 	app.Logger.Info("aplicación de ingesta iniciada")

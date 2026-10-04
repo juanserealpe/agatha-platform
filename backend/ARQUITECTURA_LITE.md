@@ -43,7 +43,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 
 | Tópico | Publicador | Consumidores |
 |---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Processing (lee la última ingesta del punto y la registra en log) |
+| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Processing (evalúa las horas listas del punto → `feature_evaluations`) |
 
 ## Errors (`shared/errors`)
 
@@ -53,11 +53,11 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no encontrado"}
 ```
 
-**Códigos disponibles**: `NOT_FOUND`, `INVALID_INPUT`, `FUTURE_DATE`, `ALREADY_INGESTED`, `BEFORE_INITIAL_DATE`, `INVALID_MEASURING_POINT_ID`, `CONSULTING_LAST_STATE`, `GETTING_INGESTED_DATA`, `CONSULTING_DEVICES`, `CONSULTING_MEASUREMENTS`, `CONSULTING_BASELINE`, `PERSISTING_BASELINE`.
+**Códigos disponibles**: `NOT_FOUND`, `INVALID_INPUT`, `FUTURE_DATE`, `ALREADY_INGESTED`, `BEFORE_INITIAL_DATE`, `INVALID_MEASURING_POINT_ID`, `CONSULTING_LAST_STATE`, `GETTING_INGESTED_DATA`, `CONSULTING_DEVICES`, `CONSULTING_MEASUREMENTS`, `CONSULTING_BASELINE`, `PERSISTING_BASELINE`, `CONSULTING_EVALUATIONS`, `PERSISTING_EVALUATIONS`.
 
 ## Kernel de cálculo (`shared/features`)
 
-Fórmulas de línea base e índice I compartidas por Baseline y (a futuro) Processing: `Normalize`, `Quantile` (tipo 7), `Median`, `MAD`, `Spearman`, `ComputeComponents`, `MADFloor`, `Score`. Solo stdlib (`depguard` `features-stdlib-only`), sin IO ni estado, versionado con `AlgorithmVersion` (persistido en cada versión de línea base). Detalle: `internal/shared/features/README.md`.
+Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Normalize`, `Quantile` (tipo 7), `Median`, `MAD`, `Spearman`, `ComputeComponents`, `MADFloor`, `Score`. Solo stdlib (`depguard` `features-stdlib-only`), sin IO ni estado, versionado con `AlgorithmVersion` (persistido en cada versión de línea base). Detalle: `internal/shared/features/README.md`.
 
 ---
 
@@ -151,6 +151,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y (a futuro) Proce
 | `RecalcScheduler` (al arrancar + cada hora en `BASELINE_TICK_MINUTE`) | Recalcula los puntos activos a los que les toca (sin versión ⇒ `BOOTSTRAP`; `LOW`/`NO_EXCLUSION_HISTORY` cada 24 h; resto cada 168 h) | `RecalculationService.RecalculateDue` → `Recalculate` |
 | `cmd/baseline -point -asof [-dry-run] [-json]` | Recálculo manual / validación con el analista | `RecalculationService.Recalculate` |
 | `Facade.GetEffectiveBaseline` | Versión vigente en `at` + `first_seen_at` | `QueryService.GetEffective` |
+| `Replayer.SimulateVersions` / `ComputeAt` (solo `cmd/replay`) | Versiones que habrían existido en `[from, to)` (reloj virtual horario, política real, solo datos anteriores a cada recálculo) o una versión en `asOf`; nunca escribe | `ReplayService` |
 
 **Aislamiento**: solo LEE `raw_measurements` y `devices` (modelo de lectura propio, sin FK a tablas de Ingestion) y ESCRIBE `baseline_versions` / `baseline_component_stats`. No importa `ingestion`, `processing` ni `shared/eventbus` (`depguard` `baseline-isolation`). No publica ni consume eventos.
 
@@ -160,19 +161,21 @@ Fórmulas de línea base e índice I compartidas por Baseline y (a futuro) Proce
 
 # Modulo: Processing
 
-**Responsabilidad**: Reaccionar a los lotes de mediciones ingeridos. Detalle en `modules/processing/README.MD`.
-
-**Estado actual**: consume `ingestion.measurements_ingested` y lee de la BD (solo lectura) la última fecha ingerida del punto de medición con todas sus variables; el resultado solo se registra en log. No escribe BD.
+**Responsabilidad**: cada hora y para cada punto activo, evaluar las ventanas de 24 h y 6 h que terminan en esa hora contra la línea base vigente y persistir **una fila por (punto, ventana, hora)** en `feature_evaluations` (Cobertura, D, P, Ex, C, D_Pl, z, s(z), I) o el motivo `NO_CALCULABLE`. **Mide, no interpreta**: rachas, cortes, categorías y alertas son del Rule Engine. Todo cálculo pasa por `shared/features`. Detalle en `modules/processing/PROCESSING_README.MD`.
 
 | Trigger | Accion | Componente |
 |---|---|---|
-| Evento `ingestion.measurements_ingested` | Lee `MAX(timestamp)` de `raw_measurements` del punto + variables de esa fecha (JOIN `metric_definitions`) → log | `MeasurementsIngestedSubscriber.Handle` → `LatestIngestionService.GetLatestIngestion` → `MeasurementRepository.GetLatestMeasurements` |
+| Evento `ingestion.measurements_ingested` | Evalúa las horas listas del punto (máx. 24) | `MeasurementsIngestedSubscriber.Handle` → `EvaluationService.EvaluatePending` |
+| `HourlyScheduler` (al arrancar + minuto 35) | Reconciliador: completa las horas sin fila de cada punto activo (máx. 72 por tick; grace 30 min) | `EvaluationService.Reconcile` |
+| `cmd/replay -point -from -to -mode asof\|fixed` | Reproducción histórica a CSV, sin escribir en la BD | `bootstrap.RunReplay` |
 
-**Errores**: `processing/domain/errors.go` (`ErrInvalidMeasuringPointID`, `ErrConsultingLatestMeasurements`, `ErrLatestMeasurementsNotFound`) reutilizando códigos de `shared/errors`. Al no haber HTTP, el subscriber registra el `AppError` (`code` + mensaje) en log y no reintenta.
+**Garantías**: idempotente (índice único + `ON CONFLICT DO NOTHING`, lock en proceso por punto); una TX por lote (todas las horas o ninguna); un fallo de lectura o de Baseline **no** persiste filas `NO_CALCULABLE` falsas (aborta y el reconciliador reintenta); toda hora `≤ floorHour(now − 30 min)` tiene fila tras el tick del reconciliador.
 
-**Aislamiento**: Processing NO importa `modules/ingestion/...` (tampoco sus entidades: tiene su propia vista `RawMeasurement`/`MetricDefinition` de las mismas tablas). `internal/bootstrap/processing.go` traduce `contract.MeasurementsIngested` → `MeasurementsIngestedNotice` y registra la suscripción `processing.measurements_ingested`.
+**Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingMeasurements`, `ErrConsultingBaseline`, `ErrConsultingEvaluations` (`CONSULTING_EVALUATIONS`), `ErrPersistingEvaluations` (`PERSISTING_EVALUATIONS`). `NO_CALCULABLE`, ausencia de línea base y conflicto de unicidad no son errores. Subscriber y scheduler registran `code` + mensaje y no reintentan.
 
-**Inicialización**: `bootstrap.NewProcessingModule(platform)`. Debe correr en el MISMO proceso que Ingestion (bus en memoria) y antes de que se publique.
+**Aislamiento**: solo importa `shared/{logger, errors, features}`; no importa `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `processing-isolation`). Lee `raw_measurements` y `devices` con su propio modelo y consume Baseline vía su port `BaselineProvider`; el adapter `baselineProviderAdapter`, la traducción del evento y la suscripción viven en `internal/bootstrap/processing.go`.
+
+**Inicialización**: `bootstrap.NewProcessingModule(platform, baselineModule)`. Debe correr en el MISMO proceso que Ingestion (bus en memoria) y antes de que se publique. El evento actual solo trae `measuring_point_id` e `inserted_records`: la hora lista se deriva de `MAX(timestamp)` en la BD.
 
 ---
 
@@ -185,19 +188,21 @@ Fórmulas de línea base e índice I compartidas por Baseline y (a futuro) Proce
 | `NewPlatform()` | Shared | BD única + `InMemoryBus`. `Platform.Close(ctx)` drena el bus. |
 | `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Facade`, `Recalculator` y `NewScheduler()`. |
 | `NewIngestionModule(platform)` | Ingestion | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
-| `NewProcessingModule(platform)` | Processing | Registra subscribers. Llamar antes de que Ingestion publique. |
+| `NewProcessingModule(platform, baseline)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + adapter sobre `baseline.Facade` + subscriber. Expone `NewScheduler()` (reconciliador). Llamar antes de que Ingestion publique. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
-| `NewIngestionApplication()` | Baseline + Ingestion + Processing | Composición para `cmd/scheduler` y `cmd/ingestion` (solo `cmd/scheduler` arranca el scheduler de Baseline). |
+| `NewIngestionApplication()` | Baseline + Processing + Ingestion | Composición para `cmd/scheduler` y `cmd/ingestion` (solo `cmd/scheduler` arranca los schedulers de Baseline y Processing). |
+| `NewReadOnlyPlatform()` / `RunReplay(opts)` | Processing + Baseline (`Replayer`) | Composición de solo lectura para `cmd/replay`: sin AutoMigrate, sin suscripciones ni schedulers, sesión `default_transaction_read_only=on`. |
 
 **Entrypoints (`cmd/`)**:
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Monolito completo** (default de la imagen): `NewPlatform` → `NewBaselineModule` → Ingestion → Processing → Dashboard. Schedulers de Baseline (arranca primero) e Ingestion + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a ambos schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Monolito completo** (default de la imagen): `NewPlatform` → `NewBaselineModule` → `NewProcessingModule` → Ingestion → Dashboard. Schedulers de Baseline, Processing (reconciliador) e Ingestion + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
-| `cmd/scheduler` | Ingestion programada + Processing + scheduler de Baseline. |
+| `cmd/scheduler` | Ingestion programada + Processing (subscriber + reconciliador) + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
-| `cmd/ingestion` | Ingesta única (rango fijo) + Processing; sale al terminar. |
+| `cmd/ingestion` | Ingesta única (rango fijo) + Processing sin reconciliador (el evento evalúa las horas listas); sale al terminar. |
+| `cmd/replay` | Reproducción histórica de Processing a CSV (`-point`, `-from`, `-to`, `-mode asof\|fixed`, `-fixed-asof`, `-out`); solo lectura; sale al terminar. |
 
 **Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`8080:8080`, `env_file: .env`). No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
 
@@ -274,3 +279,12 @@ Fórmulas de línea base e índice I compartidas por Baseline y (a futuro) Proce
 - `window_hours` (6|24, CHECK), `component` (`D`|`P`|`EX`|`C`, CHECK), `median`, `mad` (crudo, sin 1,4826 ni piso), `n_windows`.
 
 > Ambas tablas las crea `AutoMigrate` en `NewBaselineModule` (los tags del modelo generan índices, FK y CHECKs).
+
+### 7. `feature_evaluations` (Processing — evaluaciones horarias)
+- `id` (PK, bigserial), `measuring_point_id` (bigint, **sin FK**), `window_hours` (smallint, `CHECK IN (6, 24)`), `evaluated_at` (hora en punto UTC, fin exclusivo de la ventana), `window_start`.
+- `UNIQUE (measuring_point_id, window_hours, evaluated_at)` (`ux_feature_evaluations_point_window_hour`): idempotencia, última hora evaluada y lectura del Rule Engine. ~17 500 filas por dispositivo por año.
+- Resultado: `status` (`CALCULATED`|`NO_CALCULABLE`), `no_calc_reason` (`NO_SIGNAL_BASELINE`|`SIGNAL_DEGENERATE`|`LOW_COVERAGE`|`NO_COMPONENT_BASELINE`|`INSUFFICIENT_COHERENCE_DATA`), `n_expected`, `n_received`, `n_valid`, `coverage`.
+- Componentes y scores (NULL = no calculado): `d`, `p_hours`, `ex`, `c`, `d_pl`, `c_from_24h`, `z_d`, `z_p`, `z_ex`, `z_c`, `s_d`, `s_p`, `s_ex`, `s_c`, `i`.
+- Marcas y trazabilidad: `low_confidence`, `silent`, `flags` (TEXT[]), `baseline_version_id` (sin FK), `baseline_version`, `algorithm_version`, `config_version` (`m=12,13,18`), `trigger` (`EVENT`|`RECONCILER`), `source_batch_seq`, `input_max_ts`, `created_at`. Inmutable.
+
+> La crea `AutoMigrate` en `NewProcessingModule`.

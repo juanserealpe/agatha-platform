@@ -50,12 +50,8 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 	}
 
 	cfg := baselineConfigFromEnv(logBaseline)
-	metricIDs := baselineMappers.MetricIDs{
-		B1:       uint64(envInt(logBaseline, "BASELINE_METRIC_B1", defaultMetricB1)),
-		B2:       uint64(envInt(logBaseline, "BASELINE_METRIC_B2", defaultMetricB2)),
-		Planitud: uint64(envInt(logBaseline, "BASELINE_METRIC_PLANITUD", defaultMetricPlanitud)),
-	}
-	tickMinute := envTickMinute(logBaseline)
+	metricIDs := baselineMetricIDsFromEnv(logBaseline)
+	tickMinute := envMinute(logBaseline, "BASELINE_TICK_MINUTE", defaultTickMinute)
 
 	historyReader := baselineRepositories.NewHistoryReader(platform.DB, metricIDs)
 	baselineRepository := baselineRepositories.NewBaselineRepository(platform.DB)
@@ -70,6 +66,25 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 			return scheduling.NewRecalcScheduler(recalculator, logBaseline, tickMinute)
 		},
 	}, nil
+}
+
+// newBaselineReplayer compone baseline.Replayer para cmd/replay: solo lee
+// la BD (sin AutoMigrate ni BaselineRepository).
+func newBaselineReplayer(platform *Platform) baseline.Replayer {
+	log := logger.New("Baseline", "Info")
+
+	historyReader := baselineRepositories.NewHistoryReader(platform.DB, baselineMetricIDsFromEnv(log))
+	replay := baselineServices.NewReplayService(historyReader, baselineConfigFromEnv(log), log)
+
+	return baseline.NewReplayer(replay)
+}
+
+func baselineMetricIDsFromEnv(log *logger.Logger) baselineMappers.MetricIDs {
+	return baselineMappers.MetricIDs{
+		B1:       uint64(envInt(log, "BASELINE_METRIC_B1", defaultMetricB1)),
+		B2:       uint64(envInt(log, "BASELINE_METRIC_B2", defaultMetricB2)),
+		Planitud: uint64(envInt(log, "BASELINE_METRIC_PLANITUD", defaultMetricPlanitud)),
+	}
 }
 
 // baselineConfigFromEnv parte de los valores cerrados con el analista y
@@ -127,17 +142,16 @@ func envDuration(log *logger.Logger, key string, def time.Duration) time.Duratio
 	return v
 }
 
-// envTickMinute admite 0..59 (envInt rechaza el 0).
-func envTickMinute(log *logger.Logger) int {
-	raw := os.Getenv("BASELINE_TICK_MINUTE")
+// envMinute admite 0..59 (envInt rechaza el 0).
+func envMinute(log *logger.Logger, key string, def int) int {
+	raw := os.Getenv(key)
 	if raw == "" {
-		return defaultTickMinute
+		return def
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil || v < 0 || v > 59 {
-		log.Warn("variable de entorno inválida; se usa el valor por defecto",
-			"key", "BASELINE_TICK_MINUTE", "value", raw, "default", defaultTickMinute)
-		return defaultTickMinute
+		log.Warn("variable de entorno inválida; se usa el valor por defecto", "key", key, "value", raw, "default", def)
+		return def
 	}
 	return v
 }

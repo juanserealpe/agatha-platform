@@ -57,8 +57,9 @@ func (m *IngestionModule) NewScheduler() (*scheduler.IngestionScheduler, error) 
 type IngestionApplication struct {
 	*IngestionModule
 	Platform *Platform
-	// Baseline queda compuesto; cmd/scheduler arranca su scheduler.
-	Baseline *BaselineModule
+	// Baseline y Processing quedan compuestos; cmd/scheduler arranca sus schedulers.
+	Baseline   *BaselineModule
+	Processing *ProcessingModule
 }
 
 // Close cierra el bus de eventos drenando los eventos pendientes hasta el deadline de ctx.
@@ -66,8 +67,9 @@ func (a *IngestionApplication) Close(ctx context.Context) error {
 	return a.Platform.Close(ctx)
 }
 
-// NewIngestionApplication compone la Platform con Baseline, Ingestion y Processing.
-// Processing se registra porque el bus es en proceso: sin él los eventos se descartan.
+// NewIngestionApplication compone la Platform con Baseline, Processing e Ingestion.
+// Processing se registra antes que Ingestion porque el bus es en proceso: sin
+// suscriptor los eventos se descartan.
 func NewIngestionApplication() (*IngestionApplication, error) {
 	platform, err := NewPlatform()
 	if err != nil {
@@ -79,17 +81,21 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 		return nil, err
 	}
 
+	processingModule, err := NewProcessingModule(platform, baselineModule)
+	if err != nil {
+		return nil, err
+	}
+
 	ingestion, err := NewIngestionModule(platform)
 	if err != nil {
 		return nil, err
 	}
 
-	NewProcessingModule(platform)
-
 	return &IngestionApplication{
 		IngestionModule: ingestion,
 		Platform:        platform,
 		Baseline:        baselineModule,
+		Processing:      processingModule,
 	}, nil
 }
 

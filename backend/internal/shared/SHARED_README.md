@@ -20,6 +20,8 @@ Utilidades reutilizables de consumo **OBLIGATORIO**. No reinventar — usar lo q
 | `CodeConsultingMeasurements` | `CONSULTING_MEASUREMENTS` | 500 |
 | `CodeConsultingBaseline` | `CONSULTING_BASELINE` | 500 |
 | `CodePersistingBaseline` | `PERSISTING_BASELINE` | 500 |
+| `CodeConsultingEvaluations` | `CONSULTING_EVALUATIONS` | 500 |
+| `CodePersistingEvaluations` | `PERSISTING_EVALUATIONS` | 500 |
 
 ### Errores pre-construidos
 

@@ -87,21 +87,7 @@ func (s *RecalculationService) Recalculate(ctx context.Context, cmd RecalculateC
 		return result, nil
 	}
 
-	version := entities.BaselineVersion{
-		MeasuringPointID: cmd.PointID,
-		ValidFrom:        asOf,
-		HistoryFrom:      from,
-		HistoryTo:        asOf,
-		Signal:           estimation.Signal,
-		Components:       estimation.Components,
-		Confidence:       estimation.Confidence,
-		ExcludedPeriods:  estimation.Exclusion.Periods,
-		Estimation:       estimation.Summary,
-		Flags:            estimation.Flags,
-		Trigger:          cmd.Trigger,
-		AlgorithmVersion: features.AlgorithmVersion,
-		CreatedAt:        s.now().UTC(),
-	}
+	version := newVersion(cmd.PointID, estimation, from, asOf, cmd.Trigger, s.now().UTC())
 
 	result.Version = version
 	result.Confidence = version.Confidence
@@ -190,6 +176,32 @@ func (s *RecalculationService) RecalculateDue(ctx context.Context, now time.Time
 	}
 
 	return summary, nil
+}
+
+// newVersion arma la versión (sin ID ni número) de una estimación sobre
+// [from, asOf). La comparten Recalculate y ReplayService.
+func newVersion(
+	pointID int64,
+	estimation domainServices.Estimation,
+	from, asOf time.Time,
+	trigger entities.Trigger,
+	createdAt time.Time,
+) entities.BaselineVersion {
+	return entities.BaselineVersion{
+		MeasuringPointID: pointID,
+		ValidFrom:        asOf,
+		HistoryFrom:      from,
+		HistoryTo:        asOf,
+		Signal:           estimation.Signal,
+		Components:       estimation.Components,
+		Confidence:       estimation.Confidence,
+		ExcludedPeriods:  estimation.Exclusion.Periods,
+		Estimation:       estimation.Summary,
+		Flags:            estimation.Flags,
+		Trigger:          trigger,
+		AlgorithmVersion: features.AlgorithmVersion,
+		CreatedAt:        createdAt,
+	}
 }
 
 func (s *RecalculationService) logSkipOnce(pointID int64, reason SkippedReason, msg string, kv ...interface{}) {

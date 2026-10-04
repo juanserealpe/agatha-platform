@@ -15,4 +15,6 @@ const (
 	CodeConsultingMeasurements  ErrorCode = "CONSULTING_MEASUREMENTS"
 	CodeConsultingBaseline      ErrorCode = "CONSULTING_BASELINE"
 	CodePersistingBaseline      ErrorCode = "PERSISTING_BASELINE"
+	CodeConsultingEvaluations   ErrorCode = "CONSULTING_EVALUATIONS"
+	CodePersistingEvaluations   ErrorCode = "PERSISTING_EVALUATIONS"
 )

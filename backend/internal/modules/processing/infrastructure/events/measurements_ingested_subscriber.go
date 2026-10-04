@@ -3,32 +3,37 @@ package events
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/application/services"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/domain/entities"
 	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// MeasurementsIngestedSubscriber recibe los avisos de lotes ingeridos y lee
-// de la BD la última ingesta del punto de medición.
+// PendingEvaluator es lo que el subscriber necesita del caso de uso UC-P1.
+type PendingEvaluator interface {
+	EvaluatePending(ctx context.Context, cmd services.EvaluatePendingCommand) (services.EvaluationResult, error)
+}
+
+// MeasurementsIngestedSubscriber recibe los avisos de lotes ingeridos y
+// evalúa las horas que quedaron listas. Delgado: arma el comando y llama.
 type MeasurementsIngestedSubscriber struct {
-	latestIngestionService *services.LatestIngestionService
-	logger                 *logger.Logger
+	evaluator PendingEvaluator
+	maxSlots  int
+	logger    *logger.Logger
 }
 
-// NewMeasurementsIngestedSubscriber crea el subscriber con su servicio y logger.
-func NewMeasurementsIngestedSubscriber(
-	latestIngestionService *services.LatestIngestionService,
-	logger *logger.Logger,
+// NewMeasurementsIngestedSubscriber crea el subscriber. maxSlots acota las
+// horas por evento para respetar el timeout del bus.
+func NewMeasurementsIngestedSubscriber(evaluator PendingEvaluator, maxSlots int, logger *logger.Logger,
 ) *MeasurementsIngestedSubscriber {
-	return &MeasurementsIngestedSubscriber{
-		latestIngestionService: latestIngestionService,
-		logger:                 logger,
-	}
+	return &MeasurementsIngestedSubscriber{evaluator: evaluator, maxSlots: maxSlots, logger: logger}
 }
 
-// Handle registra la recepción del aviso y consulta la última ingesta.
-// Un evento no tiene a quién devolverle el error: se registra en log con su código.
+// Handle evalúa las horas pendientes hasta floorHour(watermark). Un evento no
+// tiene a quién devolverle el error: se registra con su código y no se
+// reintenta (el reconciliador horario es el reintento).
 func (s *MeasurementsIngestedSubscriber) Handle(ctx context.Context, notice MeasurementsIngestedNotice) {
 	s.logger.Info(
 		"evento de mediciones ingeridas recibido",
@@ -36,8 +41,18 @@ func (s *MeasurementsIngestedSubscriber) Handle(ctx context.Context, notice Meas
 		"inserted_records", notice.InsertedRecords,
 	)
 
-	_, err := s.latestIngestionService.GetLatestIngestion(ctx, notice.MeasuringPointID)
-	if err != nil {
+	cmd := services.EvaluatePendingCommand{
+		PointID:  notice.MeasuringPointID,
+		Trigger:  entities.TriggerEvent,
+		BatchSeq: notice.BatchSeq,
+		MaxSlots: s.maxSlots,
+		DataFrom: notice.From,
+	}
+	if !notice.Watermark.IsZero() {
+		cmd.ReadyUntil = notice.Watermark.UTC().Truncate(time.Hour)
+	}
+
+	if _, err := s.evaluator.EvaluatePending(ctx, cmd); err != nil {
 		var appErr *appErrors.AppError
 		if errors.As(err, &appErr) {
 			s.logger.Error(

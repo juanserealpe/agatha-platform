@@ -2,19 +2,31 @@ package domain
 
 import "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 
+// NO_CALCULABLE, la ausencia de línea base y un conflicto de unicidad NO son
+// errores: son resultados (ver entities.NoCalcReason).
 var (
 	ErrInvalidMeasuringPointID = &errors.AppError{
 		Code:    errors.CodeInvalidMeasuringPointID,
-		Message: "el punto de medición del evento no es válido",
+		Message: "el punto de medición no es válido",
 	}
 
-	ErrConsultingLatestMeasurements = &errors.AppError{
+	ErrConsultingMeasurements = &errors.AppError{
 		Code:    errors.CodeConsultingMeasurements,
-		Message: "no fue posible consultar las mediciones de la última ingesta",
+		Message: "no fue posible consultar las mediciones del punto de medición",
 	}
 
-	ErrLatestMeasurementsNotFound = &errors.AppError{
-		Code:    errors.CodeNotFound,
-		Message: "no se encontraron mediciones para el punto de medición",
+	ErrConsultingBaseline = &errors.AppError{
+		Code:    errors.CodeConsultingBaseline,
+		Message: "no fue posible consultar la línea base vigente",
+	}
+
+	ErrConsultingEvaluations = &errors.AppError{
+		Code:    errors.CodeConsultingEvaluations,
+		Message: "no fue posible consultar las evaluaciones del punto de medición",
+	}
+
+	ErrPersistingEvaluations = &errors.AppError{
+		Code:    errors.CodePersistingEvaluations,
+		Message: "no fue posible guardar las evaluaciones del punto de medición",
 	}
 )
