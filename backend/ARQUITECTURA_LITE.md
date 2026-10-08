@@ -104,6 +104,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 `batch_seq` = `id` de la fila insertada en `ingestion_logs` dentro de la misma transacción (la tabla es append-only: una fila por lote), por lo que es monótono y un rollback no lo consume.
 
+`watermark` = `last_ingested_at` = **MAX(timestamp) de las muestras del lote** (`getLatestMeasurementTimestamp` en `IngestService`), NO el fin del rango pedido a DataOS: `watermark ≥ t` garantiza que ya existe un registro con timestamp `≥ t` (supuesto de Processing). Coincide con `to`. Si falla el `Save` del estado, la TX completa se revierte (no quedan mediciones sin su fila de estado) y se devuelve `ErrPersistingIngestionState` (`PERSISTING_INGESTION_STATE`).
+
 ---
 
 # Modulo: Dashboard
@@ -175,7 +177,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 **Aislamiento**: solo importa `shared/{logger, errors, features}`; no importa `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `processing-isolation`). Lee `raw_measurements` y `devices` con su propio modelo y consume Baseline vía su port `BaselineProvider`; el adapter `baselineProviderAdapter`, la traducción del evento y la suscripción viven en `internal/bootstrap/processing.go`.
 
-**Inicialización**: `bootstrap.NewProcessingModule(platform, baselineModule)`. Debe correr en el MISMO proceso que Ingestion (bus en memoria) y antes de que se publique. El evento actual solo trae `measuring_point_id` e `inserted_records`: la hora lista se deriva de `MAX(timestamp)` en la BD.
+**Inicialización**: `bootstrap.NewProcessingModule(platform, baselineModule)`. Debe correr en el MISMO proceso que Ingestion (bus en memoria) y antes de que se publique. `toMeasurementsIngestedNotice` mapea `watermark` → `Watermark` (hora lista = `floorHour(watermark)`), `batch_seq` → `BatchSeq` y `from` → `From`; si el evento no trae `watermark` (cero), la hora lista se deriva de `MAX(timestamp)` en la BD.
 
 ---
 

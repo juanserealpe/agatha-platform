@@ -40,7 +40,7 @@ processing/
 
 1. Valida `PointID > 0` (`ErrInvalidMeasuringPointID`, sin tocar la BD).
 2. **Lock en proceso por punto**: el worker del bus y el reconciliador nunca evalúan el mismo punto a la vez.
-3. `readyUntil`: si el comando no lo trae (el evento actual no tiene watermark), `floorHour(MAX(timestamp) de B2)`. Nunca supera `floorHour(now)`.
+3. `readyUntil`: el evento lo trae como `floorHour(watermark)`; si el comando no lo trae (reconciliador o evento sin watermark), `floorHour(MAX(timestamp) de B2)`. Nunca supera `floorHour(now)`.
 4. `SlotPlanner`: horas en `(última evaluada, readyUntil]`; sin historial, las 72 que terminan en `readyUntil` (`PROCESSING_INITIAL_LOOKBACK_HOURS`). Tope por invocación. Vacío ⇒ fin (caso más común: 3 de cada 4 lotes).
 5. **Una** lectura de samples `[primera − 24 h, última)` → `features.Normalize`.
 6. Por cada hora en orden: `BaselineProvider.GetEffective(t)` → `SliceWindow` 24 h y 6 h → `WindowEvaluator` → 2 filas.
@@ -154,7 +154,7 @@ Processing solo importa `shared/{logger, errors, features}`. **No** importa `mod
 | `cmd/replay` | Composición de solo lectura (`RunReplay`) |
 
 - Debe registrarse **antes** de que Ingestion publique y vivir en el **mismo proceso** (bus en memoria).
-- El evento actual (schema v1) solo trae `measuring_point_id` e `inserted_records`: `MeasurementsIngestedNotice.Watermark`/`BatchSeq`/`From` quedan vacíos y Processing deriva la hora lista de la BD. Si Ingestion vuelve a publicarlos, basta con mapearlos en `toMeasurementsIngestedNotice`.
+- El evento (schema v1) trae `watermark`, `batch_seq` y `from`; `toMeasurementsIngestedNotice` los mapea a `MeasurementsIngestedNotice.Watermark`/`BatchSeq`/`From`. `watermark` es el `last_ingested_at` de Ingestion = MAX(timestamp) de las muestras del lote (no el fin del rango pedido), así que `watermark ≥ t` implica que ya existe un registro con timestamp `≥ t`. Si llegan en cero, quedan vacíos y Processing deriva la hora lista de la BD.
 
 ## Tests
 

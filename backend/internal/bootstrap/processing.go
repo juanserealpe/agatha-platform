@@ -111,13 +111,26 @@ func registerProcessingSubscribers(
 }
 
 // toMeasurementsIngestedNotice traduce el evento de Ingestion al tipo de Processing.
-// El contrato actual (schema v1) no transporta watermark, batch_seq ni from:
-// quedan en cero/nil y Processing deriva la hora lista de MAX(timestamp) en la BD.
+// Watermark se toma de event.Watermark: Ingestion persiste last_ingested_at como
+// MAX(timestamp) de las muestras del lote (no el fin del rango pedido a DataOS),
+// así que watermark ≥ t garantiza que existe un registro con timestamp ≥ t.
+// Campos en cero (evento sin datos de lote) quedan vacíos y Processing deriva la
+// hora lista de la BD.
 func toMeasurementsIngestedNotice(event ingestionContract.MeasurementsIngested) processingEvents.MeasurementsIngestedNotice {
-	return processingEvents.MeasurementsIngestedNotice{
+	notice := processingEvents.MeasurementsIngestedNotice{
 		MeasuringPointID: event.MeasuringPointID,
 		InsertedRecords:  event.InsertedRecords,
+		Watermark:        event.Watermark.UTC(),
 	}
+	if event.BatchSeq > 0 {
+		batchSeq := event.BatchSeq
+		notice.BatchSeq = &batchSeq
+	}
+	if !event.From.IsZero() {
+		from := event.From.UTC()
+		notice.From = &from
+	}
+	return notice
 }
 
 // baselineProviderAdapter implementa el port BaselineProvider de Processing
