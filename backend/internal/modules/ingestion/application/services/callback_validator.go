@@ -97,12 +97,16 @@ func (v *CallbackValidator) Validate(request dtos.DataRecordCallback) (*entities
 	}, nil
 }
 
-// parseTimestamp acepta RFC 3339 (con zona) o el formato sin zona de Dataflow
-// Labs, que se interpreta en v.location.
+// parseTimestamp acepta RFC 3339 con offset explícito o el formato sin zona de
+// Dataflow Labs, que se interpreta en v.location. El sufijo Z también se trata
+// como hora local: Dataflow Labs envía la hora de Colombia marcada como UTC
+// (la misma lectura llega 11:45:41Z por callback y 16:45:41Z por DataOS).
 func (v *CallbackValidator) parseTimestamp(value string) (time.Time, bool) {
 	if value == "" {
 		return time.Time{}, false
 	}
+
+	value = strings.TrimSuffix(value, "Z")
 
 	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
 		return t, true

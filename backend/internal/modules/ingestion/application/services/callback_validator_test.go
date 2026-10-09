@@ -66,7 +66,7 @@ func TestCallbackValidator_ValidPayload(t *testing.T) {
 
 func TestCallbackValidator_AcceptsTimestampWithOffsetAndFraction(t *testing.T) {
 	payload := validCallback()
-	payload.Timestamp = "2026-10-08T21:15:41.250Z"
+	payload.Timestamp = "2026-10-08T23:15:41.250+02:00"
 	payload.Records[0].Timestamp = "2026-10-08T16:15:41.5-05:00"
 
 	record, err := NewCallbackValidator(bogotaLocation(t)).Validate(payload)
@@ -79,6 +79,29 @@ func TestCallbackValidator_AcceptsTimestampWithOffsetAndFraction(t *testing.T) {
 	}
 	if want := time.Date(2026, 10, 8, 21, 15, 41, 500_000_000, time.UTC); !record.Readings[0].Timestamp.Equal(want) {
 		t.Fatalf("timestamp de variable = %v, se esperaba %v", record.Readings[0].Timestamp, want)
+	}
+}
+
+// Dataflow Labs envía la hora local de Colombia con sufijo Z: la misma lectura
+// llegó como 11:45:41Z por callback y como 16:45:41Z por DataOS.
+func TestCallbackValidator_TreatsZuluSuffixAsBogotaWallClock(t *testing.T) {
+	payload := validCallback()
+	payload.Timestamp = "2026-10-09T11:45:41Z"
+	payload.Records[0].Timestamp = "2026-10-09T11:45:41.5Z"
+
+	record, err := NewCallbackValidator(bogotaLocation(t)).Validate(payload)
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	if want := time.Date(2026, 10, 9, 16, 45, 41, 0, time.UTC); !record.Timestamp.Equal(want) {
+		t.Fatalf("timestamp = %v, se esperaba %v", record.Timestamp, want)
+	}
+	if want := time.Date(2026, 10, 9, 16, 45, 41, 500_000_000, time.UTC); !record.Readings[0].Timestamp.Equal(want) {
+		t.Fatalf("timestamp de variable = %v, se esperaba %v", record.Readings[0].Timestamp, want)
+	}
+	if got := record.Readings[0].RawTimestamp; got != "2026-10-09T11:45:41.5Z" {
+		t.Fatalf("RawTimestamp = %q, debe conservar el texto original", got)
 	}
 }
 
