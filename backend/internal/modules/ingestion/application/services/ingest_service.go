@@ -19,7 +19,6 @@ type IngestService struct {
 	ingestStateRepository repositories.IngestionStateRepository
 	deviceRepository      repositories.DeviceRepository
 	unitOfWork            ports.IngestionUnitOfWork
-	processingService     *ProcessingService
 	ingestionValidator    *IngestionValidator
 	eventPublisher        ports.EventPublisher
 	now                   func() time.Time
@@ -30,7 +29,6 @@ func NewIngestService(
 	dataProvider ports.DataProvider,
 	ingestStateRepository repositories.IngestionStateRepository,
 	deviceRepository repositories.DeviceRepository,
-	processingService *ProcessingService,
 	unitOfWork ports.IngestionUnitOfWork,
 	logger *logger.Logger,
 	ingestionValidator *IngestionValidator,
@@ -40,7 +38,6 @@ func NewIngestService(
 		dataProvider:          dataProvider,
 		ingestStateRepository: ingestStateRepository,
 		deviceRepository:      deviceRepository,
-		processingService:     processingService,
 		logger:                logger,
 		unitOfWork:            unitOfWork,
 		ingestionValidator:    ingestionValidator,
@@ -88,21 +85,14 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 
 	s.logger.Info("mediciones obtenidas desde DataOS", "measuring_point_id", measuringPointID, "cantidad", len(measurements))
 
-	// 7. Procesar mediciones.
-	processedMeasurements, err := s.processingService.Process(ctx, measurements)
-	if err != nil {
-		s.logger.Error("ocurrió un error durante el procesamiento de las mediciones", "measuring_point_id", measuringPointID, "error", err)
-		return fmt.Errorf("procesar mediciones: %w", err)
-	}
-
 	// 8. Si no llegaron datos, no se crea estado.
-	if len(processedMeasurements) == 0 {
+	if len(measurements) == 0 {
 		return ingestionErrors.ErrRecivingIngestedData
 	}
 
 	// 9. Obtener timestamp de la última medición: last_ingested_at es el
 	// MAX(timestamp) de las muestras del lote, no el fin del rango pedido.
-	lastIngestedAt := getLatestMeasurementTimestamp(processedMeasurements)
+	lastIngestedAt := getLatestMeasurementTimestamp(measurements)
 
 	// 10. Crear el estado de ingesta.
 	// Para la primera ingesta:
@@ -111,7 +101,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	state := &entities.IngestionState{
 		MeasuringPointID: uint64(measuringPointID),
 		Source:           "dataos",
-		ReceivedRecords:  len(processedMeasurements),
+		ReceivedRecords:  len(measurements),
 		LastIngestedAt:   lastIngestedAt,
 	}
 
@@ -137,7 +127,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			// Guardar mediciones.
 			savedBatch, err := measurementRepository.SaveBatch(
 				ctx,
-				processedMeasurements,
+				measurements,
 			)
 			if err != nil {
 				return fmt.Errorf("guardar mediciones: %w", err)
@@ -146,7 +136,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			s.logger.Info(
 				"mediciones guardadas correctamente",
 				"measuring_point_id", measuringPointID,
-				"cantidad", len(processedMeasurements),
+				"cantidad", len(measurements),
 			)
 
 			// Guardar estado (misma TX: si falla, se revierten también las mediciones).
@@ -201,7 +191,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	)
 
 	// 12. Publicar el evento post-commit (nunca hace fallar la ingesta).
-	s.publishMeasurementsIngested(ctx, measuringPointID, state.Source, processedMeasurements, batchResult, stateResult)
+	s.publishMeasurementsIngested(ctx, measuringPointID, state.Source, measurements, batchResult, stateResult)
 
 	return nil
 }

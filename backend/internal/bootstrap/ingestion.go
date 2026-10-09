@@ -175,7 +175,6 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	// Services
 	// ---------------------------------------------------------
 
-	processingService := services.NewProcessingService(logIngestion)
 	ingestionValidator := services.NewIngestionValidator(logIngestion)
 
 	// ---------------------------------------------------------
@@ -198,7 +197,6 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 		dataOSClient,
 		ingestionStateRepository,
 		deviceRepository,
-		processingService,
 		unitOfWork,
 		logIngestion,
 		ingestionValidator,
