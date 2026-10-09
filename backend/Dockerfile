@@ -23,6 +23,9 @@ FROM alpine:3.22
 
 WORKDIR /app
 
+# Hora de Colombia en todo el contenedor (el binario además embebe tzdata).
+ENV TZ=America/Bogota
+
 # ca-certificates: TLS hacia DataOS y Supabase. tzdata: zona America/Bogota.
 RUN apk --no-cache add ca-certificates tzdata \
     && addgroup -S agatha \

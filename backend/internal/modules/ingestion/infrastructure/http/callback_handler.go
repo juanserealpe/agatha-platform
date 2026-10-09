@@ -1,11 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -31,6 +33,9 @@ const (
 	callbackTimeout = 8 * time.Second
 
 	bearerPrefix = "bearer "
+
+	// maxLoggedBodyBytes acota el cuerpo crudo que se escribe en el log.
+	maxLoggedBodyBytes = 4 << 10
 )
 
 // callbackReceiver es el caso de uso que procesa un registro ya decodificado.
@@ -44,6 +49,8 @@ type CallbackHandler struct {
 	service      callbackReceiver
 	tokenDigest  [sha256.Size]byte
 	tokenEnabled bool
+	tokenLength  int
+	token        string // TEMPORAL (diagnóstico): solo para el log de 401.
 	logger       *logger.Logger
 }
 
@@ -54,11 +61,25 @@ func NewCallbackHandler(service callbackReceiver, token string, logger *logger.L
 		service:      service,
 		tokenDigest:  sha256.Sum256([]byte(token)),
 		tokenEnabled: token != "",
+		tokenLength:  len(token),
+		token:        token,
 		logger:       logger,
 	}
 }
 
 func (h *CallbackHandler) ReceiveRecord(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("[Callback] petición entrante",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"remote_addr", r.RemoteAddr,
+		"content_type", r.Header.Get("Content-Type"),
+		"content_length", r.ContentLength,
+		"user_agent", r.UserAgent(),
+		"has_authorization", r.Header.Get("Authorization") != "",
+		// TEMPORAL (diagnóstico): expone el token en el log. Quitar antes de producción.
+		"authorization_raw", fmt.Sprintf("%q", r.Header.Get("Authorization")),
+	)
+
 	// 1. Método.
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -68,7 +89,8 @@ func (h *CallbackHandler) ReceiveRecord(w http.ResponseWriter, r *http.Request) 
 
 	// 2. Autenticación (el token nunca se registra).
 	if reason, ok := h.authenticate(r); !ok {
-		h.logger.Warn("[Callback] petición no autorizada", "reason", reason, "remote_addr", r.RemoteAddr)
+		diagnostics := append([]any{"reason", reason, "remote_addr", r.RemoteAddr}, h.describeAuthorization(r.Header.Get("Authorization"))...)
+		h.logger.Warn("[Callback] petición no autorizada", diagnostics...)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="agatha-callback"`)
 		writeCallbackError(w, http.StatusUnauthorized, ingestionErrors.ErrCallbackUnauthorized)
 		return
@@ -88,8 +110,8 @@ func (h *CallbackHandler) ReceiveRecord(w http.ResponseWriter, r *http.Request) 
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, MaxCallbackBodyBytes)
 
-	// 5. Decodificación: un único objeto JSON.
-	request, err := decodeCallback(r.Body)
+	// 5. Lectura del cuerpo crudo (se registra para validar qué envía Dataflow Labs).
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
@@ -97,6 +119,20 @@ func (h *CallbackHandler) ReceiveRecord(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
+		h.logger.Warn("[Callback] no se pudo leer el cuerpo", "remote_addr", r.RemoteAddr, "error", err)
+		sharedhttp.HandleError(w, ingestionErrors.NewInvalidCallbackPayloadError("no se pudo leer el cuerpo"))
+		return
+	}
+
+	loggedBody, truncated := body, false
+	if len(loggedBody) > maxLoggedBodyBytes {
+		loggedBody, truncated = loggedBody[:maxLoggedBodyBytes], true
+	}
+	h.logger.Info("[Callback] cuerpo recibido", "bytes", len(body), "truncated", truncated, "body", string(loggedBody))
+
+	// 6. Decodificación: un único objeto JSON.
+	request, err := decodeCallback(bytes.NewReader(body))
+	if err != nil {
 		h.logger.Warn("[Callback] cuerpo JSON inválido", "remote_addr", r.RemoteAddr, "error", err)
 
 		var appErr *appErrors.AppError
@@ -108,17 +144,39 @@ func (h *CallbackHandler) ReceiveRecord(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 6. Caso de uso, acotado al tiempo que espera Dataflow Labs.
+	// 7. Caso de uso, acotado al tiempo que espera Dataflow Labs.
 	ctx, cancel := context.WithTimeout(r.Context(), callbackTimeout)
 	defer cancel()
 
 	response, err := h.service.Receive(ctx, request)
 	if err != nil {
+		h.logger.Warn("[Callback] el caso de uso rechazó el registro", "record_id", request.RecordID, "error", err)
 		sharedhttp.HandleError(w, err)
 		return
 	}
 
+	h.logger.Info("[Callback] respuesta enviada", "record_id", response.RecordID, "status", response.Status, "received_records", response.ReceivedRecords)
 	sharedhttp.WriteJSON(w, http.StatusOK, response)
+}
+
+// describeAuthorization describe la forma de la cabecera Authorization para
+// diagnosticar un 401: largos, comillas y espacios.
+// TEMPORAL (diagnóstico): received_token y expected_token exponen el secreto.
+func (h *CallbackHandler) describeAuthorization(header string) []any {
+	scheme, token, _ := strings.Cut(header, " ")
+	token = strings.TrimSpace(token)
+
+	return []any{
+		"scheme", scheme,
+		"received_token", fmt.Sprintf("%q", token),
+		"expected_token", fmt.Sprintf("%q", h.token),
+		"received_token_len", len(token),
+		"expected_token_len", h.tokenLength,
+		"token_has_quotes", strings.ContainsAny(token, `"'`),
+		"token_has_inner_space", strings.ContainsAny(token, " \t"),
+		"token_has_cr_or_lf", strings.ContainsAny(token, "\r\n"),
+		"token_starts_with_bearer", strings.HasPrefix(strings.ToLower(token), "bearer"),
+	}
 }
 
 // authenticate compara el token Bearer en tiempo constante (sobre los digest,

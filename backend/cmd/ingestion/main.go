@@ -48,7 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	start := time.Date(2026, 10, 7, 19, 20, 0, 0, location)
+	start := time.Date(2026, 10, 8, 23, 10, 0, 0, location)
 	end := time.Now().In(location) // o una fecha fija: time.Date(2026, 10, 6, 9, 55, 0, 0, location)
 
 	ctx := context.Background()
