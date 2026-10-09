@@ -22,7 +22,7 @@ type CallbackModule struct {
 }
 
 // NewCallbackModule migra el esquema de Ingestion y cablea el callback sobre su
-// persistencia (devices + ingestion_logs). Si AGATHA_CALLBACK_TOKEN no está
+// persistencia (devices + ingestion_logs + raw_measurements). Si AGATHA_CALLBACK_TOKEN no está
 // configurada, arranca igual pero rechaza todas las peticiones con 401.
 func NewCallbackModule(platform *Platform) (*CallbackModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
@@ -47,6 +47,7 @@ func NewCallbackModule(platform *Platform) (*CallbackModule, error) {
 		repositories.NewDeviceRepository(platform.DB),
 		repositories.NewUnitOfWork(platform.DB, logCallback),
 		services.NewCallbackValidator(location),
+		services.NewCallbackMapper(),
 		logCallback,
 	)
 

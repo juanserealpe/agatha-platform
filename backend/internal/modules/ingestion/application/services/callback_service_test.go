@@ -54,6 +54,7 @@ func newCallbackFixture(t *testing.T) *callbackFixture {
 		f.devices,
 		f.uow,
 		NewCallbackValidator(bogotaLocation(t)),
+		NewCallbackMapper(),
 		logger.New("test", "Info"),
 	)
 	return f
@@ -86,9 +87,22 @@ func TestCallbackService_StoresNewRecord(t *testing.T) {
 		t.Fatalf("last_ingested_at = %v, se esperaba %v", state.LastIngestedAt, wantTS)
 	}
 
-	// Sin mapeo de métricas: el callback todavía no escribe raw_measurements.
-	if len(f.measurements.saved) != 0 {
-		t.Fatalf("no se esperaban mediciones guardadas, hay %d", len(f.measurements.saved))
+	// Las variables mapeadas se escriben en raw_measurements en la misma TX.
+	wantTS := time.Date(2026, 10, 8, 16, 15, 41, 0, bogotaLocation(t))
+	wantMeasurements := []entities.RawMeasurement{
+		{Timestamp: wantTS, MeasuringPointID: 11556, MetricID: 20, Value: 22.4, Source: CallbackSource},
+		{Timestamp: wantTS, MeasuringPointID: 11556, MetricID: 21, Value: 77.01, Source: CallbackSource},
+		{Timestamp: wantTS, MeasuringPointID: 11556, MetricID: 19, Value: 0, Source: CallbackSource},
+	}
+	if len(f.measurements.saved) != len(wantMeasurements) {
+		t.Fatalf("se guardaron %d mediciones, se esperaban %d", len(f.measurements.saved), len(wantMeasurements))
+	}
+	for i, want := range wantMeasurements {
+		got := f.measurements.saved[i]
+		if !got.Timestamp.Equal(want.Timestamp) || got.MeasuringPointID != want.MeasuringPointID ||
+			got.MetricID != want.MetricID || got.Value != want.Value || got.Source != want.Source {
+			t.Fatalf("medición %d = %+v, se esperaba %+v", i, got, want)
+		}
 	}
 }
 
@@ -108,6 +122,48 @@ func TestCallbackService_RetryIsAcknowledgedAsDuplicate(t *testing.T) {
 	}
 	if len(f.states.saved) != 1 {
 		t.Fatalf("el reintento duplicó el registro: %d filas", len(f.states.saved))
+	}
+	// raw_measurements no tiene índice único: el reintento no debe reescribirlas.
+	if len(f.measurements.saved) != 3 {
+		t.Fatalf("el reintento duplicó las mediciones: %d filas", len(f.measurements.saved))
+	}
+}
+
+func TestCallbackService_LogsUnmappedVariables(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(io.Discard) })
+
+	f := newCallbackFixture(t)
+	payload := validCallback()
+	payload.Records = append(payload.Records,
+		dtos.CallbackReading{DeviceID: 11556, Timestamp: "2026-10-08T16:15:41", Name: "piezo_peak", Readings: "812"},
+	)
+
+	if _, err := f.service.Receive(context.Background(), payload); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "variables sin mapeo") || !strings.Contains(out, "piezo_peak") {
+		t.Fatalf("el log no avisa la variable sin mapeo:\n%s", out)
+	}
+	if len(f.measurements.saved) != 3 {
+		t.Fatalf("la variable sin mapeo no debe guardarse: %d mediciones", len(f.measurements.saved))
+	}
+}
+
+func TestCallbackService_MeasurementFailureRollsBackState(t *testing.T) {
+	f := newCallbackFixture(t)
+	f.measurements.err = errors.New("disco lleno")
+
+	_, err := f.service.Receive(context.Background(), validCallback())
+
+	if !errors.Is(err, ingestionErrors.ErrPersistingIngestionState) {
+		t.Fatalf("se esperaba ErrPersistingIngestionState, llegó %v", err)
+	}
+	if len(f.states.saved) != 0 {
+		t.Fatal("si fallan las mediciones, el record_id no debe quedar reclamado")
 	}
 }
 

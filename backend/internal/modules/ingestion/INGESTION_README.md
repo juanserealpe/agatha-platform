@@ -17,7 +17,7 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 
 | Trigger | Acción | Servicio |
 |---|---|---|
-| `POST /ingestion/callback` | Recibe un registro de Dataflow Labs, lo registra en el log y persiste su recibo (idempotente por `record_id`) | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
+| `POST /ingestion/callback` | Recibe un registro de Dataflow Labs, mapea sus variables a métricas y persiste en una TX el recibo (idempotente por `record_id`) y las mediciones en `raw_measurements` | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
 | `IngestionScheduler.Start()` | Ingesta periódica desde DataOS | `IngestService.IngestDataOs(ctx, measuringPointID, start, end)` |
 
 ## Callback de Dataflow Labs
@@ -70,7 +70,40 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 
 - Cada registro nuevo es **una fila en `ingestion_logs`** (`IngestionStateModel`) con `source = dataflow_callback`, `record_id`, `received_records = len(records)` y `last_ingested_at` = MAX(timestamp) de las variables.
 - `record_id` tiene un índice único (`ux_ingestion_logs_record_id`; los lotes de DataOS lo dejan en NULL). `IngestionStateRepository.SaveIfAbsent` inserta con `ON CONFLICT (record_id) DO NOTHING`: si llegan dos peticiones concurrentes con el mismo `record_id`, la segunda espera el commit de la primera y responde `duplicate`. Si la primera se revierte, la segunda inserta.
-- **Etapa actual (observación)**: el callback **todavía no mapea** las variables (`env_temperature_c`, `accel_drift_deg_cloud`, ...) a `metric_id` ni escribe `raw_measurements`, así que no publica `ingestion.measurements_ingested`. Cada variable se registra en el log (`[Callback] variable recibida`, con `name`, `readings`, `device_id` y `timestamp`) para confirmar qué llega. Cuando exista el mapeo, las mediciones se guardarán dentro de la misma TX, después de reclamar el `record_id`.
+- **Mediciones en la misma TX**: dentro del `IngestionUnitOfWork` primero se reclama el `record_id` (`SaveIfAbsent`) y, solo si es nuevo, se escriben las mediciones con `MeasurementRepository.SaveBatch` (`source = dataflow_callback`, `timestamp` = el de cada variable). Un reintento (`duplicate`) no reescribe mediciones. Si `SaveBatch` falla, se revierte también el recibo y se responde 500 para que Dataflow Labs reintente.
+- **Todavía no publica** `ingestion.measurements_ingested` (el módulo `callback` no cablea `EventPublisher`).
+
+### Mapeo de variables (`CallbackMapper`)
+
+`callbackMetricIDMap` traduce el `name` de cada variable al `metric_id` del catálogo (`ARQUITECTURA_LITE.md` §2.1), equivalente al mapper de DataOS (`external/dataos/mapping/mapper.go`). `readings` se convierte a `float64` (si no cabe ⇒ 400).
+
+| Variable | metric_id | Métrica |
+|----------|-----------|---------|
+| `accel_pitch` | 1 | Pitch |
+| `accel_roll` | 2 | Roll |
+| `power_vbat_mv` | 3 | Voltaje (mV) |
+| `power_ibat_ma` | 4 | Corriente (mA) |
+| `power_battery_pct` | 5 | Batería (%) |
+| `piezo_rms` | 6 | RMS (ADC) |
+| `piezo_activity` | 7 | Actividad (piezoeléctrica, %) |
+| `accel_mag_avg` | 8 | Mag promedio (g) |
+| `accel_activity_peak` | 9 | Act. pico (g/s) |
+| `pspec_ratio` | 10 | Razon R (fuga/viento) |
+| `pspec_b0_wind` | 11 | B0 viento 30-300Hz |
+| `pspec_b1_leak` | 12 | B1 fuga 500-1200Hz |
+| `pspec_b2_leak` | 13 | B2 fuga 1200-2000Hz |
+| `pspec_b3_guard` | 14 | B3 guarda 2-2.4kHz |
+| `accel_base_pitch` | 15 | Pitch base |
+| `accel_base_roll` | 16 | Roll base |
+| `pspec_rms` | 17 | RMS acustico |
+| `pspec_flatness` | 18 | Planitud espectral |
+| `accel_drift_deg_cloud` | 19 | Deriva (grados) — NO `accel_drift_deg` |
+| `env_temperature_c` | 20 | Temperatura (°C) |
+| `env_humidity_pct` | 21 | Humedad (%) |
+
+Criterio RMS/Actividad: en el análisis acústico del analista "RMS acústico" ronda 5 (= `pspec_rms`; `piezo_rms` ronda 56) y "Actividad" es la actividad piezoeléctrica en %.
+
+Todo lo que está fuera de las 21 métricas se **omite** (no se guarda): `accel_activity_avg`, `accel_movement`, `accel_shock`, `accel_{x,y,z}_{avg,min,max,std}`, `accel_vibration`, `accel_event`, `accel_drift_deg`, `accel_drift_alarm[_cloud]`, `accel_drift_run[_cloud]`, `accel_settle[_cloud]`, `accel_baseline_valid[_cloud]`, `piezo_peak`, `piezo_leak_{suspected,confirmed}`, `power_energy_mwh`, `power_modem_{ma_avg,duty_pct}`, `power_p_{in,out}`, `samples`, `pspec_centroid`, `pspec_leak_suspect`. Se informan en un único `WARN` por registro: `[Callback] variables sin mapeo; no se guardan` (`names`, `cantidad`); el registro igual se acepta. Cada variable recibida sigue registrándose en `[Callback] variable recibida`.
 
 ## Flujo de ingesta DataOS (contingencia)
 
@@ -102,4 +135,4 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 
 | Tópico | Evento (`contract/`) | Publicado por |
 |---|---|---|
-| `ingestion.measurements_ingested` | `MeasurementsIngested` | Solo la ingesta DataOS (post-commit, si se insertó al menos 1 medición). El callback no lo publica todavía porque no escribe mediciones. |
+| `ingestion.measurements_ingested` | `MeasurementsIngested` | Solo la ingesta DataOS (post-commit, si se insertó al menos 1 medición). El callback ya escribe mediciones pero todavía no lo publica (sin `EventPublisher` cableado). |

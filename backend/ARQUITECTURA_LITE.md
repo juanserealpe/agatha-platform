@@ -71,7 +71,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Trigger | Accion | Servicio |
 |---------|--------|----------|
-| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, registra sus variables en el log y persiste el recibo en `ingestion_logs` (idempotente por `record_id`). **Todavía no mapea variables a métricas ni escribe `raw_measurements`** | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
+| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, mapea sus variables a `metric_id` (`CallbackMapper`; las sin mapeo se avisan con WARN) y persiste en una sola TX el recibo en `ingestion_logs` (idempotente por `record_id`) y las mediciones en `raw_measurements`. Aún no publica `ingestion.measurements_ingested` | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
 | `IngestionScheduler.Start()` | Ingesta periódica por intervalo configurable (contingencia) | `IngestService.IngestDataOs(ctx, measuringPointID, start, end)` |
 
 **Callback**: 200 `stored`/`duplicate`; 400 (JSON o campos inválidos), 401, 404 (`mp_id` no registrado), 405, 413 (> 1 MiB), 415, 500 (fallo de BD ⇒ Dataflow Labs reintenta). Timestamps sin zona se interpretan en `America/Bogota`; `readings` se conserva como literal JSON. Deduplicación: índice único `ux_ingestion_logs_record_id` + `ON CONFLICT (record_id) DO NOTHING` (seguro ante concurrencia).

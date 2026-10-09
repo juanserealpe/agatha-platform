@@ -18,13 +18,14 @@ const CallbackSource = "dataflow_callback"
 
 // CallbackService recibe los registros que Dataflow Labs empuja por HTTP.
 //
-// Por ahora NO mapea variables a métricas ni escribe raw_measurements: registra
-// en el log qué variables llegaron y persiste el recibo del registro (una fila
-// en ingestion_logs con su record_id) para deduplicar los reintentos.
+// Mapea cada variable a su métrica del catálogo y, en una sola transacción,
+// persiste el recibo del registro (una fila en ingestion_logs con su record_id,
+// que deduplica los reintentos) y las mediciones en raw_measurements.
 type CallbackService struct {
 	deviceRepository repositories.DeviceRepository
 	unitOfWork       ports.IngestionUnitOfWork
 	validator        *CallbackValidator
+	mapper           *CallbackMapper
 	logger           *logger.Logger
 }
 
@@ -32,12 +33,14 @@ func NewCallbackService(
 	deviceRepository repositories.DeviceRepository,
 	unitOfWork ports.IngestionUnitOfWork,
 	validator *CallbackValidator,
+	mapper *CallbackMapper,
 	logger *logger.Logger,
 ) *CallbackService {
 	return &CallbackService{
 		deviceRepository: deviceRepository,
 		unitOfWork:       unitOfWork,
 		validator:        validator,
+		mapper:           mapper,
 		logger:           logger,
 	}
 }
@@ -52,8 +55,17 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 		return dtos.CallbackResponse{}, err
 	}
 
-	// 2. Mostrar qué llegó (sin mapear todavía a métricas).
+	// 2. Mostrar qué llegó y mapear las variables a métricas.
 	s.logReceivedRecord(record)
+
+	measurements, unmapped, err := s.mapper.Map(record)
+	if err != nil {
+		s.logger.Warn("[Callback] payload rechazado al mapear", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "error", err)
+		return dtos.CallbackResponse{}, err
+	}
+	if len(unmapped) > 0 {
+		s.logger.Warn("[Callback] variables sin mapeo; no se guardan", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "cantidad", len(unmapped), "names", unmapped)
+	}
 
 	// 3. Verificar que el punto de medición exista.
 	device, err := s.deviceRepository.FindByMeasuringPointID(ctx, record.MeasuringPointID)
@@ -66,7 +78,7 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 		return dtos.CallbackResponse{}, appErrors.ErrDeviceNotFound
 	}
 
-	// 4. Persistir el recibo; el índice único sobre record_id deduplica.
+	// 4. Persistir recibo y mediciones; el índice único sobre record_id deduplica.
 	recordID := record.RecordID
 	lastIngestedAt := record.LatestReadingTimestamp()
 	state := &entities.IngestionState{
@@ -82,15 +94,25 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 		ctx,
 		func(
 			ctx context.Context,
-			_ repositories.MeasurementRepository,
+			measurementRepository repositories.MeasurementRepository,
 			ingestionStateRepository repositories.IngestionStateRepository,
 			_ repositories.IngestionGapRepository,
 		) error {
-			// Cuando exista el mapeo de variables → metric_id, las mediciones se
-			// guardan acá, en la misma TX, DESPUÉS de reclamar el record_id.
+			// Primero se reclama el record_id: raw_measurements no tiene índice
+			// único, así que un reintento NO debe volver a escribir mediciones.
 			_, saved, err := ingestionStateRepository.SaveIfAbsent(ctx, state)
-			created = saved
-			return err
+			if err != nil || !saved {
+				return err
+			}
+			created = true
+
+			// Misma TX: si fallan las mediciones, se libera también el record_id
+			// y Dataflow Labs puede reintentar el registro completo.
+			if _, err := measurementRepository.SaveBatch(ctx, measurements); err != nil {
+				created = false
+				return err
+			}
+			return nil
 		},
 	)
 	if err != nil {
@@ -110,7 +132,7 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 		return response, nil
 	}
 
-	s.logger.Info("[Callback] registro persistido", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "received_records", response.ReceivedRecords, "last_ingested_at", lastIngestedAt)
+	s.logger.Info("[Callback] registro persistido", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "received_records", response.ReceivedRecords, "stored_measurements", len(measurements), "last_ingested_at", lastIngestedAt)
 	return response, nil
 }
 
