@@ -1,8 +1,6 @@
-# Imagen del monolito Agatha. Por defecto compila cmd/callback: la ingesta
-# principal es el callback de Dataflow Labs (POST /ingestion/callback) junto con
-# Baseline, Processing y Dashboard en un solo proceso.
-# APP permite compilar otro entrypoint de cmd/. Contingencia: APP=platform vuelve
-# a la ingesta por consulta a DataOS (no correr ambas a la vez).
+# Imagen del monolito Agatha. Por defecto compila cmd/platform, que levanta en un
+# solo proceso los módulos elegidos en runtime con AGATHA_MODULES.
+# APP permite compilar otro entrypoint de cmd/.
 FROM golang:1.25.7-alpine AS builder
 
 WORKDIR /app
@@ -13,7 +11,7 @@ RUN go mod download
 
 COPY . .
 
-ARG APP=callback
+ARG APP=platform
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \

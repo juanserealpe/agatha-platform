@@ -1,9 +1,14 @@
-// Command platform ejecuta el monolito completo en un solo proceso:
-// Baseline (scheduler de recálculo), Processing (subscriber del bus +
-// reconciliador horario), Ingestion (scheduler) y Dashboard (API HTTP).
+// Command platform ejecuta el monolito en un solo proceso con los módulos que
+// elige AGATHA_MODULES (lista separada por comas):
 //
-// Los tres comparten la misma Platform (BD + bus en memoria). Por eso viven en
-// el mismo proceso: el bus no cruza procesos ni contenedores.
+//	baseline    scheduler de recálculo de líneas base
+//	processing  subscriber del bus + reconciliador horario (requiere baseline)
+//	dataos      ingesta de contingencia: consulta programada a DataOS
+//	callback    ingesta principal: POST /ingestion/callback (excluyente con dataos)
+//	dashboard   API HTTP de solo lectura: GET /api/dashboard/*
+//
+// Vacía equivale a bootstrap.DefaultModules. Todos comparten la misma Platform
+// (BD + bus en memoria): por eso viven en el mismo proceso.
 package main
 
 import (
@@ -28,82 +33,65 @@ const (
 func main() {
 	log := logger.New("Platform", "Info")
 
-	// 1. Infraestructura compartida: .env, BD y bus de eventos.
+	// 1. Infraestructura compartida: .env, BD y bus de eventos. Va primero porque
+	// carga el .env del que también puede salir AGATHA_MODULES.
 	platform, err := bootstrap.NewPlatform()
 	if err != nil {
 		os.Exit(1)
 	}
 
-	// 2. Baseline (solo lee la BD). Migra su esquema; su scheduler arranca antes que el de Ingestion.
-	baselineModule, err := bootstrap.NewBaselineModule(platform)
+	modules, err := bootstrap.ParseModules(os.Getenv(bootstrap.ModulesEnv))
 	if err != nil {
+		log.Error("configuración de módulos inválida", "variable", bootstrap.ModulesEnv, "error", err)
+		os.Exit(2)
+	}
+	log.Info("módulos habilitados", "modules", modules.String())
+
+	// 2. Módulos habilitados, en orden de arranque.
+	app, err := bootstrap.NewApplication(platform, modules)
+	if err != nil {
+		log.Error("no fue posible iniciar los módulos", "error", err)
 		os.Exit(1)
 	}
 
-	// 3. Processing (consumidor). Migra feature_evaluations y se suscribe ANTES de que Ingestion publique.
-	processingModule, err := bootstrap.NewProcessingModule(platform, baselineModule)
-	if err != nil {
-		os.Exit(1)
-	}
-
-	// 4. Ingestion (publicador). Migra el esquema y valida credenciales de DataOS.
-	ingestion, err := bootstrap.NewIngestionModule(platform)
-	if err != nil {
-		os.Exit(1)
-	}
-
-	ingestionScheduler, err := ingestion.NewScheduler()
-	if err != nil {
-		log.Error("no fue posible crear el scheduler de ingesta", "error", err)
-		os.Exit(1)
-	}
-
-	// 5. Dashboard (API HTTP de solo lectura).
-	mux := http.NewServeMux()
-	bootstrap.NewDashboardModule(platform).RegisterRoutes(mux)
-
-	server := &http.Server{
-		Addr:              httpAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	// SIGINT/SIGTERM detienen scheduler y servidor; luego se drena el bus.
+	// SIGINT/SIGTERM detienen schedulers y servidor; luego se drena el bus.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info("scheduler de línea base iniciado")
-		baselineModule.NewScheduler().Start(ctx)
-	}()
+	for _, runner := range app.Runners() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Info(runner.Name + " iniciado")
+			runner.Start(ctx)
+		}()
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info("reconciliador de processing iniciado")
-		processingModule.NewScheduler().Start(ctx)
-	}()
+	// 3. Servidor HTTP solo si algún módulo expone rutas.
+	var server *http.Server
+	if modules.HasHTTP() {
+		mux := http.NewServeMux()
+		app.RegisterRoutes(mux)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info("scheduler de ingesta iniciado")
-		ingestionScheduler.Start(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info("servidor HTTP iniciado", "addr", httpAddr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("el servidor HTTP terminó con error", "error", err)
-			stop()
+		server = &http.Server{
+			Addr:              httpAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       15 * time.Second,
 		}
-	}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Info("servidor HTTP iniciado", "addr", httpAddr)
+			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("el servidor HTTP terminó con error", "error", err)
+				stop()
+			}
+		}()
+	}
 
 	<-ctx.Done()
 	log.Info("apagando la plataforma")
@@ -111,11 +99,13 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Error("el servidor HTTP no terminó de cerrar a tiempo", "error", err)
+	if server != nil {
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Error("el servidor HTTP no terminó de cerrar a tiempo", "error", err)
+		}
 	}
 
-	// Espera a que los schedulers (Baseline, Processing e Ingestion) terminen su ejecución en curso antes de drenar el bus.
+	// Espera a que los schedulers terminen su ejecución en curso antes de drenar el bus.
 	wg.Wait()
 
 	if err := platform.Close(shutdownCtx); err != nil {

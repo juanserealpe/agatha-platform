@@ -1,16 +1,17 @@
 services:
 
-  # Monolito: Ingestion por callback de Dataflow Labs (POST :8080/ingestion/callback,
-  # principal) + Baseline + Processing (bus en memoria) + Dashboard (API).
-  # Un único servicio: el bus de eventos es en proceso y no cruza contenedores.
-  # Contingencia: APP: platform vuelve a la consulta programada a DataOS
-  # (no correr ambas ingestas a la vez: duplicaría raw_measurements).
+  # Monolito Agatha: un solo proceso (el bus de eventos es en memoria y no cruza
+  # contenedores). Los módulos se eligen con AGATHA_MODULES, separados por comas:
+  #   baseline    scheduler de recálculo de líneas base
+  #   processing  subscriber del bus + reconciliador horario (requiere baseline)
+  #   dataos      ingesta de contingencia: consulta programada a DataOS
+  #   callback    ingesta principal: POST :8080/ingestion/callback (excluyente con dataos)
+  #   dashboard   API de solo lectura: GET :8080/api/dashboard/*
+  # Vacía = baseline,processing,callback,dashboard. Cambiarla NO requiere rebuild.
   platform:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        APP: callback
 
     image: agatha-platform:latest
 
@@ -18,6 +19,9 @@ services:
 
     env_file:
       - .env
+
+    environment:
+      AGATHA_MODULES: callback,dashboard
 
     ports:
       - "8080:8080"

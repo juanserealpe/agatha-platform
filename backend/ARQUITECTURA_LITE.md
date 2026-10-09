@@ -63,7 +63,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Ingestion
 
-**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, `cmd/callback`, default de Docker). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (`cmd/platform`). No correr ambas a la vez (`raw_measurements` no tiene índice único). Detalle en `modules/ingestion/INGESTION_README.md`.
+**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, módulo `callback` de `AGATHA_MODULES`). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (módulo `dataos`). No correr ambas a la vez (`raw_measurements` no tiene índice único). Detalle en `modules/ingestion/INGESTION_README.md`.
 
 **Arquitectura**: Hexagonal — `application/ports` define interfaces (`DataProvider`, `IngestionUnitOfWork`, `EventPublisher`), `domain/` contiene entidades y repositorios, `infrastructure/` implementa persistencia, cliente externo DataOS y publicación de eventos (`infrastructure/events`). `contract/` es la superficie pública del módulo (solo stdlib).
 
@@ -206,15 +206,14 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/callback` | **Default de la imagen**: callback de Dataflow Labs (ingesta principal) + Baseline + Processing (reconciliador) + Dashboard en `:8080`. Sin scheduler de DataOS. Mismo apagado ordenado que `cmd/platform`. |
-| `cmd/platform` | **Contingencia** (`APP=platform`): monolito con la consulta a DataOS como ingesta: `NewPlatform` → `NewBaselineModule` → `NewProcessingModule` → Ingestion → Dashboard. Schedulers de Baseline, Processing (reconciliador) e Ingestion + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `dataos`, `callback`, `dashboard`; vacía = `baseline,processing,callback,dashboard`). `bootstrap.ParseModules` valida que `processing` requiera `baseline` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + Processing (subscriber + reconciliador) + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo) + Processing sin reconciliador (el evento evalúa las horas listas); sale al terminar. |
 | `cmd/replay` | Reproducción histórica de Processing a CSV (`-point`, `-from`, `-to`, `-mode asof\|fixed`, `-fixed-asof`, `-out`); solo lectura; sale al terminar. |
 
-**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=callback` por defecto; `APP=platform` activa la contingencia DataOS) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`APP: callback`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN`). No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
+**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
 
 ---
 

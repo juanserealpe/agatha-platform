@@ -6,8 +6,8 @@ Hay dos vías de entrada:
 
 | Vía | Rol | Entrypoint |
 |---|---|---|
-| Callback HTTP de Dataflow Labs (`POST /ingestion/callback`) | **Principal** (default de Docker) | `cmd/callback` |
-| Consulta programada a DataOS (`IngestionScheduler`, cada 15 min) | **Contingencia** | `cmd/platform`, `cmd/scheduler`, `cmd/ingestion` |
+| Callback HTTP de Dataflow Labs (`POST /ingestion/callback`) | **Principal** (default de Docker) | `cmd/platform` con `AGATHA_MODULES` incluyendo `callback` |
+| Consulta programada a DataOS (`IngestionScheduler`, cada 15 min) | **Contingencia** | `cmd/platform` con `AGATHA_MODULES` incluyendo `dataos`, `cmd/scheduler`, `cmd/ingestion` |
 
 No corras ambas a la vez: `raw_measurements` no tiene índice único y la consulta a DataOS duplicaría filas.
 
