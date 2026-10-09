@@ -21,6 +21,14 @@ type IngestionStateRepository interface {
 		state *entities.IngestionState,
 	) (entities.SaveStateResult, error)
 
+	// SaveIfAbsent crea el estado solo si no existe otro con el mismo RecordID
+	// (requerido). created = false indica un duplicado ya persistido; en ese caso
+	// el resultado viene vacío. Es seguro ante inserciones concurrentes.
+	SaveIfAbsent(
+		ctx context.Context,
+		state *entities.IngestionState,
+	) (result entities.SaveStateResult, created bool, err error)
+
 	// Update actualiza el estado de ingesta existente.
 	Update(
 		ctx context.Context,

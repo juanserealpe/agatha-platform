@@ -10,4 +10,7 @@ type IngestionStateModel struct {
 	ReceivedRecords  int        `gorm:"column:received_records;not null"`
 	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
+	// RecordID es único cuando no es NULL (PostgreSQL admite varios NULL):
+	// deduplica los reintentos del callback de forma segura ante concurrencia.
+	RecordID *string `gorm:"column:record_id;size:128;uniqueIndex:ux_ingestion_logs_record_id"`
 }

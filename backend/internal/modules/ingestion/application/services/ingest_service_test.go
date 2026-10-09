@@ -98,6 +98,20 @@ func (f *fakeStateRepository) Save(_ context.Context, state *entities.IngestionS
 	return result, nil
 }
 
+// SaveIfAbsent simula el índice único sobre record_id.
+func (f *fakeStateRepository) SaveIfAbsent(ctx context.Context, state *entities.IngestionState) (entities.SaveStateResult, bool, error) {
+	if f.err != nil {
+		return entities.SaveStateResult{}, false, f.err
+	}
+	for _, row := range f.saved {
+		if row.RecordID != nil && state.RecordID != nil && *row.RecordID == *state.RecordID {
+			return entities.SaveStateResult{}, false, nil
+		}
+	}
+	result, err := f.Save(ctx, state)
+	return result, err == nil, err
+}
+
 func (f *fakeStateRepository) Update(context.Context, *entities.IngestionState) error { return nil }
 
 // fakeUnitOfWork ejecuta fn con los repos fake y simula commit/rollback:

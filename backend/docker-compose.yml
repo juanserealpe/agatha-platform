@@ -1,13 +1,16 @@
 services:
 
-  # Monolito completo: Ingestion (scheduler) + Processing (bus en memoria) + Dashboard (API).
+  # Monolito: Ingestion por callback de Dataflow Labs (POST :8080/ingestion/callback,
+  # principal) + Baseline + Processing (bus en memoria) + Dashboard (API).
   # Un único servicio: el bus de eventos es en proceso y no cruza contenedores.
+  # Contingencia: APP: platform vuelve a la consulta programada a DataOS
+  # (no correr ambas ingestas a la vez: duplicaría raw_measurements).
   platform:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        APP: platform
+        APP: callback
 
     image: agatha-platform:latest
 
@@ -19,7 +22,7 @@ services:
     ports:
       - "8080:8080"
 
-    # Deja tiempo al apagado ordenado (servidor, scheduler y drenado del bus: 10 s).
+    # Deja tiempo al apagado ordenado (servidor, schedulers y drenado del bus: 10 s).
     stop_grace_period: 15s
 
     restart: unless-stopped

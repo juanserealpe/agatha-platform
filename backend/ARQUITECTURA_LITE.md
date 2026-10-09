@@ -63,7 +63,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Ingestion
 
-**Responsabilidad**: Ingestar mediciones desde DataOS, procesarlas y persistirlas con control transaccional (Unit of Work). Ejecuta ingestas programadas vía `IngestionScheduler`.
+**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, `cmd/callback`, default de Docker). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (`cmd/platform`). No correr ambas a la vez (`raw_measurements` no tiene índice único). Detalle en `modules/ingestion/INGESTION_README.md`.
 
 **Arquitectura**: Hexagonal — `application/ports` define interfaces (`DataProvider`, `IngestionUnitOfWork`, `EventPublisher`), `domain/` contiene entidades y repositorios, `infrastructure/` implementa persistencia, cliente externo DataOS y publicación de eventos (`infrastructure/events`). `contract/` es la superficie pública del módulo (solo stdlib).
 
@@ -71,12 +71,17 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Trigger | Accion | Servicio |
 |---------|--------|----------|
-| `IngestionScheduler.Start()` | Ingesta periódica por intervalo configurable | `IngestService.IngestDataOs(ctx, measuringPointID, start, end)` |
+| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, registra sus variables en el log y persiste el recibo en `ingestion_logs` (idempotente por `record_id`). **Todavía no mapea variables a métricas ni escribe `raw_measurements`** | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
+| `IngestionScheduler.Start()` | Ingesta periódica por intervalo configurable (contingencia) | `IngestService.IngestDataOs(ctx, measuringPointID, start, end)` |
+
+**Callback**: 200 `stored`/`duplicate`; 400 (JSON o campos inválidos), 401, 404 (`mp_id` no registrado), 405, 413 (> 1 MiB), 415, 500 (fallo de BD ⇒ Dataflow Labs reintenta). Timestamps sin zona se interpretan en `America/Bogota`; `readings` se conserva como literal JSON. Deduplicación: índice único `ux_ingestion_logs_record_id` + `ON CONFLICT (record_id) DO NOTHING` (seguro ante concurrencia).
 
 ## DTOs Clave
 
 | DTO | Campos |
 |-----|--------|
+| `DataRecordCallback` | `event`, `record_id`, `mp_id`, `serial_id`, `timestamp`, `records []{device_id, timestamp, name, readings}` |
+| `CallbackResponse` | `status` (`stored`\|`duplicate`), `record_id`, `received_records` |
 | `IngestRequest` | `device_id string`, `timestamp time.Time`, `payload map[string]any` |
 | `IngestResponse` | `status string`, `message string`, `timestamp time.Time` |
 
@@ -84,7 +89,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 - `Device` — `MeasuringPointID`, `Name`, `Active`
 - `RawMeasurement` — `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`
-- `IngestionState` — `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`
+- `IngestionState` — `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`, `RecordID` (solo callback)
+- `CallbackRecord` / `CallbackReading` — registro del callback validado (timestamps parseados + literales originales)
 - `IngestionGap` — `MeasuringPointID`, `StartedAt`, `EndedAt`, `Status` (gap tracking)
 - `MetricDefinition` — `Key`, `Name`, `Unit`, `Category`
 - `SaveBatchResult` — `Inserted` (filas realmente insertadas por `MeasurementRepository.SaveBatch`)
@@ -189,7 +195,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 |---|---|---|
 | `NewPlatform()` | Shared | BD única + `InMemoryBus`. `Platform.Close(ctx)` drena el bus. |
 | `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Facade`, `Recalculator` y `NewScheduler()`. |
-| `NewIngestionModule(platform)` | Ingestion | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
+| `NewIngestionModule(platform)` | Ingestion (DataOS) | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
+| `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
 | `NewProcessingModule(platform, baseline)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + adapter sobre `baseline.Facade` + subscriber. Expone `NewScheduler()` (reconciliador). Llamar antes de que Ingestion publique. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Processing + Ingestion | Composición para `cmd/scheduler` y `cmd/ingestion` (solo `cmd/scheduler` arranca los schedulers de Baseline y Processing). |
@@ -199,14 +206,15 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Monolito completo** (default de la imagen): `NewPlatform` → `NewBaselineModule` → `NewProcessingModule` → Ingestion → Dashboard. Schedulers de Baseline, Processing (reconciliador) e Ingestion + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/callback` | **Default de la imagen**: callback de Dataflow Labs (ingesta principal) + Baseline + Processing (reconciliador) + Dashboard en `:8080`. Sin scheduler de DataOS. Mismo apagado ordenado que `cmd/platform`. |
+| `cmd/platform` | **Contingencia** (`APP=platform`): monolito con la consulta a DataOS como ingesta: `NewPlatform` → `NewBaselineModule` → `NewProcessingModule` → Ingestion → Dashboard. Schedulers de Baseline, Processing (reconciliador) e Ingestion + API de Dashboard en `:8080`. Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + Processing (subscriber + reconciliador) + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo) + Processing sin reconciliador (el evento evalúa las horas listas); sale al terminar. |
 | `cmd/replay` | Reproducción histórica de Processing a CSV (`-point`, `-from`, `-to`, `-mode asof\|fixed`, `-fixed-asof`, `-out`); solo lectura; sale al terminar. |
 
-**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`8080:8080`, `env_file: .env`). No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
+**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=callback` por defecto; `APP=platform` activa la contingencia DataOS) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`APP: callback`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN`). No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
 
 ---
 
@@ -266,6 +274,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `source` (string): Origen del lote (ej. `dataos`).
 - `last_ingested_at` (timestamptz): Última fecha de datos procesados.
 - `received_records` (int): Cantidad de registros ingeridos en el lote.
+- `record_id` (varchar(128), NULL): `record_id` del callback de Dataflow Labs; índice único `ux_ingestion_logs_record_id` (NULL en lotes de DataOS). Deduplica reintentos.
 - *Append-only*: una fila por lote; el `id` se usa como `batch_seq` (cursor monótono) en el evento `MeasurementsIngested`.
 - `created_at`, `updated_at` (timestamptz).
 

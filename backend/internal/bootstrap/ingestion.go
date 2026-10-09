@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/services"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/events"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos"
@@ -112,14 +114,7 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	// Base de datos
 	// ---------------------------------------------------------
 
-	if err := db.AutoMigrate(
-		&models.DeviceModel{},
-		&models.MetricDefinitionModel{},
-		&models.RawMeasurementModel{},
-		&models.IngestionStateModel{},
-		&models.IngestionGapModel{},
-	); err != nil {
-		logDB.Error("falló la migración de la base de datos", "error", err)
+	if err := migrateIngestionSchema(db, logDB); err != nil {
 		return nil, err
 	}
 
@@ -214,4 +209,20 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 		IngestService: ingestService,
 		Logger:        logIngestion,
 	}, nil
+}
+
+// migrateIngestionSchema crea/actualiza las tablas de Ingestion. La comparten
+// la ingesta por DataOS y el callback de Dataflow Labs.
+func migrateIngestionSchema(db *gorm.DB, logDB *logger.Logger) error {
+	if err := db.AutoMigrate(
+		&models.DeviceModel{},
+		&models.MetricDefinitionModel{},
+		&models.RawMeasurementModel{},
+		&models.IngestionStateModel{},
+		&models.IngestionGapModel{},
+	); err != nil {
+		logDB.Error("falló la migración de la base de datos", "error", err)
+		return err
+	}
+	return nil
 }
