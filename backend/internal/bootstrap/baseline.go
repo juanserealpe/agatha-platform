@@ -8,6 +8,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline"
 	baselineServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/application/services"
 	baselineDomain "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/domain/services"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/knownevents"
 	baselineMappers "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/mappers"
 	baselineModels "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/models"
 	baselineRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/repositories"
@@ -29,6 +30,9 @@ type BaselineModule struct {
 	Facade baseline.Facade
 	// Recalculator lo usa cmd/baseline para recalcular (o dry-run) a demanda.
 	Recalculator *baselineServices.RecalculationService
+	// Backfiller lo usa cmd/baseline -backfill para cargar el histórico de
+	// versiones de un punto que aún no tiene ninguna.
+	Backfiller *baselineServices.BackfillService
 	// NewScheduler crea el scheduler de recálculo (tick horario + una ejecución al arrancar).
 	NewScheduler func() *scheduling.RecalcScheduler
 }
@@ -55,13 +59,18 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 
 	historyReader := baselineRepositories.NewHistoryReader(platform.DB, metricIDs)
 	baselineRepository := baselineRepositories.NewBaselineRepository(platform.DB)
+	// Lista estática provisional: la reemplazará el adapter del módulo de alertas.
+	knownEvents := knownevents.NewStaticProvider()
 
-	recalculator := baselineServices.NewRecalculationService(historyReader, baselineRepository, cfg, logBaseline, time.Now)
+	recalculator := baselineServices.NewRecalculationService(historyReader, baselineRepository, knownEvents, cfg, logBaseline, time.Now)
 	queryService := baselineServices.NewQueryService(historyReader, baselineRepository, logBaseline)
+	replayService := baselineServices.NewReplayService(historyReader, knownEvents, cfg, logBaseline)
+	backfiller := baselineServices.NewBackfillService(historyReader, baselineRepository, replayService, logBaseline)
 
 	return &BaselineModule{
 		Facade:       baseline.NewFacade(queryService),
 		Recalculator: recalculator,
+		Backfiller:   backfiller,
 		NewScheduler: func() *scheduling.RecalcScheduler {
 			return scheduling.NewRecalcScheduler(recalculator, logBaseline, tickMinute)
 		},
@@ -74,7 +83,7 @@ func newBaselineReplayer(platform *Platform) baseline.Replayer {
 	log := logger.New("Baseline", "Info")
 
 	historyReader := baselineRepositories.NewHistoryReader(platform.DB, baselineMetricIDsFromEnv(log))
-	replay := baselineServices.NewReplayService(historyReader, baselineConfigFromEnv(log), log)
+	replay := baselineServices.NewReplayService(historyReader, knownevents.NewStaticProvider(), baselineConfigFromEnv(log), log)
 
 	return baseline.NewReplayer(replay)
 }

@@ -45,12 +45,14 @@ func (f *fakeHistory) ListActiveMeasuringPoints(context.Context) ([]int64, error
 }
 
 type fakeBaselines struct {
-	latest    map[int64]*entities.BaselineVersion
-	effective *entities.BaselineVersion
-	saved     []entities.BaselineVersion
-	saveErr   error
-	latestErr map[int64]error
-	effErr    error
+	latest     map[int64]*entities.BaselineVersion
+	effective  *entities.BaselineVersion
+	saved      []entities.BaselineVersion
+	saveErr    error
+	history    []entities.BaselineVersion
+	historyErr error
+	latestErr  map[int64]error
+	effErr     error
 }
 
 func (f *fakeBaselines) GetEffective(context.Context, int64, time.Time) (*entities.BaselineVersion, error) {
@@ -74,6 +76,20 @@ func (f *fakeBaselines) SaveNewVersion(_ context.Context, v entities.BaselineVer
 	return v, nil
 }
 
+func (f *fakeBaselines) SaveHistory(_ context.Context, _ int64, versions []entities.BaselineVersion,
+) ([]entities.BaselineVersion, error) {
+	if f.historyErr != nil {
+		return nil, f.historyErr
+	}
+	out := make([]entities.BaselineVersion, len(versions))
+	for i, v := range versions {
+		v.ID = int64(i + 1)
+		out[i] = v
+	}
+	f.history = out
+	return out, nil
+}
+
 var asOf = time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 
 // noise genera days días de samples hasta asOf con ruido determinista.
@@ -92,6 +108,6 @@ func noise(days int) []features.Sample {
 }
 
 func newService(h *fakeHistory, b *fakeBaselines) *RecalculationService {
-	return NewRecalculationService(h, b, domainServices.DefaultConfig(), logger.New("BaselineTest", "Info"),
+	return NewRecalculationService(h, b, &fakeEvents{}, domainServices.DefaultConfig(), logger.New("BaselineTest", "Info"),
 		func() time.Time { return asOf })
 }

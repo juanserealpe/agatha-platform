@@ -15,7 +15,7 @@ import (
 )
 
 func newReplayService(h *fakeHistory) *ReplayService {
-	return NewReplayService(h, domainServices.DefaultConfig(), logger.New("BaselineTest", "Error"))
+	return NewReplayService(h, &fakeEvents{}, domainServices.DefaultConfig(), logger.New("BaselineTest", "Error"))
 }
 
 // poisoned agrega datos extremos a partir de asOf: si la simulación los

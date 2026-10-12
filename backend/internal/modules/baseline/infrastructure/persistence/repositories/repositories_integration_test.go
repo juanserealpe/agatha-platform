@@ -194,3 +194,65 @@ func TestGetSamplesPivot(t *testing.T) {
 		t.Fatalf("first = %v, err = %v", first, err)
 	}
 }
+
+func TestSaveHistory(t *testing.T) {
+	db := openDB(t)
+	repo := NewBaselineRepository(db)
+	ctx := context.Background()
+	t1 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	t2 := t1.AddDate(0, 0, 1)
+	t3 := t2.AddDate(0, 0, 7)
+
+	// Fuera de orden: no escribe nada.
+	if _, err := repo.SaveHistory(ctx, testPoint, []entities.BaselineVersion{version(t2), version(t1)}); err == nil {
+		t.Fatal("se esperaba error por valid_from no creciente")
+	}
+	if latest, _ := repo.GetLatest(ctx, testPoint); latest != nil {
+		t.Fatalf("un histórico inválido dejó versiones: %+v", latest)
+	}
+
+	saved, err := repo.SaveHistory(ctx, testPoint, []entities.BaselineVersion{version(t1), version(t2), version(t3)})
+	if err != nil || len(saved) != 3 {
+		t.Fatalf("guardadas = %d, err = %v", len(saved), err)
+	}
+	for i, v := range saved {
+		if v.ID == 0 || v.Version != i+1 || len(v.Components) != 1 {
+			t.Fatalf("versión %d = %+v", i, v)
+		}
+	}
+
+	cases := []struct {
+		at   time.Time
+		want int // 0 = ninguna
+	}{
+		{t1.Add(-time.Second), 0},
+		{t1, 1},
+		{t2, 2},
+		{t3.Add(-time.Second), 2},
+		{t3.AddDate(1, 0, 0), 3},
+	}
+	for _, c := range cases {
+		got, err := repo.GetEffective(ctx, testPoint, c.at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (c.want == 0) != (got == nil) || (got != nil && got.Version != c.want) {
+			t.Fatalf("GetEffective(%v) = %+v, se esperaba versión %d", c.at, got, c.want)
+		}
+	}
+
+	if latest, _ := repo.GetLatest(ctx, testPoint); latest.Version != 3 || latest.ValidTo != nil {
+		t.Fatalf("latest = %+v", latest)
+	}
+
+	// Con versiones existentes no se puede volver a cargar el histórico.
+	if _, err := repo.SaveHistory(ctx, testPoint, []entities.BaselineVersion{version(t3.AddDate(0, 0, 7))}); !errors.Is(err, domain.ErrBaselineHistoryExists) {
+		t.Fatalf("err = %v, se esperaba ErrBaselineHistoryExists", err)
+	}
+
+	// El versionado normal continúa desde la última versión del histórico.
+	v4, err := repo.SaveNewVersion(ctx, version(t3.AddDate(0, 0, 7)))
+	if err != nil || v4.Version != 4 {
+		t.Fatalf("v4 = %+v, err = %v", v4, err)
+	}
+}

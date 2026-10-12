@@ -17,6 +17,9 @@ const (
 	FlagNoExclusionHistory   Flag = "NO_EXCLUSION_HISTORY"
 	FlagExclusionCapReached  Flag = "EXCLUSION_CAP_REACHED"
 	FlagBaselineReview       Flag = "BASELINE_REVIEW"
+	// FlagKnownEventsExcluded: el histórico incluía eventos conocidos que se
+	// excluyeron del cálculo (ver KnownEvent).
+	FlagKnownEventsExcluded Flag = "KNOWN_EVENTS_EXCLUDED"
 )
 
 // flagOrder fija el orden canónico de los flags (determinismo al persistir).
@@ -26,6 +29,7 @@ var flagOrder = []Flag{
 	FlagNoExclusionHistory,
 	FlagExclusionCapReached,
 	FlagBaselineReview,
+	FlagKnownEventsExcluded,
 }
 
 // NormalizeFlags elimina duplicados y ordena los flags en el orden canónico.

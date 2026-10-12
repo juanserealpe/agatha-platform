@@ -22,6 +22,19 @@ func NewExclusionPolicy(cfg Config) ExclusionPolicy {
 // que lo superaría se detiene y marca CapReached. Los marks deben ser horas
 // alineadas en [from + 24 h, to].
 func (p ExclusionPolicy) Apply(marks []HourMark, from, to time.Time) entities.ExclusionSet {
+	return p.ApplyWithKnown(marks, nil, from, to)
+}
+
+// ApplyWithKnown es Apply más los eventos conocidos: se excluyen SIEMPRE
+// (recortados a [from, to)), se unen a los periodos de las marcas y sus horas
+// cuentan para el tope, de modo que las marcas solo disponen del resto.
+// MarkedHours sigue conteniendo solo las marcas aceptadas (criterio de
+// convergencia). Un periodo que solo proviene de un evento tiene PeakI = 0.
+func (p ExclusionPolicy) ApplyWithKnown(
+	marks []HourMark,
+	known []entities.KnownEvent,
+	from, to time.Time,
+) entities.ExclusionSet {
 	ordered := make([]HourMark, len(marks))
 	copy(ordered, marks)
 	sort.SliceStable(ordered, func(a, b int) bool {
@@ -35,6 +48,13 @@ func (p ExclusionPolicy) Apply(marks []HourMark, from, to time.Time) entities.Ex
 
 	// Las marcas son horas alineadas: la unión se lleva como conjunto de horas cubiertas.
 	covered := map[int64]bool{}
+	forced := clipKnownEvents(known, from, to)
+	for _, k := range forced {
+		for h := k.From.Truncate(time.Hour); h.Before(k.To); h = h.Add(time.Hour) {
+			covered[h.Unix()] = true
+		}
+	}
+
 	accepted := []HourMark{}
 	capReached := false
 
@@ -58,7 +78,7 @@ func (p ExclusionPolicy) Apply(marks []HourMark, from, to time.Time) entities.Ex
 	}
 
 	return entities.ExclusionSet{
-		Periods:     mergePeriods(accepted),
+		Periods:     unionPeriods(mergePeriods(accepted), forced),
 		MarkedHours: sortedHours(accepted),
 		CapReached:  capReached,
 	}
@@ -88,6 +108,52 @@ func mergePeriods(marks []HourMark) []entities.ExcludedPeriod {
 	}
 
 	return periods
+}
+
+// clipKnownEvents recorta los eventos a [from, to) y descarta los que quedan vacíos.
+func clipKnownEvents(known []entities.KnownEvent, from, to time.Time) []entities.ExcludedPeriod {
+	out := []entities.ExcludedPeriod{}
+	for _, k := range known {
+		start, end := k.From.UTC(), k.To.UTC()
+		if start.Before(from.UTC()) {
+			start = from.UTC()
+		}
+		if end.After(to.UTC()) {
+			end = to.UTC()
+		}
+		if start.Before(end) {
+			out = append(out, entities.ExcludedPeriod{From: start, To: end})
+		}
+	}
+	return out
+}
+
+// unionPeriods une dos listas de periodos fusionando los que se solapan o
+// tocan; PeakI es el máximo de los fusionados.
+func unionPeriods(periods, extra []entities.ExcludedPeriod) []entities.ExcludedPeriod {
+	if len(extra) == 0 {
+		return periods
+	}
+
+	all := append(append([]entities.ExcludedPeriod{}, periods...), extra...)
+	sort.SliceStable(all, func(a, b int) bool { return all[a].From.Before(all[b].From) })
+
+	out := []entities.ExcludedPeriod{}
+	for _, p := range all {
+		last := len(out) - 1
+		if last >= 0 && !p.From.After(out[last].To) {
+			if p.To.After(out[last].To) {
+				out[last].To = p.To
+			}
+			if p.PeakI > out[last].PeakI {
+				out[last].PeakI = p.PeakI
+			}
+			continue
+		}
+		out = append(out, p)
+	}
+
+	return out
 }
 
 func sortedHours(marks []HourMark) []time.Time {

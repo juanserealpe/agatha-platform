@@ -63,10 +63,40 @@ func NewRobustBaselineEstimator(cfg Config) RobustBaselineEstimator {
 
 // Estimate calcula la línea base sobre [from, to). samples debe estar normalizado.
 func (e RobustBaselineEstimator) Estimate(samples []features.Sample, from, to time.Time) Estimation {
+	return e.EstimateExcluding(samples, from, to, nil)
+}
+
+// EstimateExcluding es Estimate con eventos conocidos: sus intervalos quedan
+// fuera del cálculo desde la primera pasada (la base nunca los ve) y en todas
+// las siguientes, además de lo que marque el barrido. Si alguno cae dentro de
+// [from, to) la estimación lleva el flag KNOWN_EVENTS_EXCLUDED.
+func (e RobustBaselineEstimator) EstimateExcluding(
+	samples []features.Sample,
+	from, to time.Time,
+	known []entities.KnownEvent,
+) Estimation {
+	initial := e.exclusion.ApplyWithKnown(nil, known, from, to)
+
+	estimation := e.estimate(samples, from, to, known, initial)
+	if len(initial.Periods) > 0 && estimation.Status == EstimationEstimated {
+		estimation.Flags = entities.NormalizeFlags(append(estimation.Flags, entities.FlagKnownEventsExcluded))
+	}
+
+	return estimation
+}
+
+// estimate ejecuta las pasadas partiendo del conjunto excluido initial (los
+// eventos conocidos, o vacío).
+func (e RobustBaselineEstimator) estimate(
+	samples []features.Sample,
+	from, to time.Time,
+	known []entities.KnownEvent,
+	initial entities.ExclusionSet,
+) Estimation {
 	var (
 		reports  []entities.PassReport
 		previous *passBase
-		excluded = entities.ExclusionSet{Periods: []entities.ExcludedPeriod{}, MarkedHours: []time.Time{}}
+		excluded = initial
 	)
 
 	for k := 1; k <= e.maxPasses; k++ {
@@ -93,7 +123,7 @@ func (e RobustBaselineEstimator) Estimate(samples []features.Sample, from, to ti
 
 		sig := base.signal.Signal.ToFeatureSignal()
 		stats24 := entities.FeatureStats(base.components.Stats, scanWindowHours)
-		next := e.exclusion.Apply(e.scanner.Scan(samples, sig, stats24, from, to), from, to)
+		next := e.exclusion.ApplyWithKnown(e.scanner.Scan(samples, sig, stats24, from, to), known, from, to)
 
 		report.MarkedHours = len(next.MarkedHours)
 		report.CapReached = next.CapReached

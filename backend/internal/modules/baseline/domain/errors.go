@@ -28,4 +28,18 @@ var (
 		Code:    errors.CodeConsultingBaseline,
 		Message: "otro proceso creó la versión vigente de la línea base",
 	}
+
+	// ErrConsultingKnownEvents: sin la lista de eventos conocidos no se calcula
+	// (una línea base contaminada es peor que ninguna).
+	ErrConsultingKnownEvents = &errors.AppError{
+		Code:    errors.CodeConsultingBaseline,
+		Message: "no fue posible consultar los eventos conocidos del punto",
+	}
+
+	// ErrBaselineHistoryExists: el histórico retroactivo solo se carga en un
+	// punto sin versiones (el versionado no es retroactivo).
+	ErrBaselineHistoryExists = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el punto ya tiene versiones de línea base; no se puede cargar el histórico",
+	}
 )

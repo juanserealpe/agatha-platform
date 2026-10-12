@@ -19,4 +19,10 @@ type BaselineRepository interface {
 	// inserta v con version = anterior + 1 y sus estadísticas. Si otro proceso creó
 	// la vigente devuelve domain.ErrBaselineConcurrentUpdate.
 	SaveNewVersion(ctx context.Context, v entities.BaselineVersion) (entities.BaselineVersion, error)
+
+	// SaveHistory guarda, en UNA sola TX, el histórico retroactivo de un punto
+	// SIN versiones: versions debe venir en orden ascendente de ValidFrom; cada
+	// una cierra a la anterior y la última queda vigente. Si el punto ya tiene
+	// alguna versión devuelve domain.ErrBaselineHistoryExists y no escribe nada.
+	SaveHistory(ctx context.Context, pointID int64, versions []entities.BaselineVersion) ([]entities.BaselineVersion, error)
 }

@@ -18,6 +18,7 @@ import (
 type RecalculationService struct {
 	history   repositories.HistoryReader
 	baselines repositories.BaselineRepository
+	events    repositories.KnownEventsProvider
 	estimator domainServices.RobustBaselineEstimator
 	policy    domainServices.RecalculationPolicy
 	cfg       domainServices.Config
@@ -33,6 +34,7 @@ type RecalculationService struct {
 func NewRecalculationService(
 	history repositories.HistoryReader,
 	baselines repositories.BaselineRepository,
+	events repositories.KnownEventsProvider,
 	cfg domainServices.Config,
 	log *logger.Logger,
 	now func() time.Time,
@@ -44,6 +46,7 @@ func NewRecalculationService(
 	return &RecalculationService{
 		history:   history,
 		baselines: baselines,
+		events:    events,
 		estimator: domainServices.NewRobustBaselineEstimator(cfg),
 		policy:    domainServices.NewRecalculationPolicy(cfg),
 		cfg:       cfg,
@@ -54,7 +57,8 @@ func NewRecalculationService(
 }
 
 // Recalculate (UC-B1) estima la línea base de un punto con el histórico
-// [AsOf − HistoryDays, AsOf) y la versiona (salvo DryRun). Todos los errores
+// [AsOf − HistoryDays, AsOf), sin los eventos conocidos de ese rango, y la
+// versiona (salvo DryRun). Todos los errores
 // devueltos son *AppError de baseline/domain.
 func (s *RecalculationService) Recalculate(ctx context.Context, cmd RecalculateCommand,
 ) (RecalculationResult, error) {
@@ -75,8 +79,15 @@ func (s *RecalculationService) Recalculate(ctx context.Context, cmd RecalculateC
 		return result, domain.ErrConsultingHistory
 	}
 
+	known, err := s.events.GetKnownEvents(ctx, cmd.PointID, from, asOf)
+	if err != nil {
+		s.log.Error("[RecalculationService] Error consultando los eventos conocidos",
+			"measuring_point_id", cmd.PointID, "error", err)
+		return result, domain.ErrConsultingKnownEvents
+	}
+
 	samples := features.Normalize(raw)
-	estimation := s.estimator.Estimate(samples, from, asOf)
+	estimation := s.estimator.EstimateExcluding(samples, from, asOf, known)
 	result.Passes = estimation.Passes
 
 	if estimation.Status == domainServices.EstimationInsufficientHistory {

@@ -152,18 +152,21 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 **Responsabilidad**: mantener por dispositivo, versionada en el tiempo, la línea base estadística (señal: `mediana_B2`, `θ_D = P90_B2`, `P90_Planitud`; componentes: mediana y MAD de D, P, Ex en 6 h/24 h y C en 24 h) con estimación iterativa que excluye periodos anómalos (`I(24 h) ≥ 0,18`, tope 40 %, máx. 5 pasadas). Detalle en `modules/baseline/BASELINE_README.md`.
 
+**Eventos conocidos**: los intervalos de fugas/intervenciones conocidas se excluyen siempre del cálculo (además de lo que marca el barrido) y la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`. Los entrega el port `KnownEventsProvider`; hoy es una lista **estática en código** (`infrastructure/knownevents`, solo punto 11556), a reemplazar por un adapter del módulo de alertas en `internal/bootstrap`.
+
 **Contrato público (congelado para Processing)**: `baseline.Facade.GetEffectiveBaseline(ctx, pointID, at)` → `EffectiveBaseline` (`types.go`, solo stdlib). Vigencia `[valid_from, valid_to)` no retroactiva; sin versión ⇒ `Status = NONE` (no es error).
 
 | Trigger | Accion | Componente |
 |---|---|---|
 | `RecalcScheduler` (al arrancar + cada hora en `BASELINE_TICK_MINUTE`) | Recalcula los puntos activos a los que les toca (sin versión ⇒ `BOOTSTRAP`; `LOW`/`NO_EXCLUSION_HISTORY` cada 24 h; resto cada 168 h) | `RecalculationService.RecalculateDue` → `Recalculate` |
 | `cmd/baseline -point -asof [-dry-run] [-json]` | Recálculo manual / validación con el analista | `RecalculationService.Recalculate` |
+| `cmd/baseline -point -backfill [-from] [-asof] [-dry-run] [-json]` | Histórico retroactivo: persiste, en una TX, las versiones que habrían existido desde el primer registro (política real, `created_at = valid_from`). Solo en un punto sin versiones | `BackfillService.Backfill` → `ReplayService.SimulateVersions` + `SaveHistory` |
 | `Facade.GetEffectiveBaseline` | Versión vigente en `at` + `first_seen_at` | `QueryService.GetEffective` |
 | `Replayer.SimulateVersions` / `ComputeAt` (solo `cmd/replay`) | Versiones que habrían existido en `[from, to)` (reloj virtual horario, política real, solo datos anteriores a cada recálculo) o una versión en `asOf`; nunca escribe | `ReplayService` |
 
 **Aislamiento**: solo LEE `raw_measurements` y `devices` (modelo de lectura propio, sin FK a tablas de Ingestion) y ESCRIBE `baseline_versions` / `baseline_component_stats`. No importa `ingestion`, `processing` ni `shared/eventbus` (`depguard` `baseline-isolation`). No publica ni consume eventos.
 
-**Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingHistory` (`CONSULTING_MEASUREMENTS`), `ErrConsultingBaseline`, `ErrPersistingBaseline`, `ErrBaselineConcurrentUpdate` (no-op). `INSUFFICIENT_HISTORY` y los flags no son errores.
+**Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingHistory` (`CONSULTING_MEASUREMENTS`), `ErrConsultingBaseline`, `ErrPersistingBaseline`, `ErrBaselineConcurrentUpdate` (no-op), `ErrConsultingKnownEvents` (`CONSULTING_BASELINE`: sin la lista de eventos no se calcula), `ErrBaselineHistoryExists` (`INVALID_INPUT`: backfill sobre un punto con versiones). `INSUFFICIENT_HISTORY` y los flags no son errores.
 
 ---
 
@@ -194,7 +197,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | Constructor | Módulo | Notas |
 |---|---|---|
 | `NewPlatform()` | Shared | BD única + `InMemoryBus`. `Platform.Close(ctx)` drena el bus. |
-| `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Facade`, `Recalculator` y `NewScheduler()`. |
+| `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Facade`, `Recalculator`, `Backfiller` y `NewScheduler()`. |
 | `NewIngestionModule(platform)` | Ingestion (DataOS) | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
 | `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
 | `NewProcessingModule(platform, baseline)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + adapter sobre `baseline.Facade` + subscriber. Expone `NewScheduler()` (reconciliador). Llamar antes de que Ingestion publique. |
@@ -209,7 +212,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `dataos`, `callback`, `dashboard`; vacía = `baseline,processing,callback,dashboard`). `bootstrap.ParseModules` valida que `processing` requiera `baseline` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + Processing (subscriber + reconciliador) + scheduler de Baseline. |
-| `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
+| `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo) + Processing sin reconciliador (el evento evalúa las horas listas); sale al terminar. |
 | `cmd/replay` | Reproducción histórica de Processing a CSV (`-point`, `-from`, `-to`, `-mode asof\|fixed`, `-fixed-asof`, `-out`); solo lectura; sale al terminar. |
 

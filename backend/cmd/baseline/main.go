@@ -5,6 +5,12 @@
 //
 // Con -dry-run imprime la versión calculada, las estadísticas por pasada y los
 // periodos excluidos SIN persistir.
+//
+// Con -backfill carga el histórico de versiones que habrían existido desde el
+// primer registro del dispositivo (o desde -from) hasta -asof, aplicando la
+// política real de recálculo. Solo en un punto sin versiones:
+//
+//	baseline -point 11556 -backfill [-from 2026-06-07T05:00:00Z] [-asof ...] [-dry-run] [-json]
 package main
 
 import (
@@ -30,6 +36,8 @@ func main() {
 	asOfRaw := flag.String("asof", "", "instante de corte RFC3339 en UTC (default: ahora)")
 	dryRun := flag.Bool("dry-run", false, "calcula sin persistir")
 	asJSON := flag.Bool("json", false, "imprime el resultado en JSON")
+	backfill := flag.Bool("backfill", false, "carga el histórico de versiones (solo en un punto sin versiones)")
+	fromRaw := flag.String("from", "", "con -backfill: inicio RFC3339 en UTC (default: primer registro de B2)")
 	flag.Parse()
 
 	if *pointID <= 0 {
@@ -48,6 +56,20 @@ func main() {
 		asOf = parsed.UTC()
 	}
 
+	var from time.Time
+	if *fromRaw != "" {
+		if !*backfill {
+			log.Error("-from solo aplica con -backfill")
+			os.Exit(2)
+		}
+		parsed, err := time.Parse(time.RFC3339, *fromRaw)
+		if err != nil {
+			log.Error("-from inválido (RFC3339)", "value", *fromRaw, "error", err)
+			os.Exit(2)
+		}
+		from = parsed.UTC()
+	}
+
 	platform, err := bootstrap.NewPlatform()
 	if err != nil {
 		os.Exit(1)
@@ -60,6 +82,16 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
 	defer cancel()
+
+	if *backfill {
+		runBackfill(ctx, log, module, baselineServices.BackfillCommand{
+			PointID: *pointID,
+			From:    from,
+			To:      asOf,
+			DryRun:  *dryRun,
+		}, *asJSON)
+		return
+	}
 
 	result, err := module.Recalculator.Recalculate(ctx, baselineServices.RecalculateCommand{
 		PointID: *pointID,
@@ -83,6 +115,73 @@ func main() {
 	}
 
 	printReport(result, asOf)
+}
+
+// runBackfill ejecuta UC-B4 e imprime una fila por versión.
+func runBackfill(
+	ctx context.Context,
+	log *logger.Logger,
+	module *bootstrap.BaselineModule,
+	cmd baselineServices.BackfillCommand,
+	asJSON bool,
+) {
+	result, err := module.Backfiller.Backfill(ctx, cmd)
+	if err != nil {
+		log.Error("la carga del histórico falló", "error", err)
+		os.Exit(1)
+	}
+
+	if asJSON {
+		out, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			log.Error("no fue posible serializar el resultado", "error", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(out))
+		return
+	}
+
+	printBackfillReport(result)
+}
+
+func printBackfillReport(r baselineServices.BackfillResult) {
+	fmt.Printf("Punto %d — histórico [%s, %s)\n", r.PointID, formatTime(r.From), formatTime(r.To))
+
+	switch {
+	case r.Created:
+		fmt.Printf("Resultado: %d versiones creadas\n", len(r.Versions))
+	case r.SkippedReason == baselineServices.SkippedDryRun:
+		fmt.Printf("Resultado: DRY-RUN (%d versiones, no se persistió)\n", len(r.Versions))
+	case r.SkippedReason == baselineServices.SkippedInsufficientHistory:
+		fmt.Println("Resultado: INSUFFICIENT_HISTORY (no hay datos para ninguna versión)")
+		return
+	}
+
+	fmt.Printf("\n  %-4s %-20s %-15s %-7s %8s %8s %7s %7s %7s  %s\n",
+		"ver", "valid_from", "trigger", "conf", "mediana", "θ_D", "n", "v24h", "excl %", "flags")
+	for _, v := range r.Versions {
+		fmt.Printf("  %-4d %-20s %-15s %-7s %8g %8g %7d %7d %7.2f  %v\n",
+			v.Version, formatTime(v.ValidFrom), v.Trigger, v.Confidence,
+			v.Signal.MedianB2, v.Signal.ThetaD, v.Signal.NRecords, windows24h(v),
+			v.Estimation.ExcludedRatio*100, v.Flags)
+	}
+}
+
+// windows24h devuelve las ventanas de 24 h de la versión (0 si no tiene estadísticas de 24 h).
+func windows24h(v entities.BaselineVersion) int {
+	for _, st := range v.Components {
+		if st.WindowHours == 24 {
+			return st.NWindows
+		}
+	}
+	return 0
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func printReport(r baselineServices.RecalculationResult, asOf time.Time) {

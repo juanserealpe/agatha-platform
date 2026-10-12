@@ -21,7 +21,7 @@ services:
       - .env
 
     environment:
-      AGATHA_MODULES: callback,dashboard
+      AGATHA_MODULES: callback,dashboard,baseline
 
     ports:
       - "8080:8080"
