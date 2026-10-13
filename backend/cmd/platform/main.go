@@ -2,7 +2,6 @@
 // elige AGATHA_MODULES (lista separada por comas):
 //
 //	baseline    scheduler de recálculo de líneas base
-//	processing  subscriber del bus + reconciliador horario (requiere baseline)
 //	dataos      ingesta de contingencia: consulta programada a DataOS
 //	callback    ingesta principal: POST /ingestion/callback (excluyente con dataos)
 //	dashboard   API HTTP de solo lectura: GET /api/dashboard/*

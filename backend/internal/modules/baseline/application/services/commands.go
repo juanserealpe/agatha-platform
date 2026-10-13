@@ -18,7 +18,6 @@ type RecalculateCommand struct {
 type SkippedReason string
 
 const (
-	SkippedNone                SkippedReason = ""
 	SkippedInsufficientHistory SkippedReason = "INSUFFICIENT_HISTORY"
 	SkippedDryRun              SkippedReason = "DRY_RUN"
 	SkippedConcurrentUpdate    SkippedReason = "CONCURRENT_UPDATE"
@@ -45,11 +44,4 @@ type PointRecalculation struct {
 	Trigger entities.Trigger
 	Result  *RecalculationResult
 	Err     error
-}
-
-// EffectiveResult es la salida de UC-B3: la versión vigente (nil si no hay)
-// y el primer registro de B2 del dispositivo.
-type EffectiveResult struct {
-	Version     *entities.BaselineVersion
-	FirstSeenAt *time.Time
 }

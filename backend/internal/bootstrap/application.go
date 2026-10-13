@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-
-	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
 // Runner es un proceso de fondo (scheduler) de un módulo habilitado.
@@ -22,28 +20,16 @@ type Application struct {
 }
 
 // NewApplication cablea los módulos habilitados en orden de arranque: Baseline,
-// Processing (se suscribe ANTES de que Ingestion publique), DataOS, Callback y
-// Dashboard. Cada constructor migra su propio esquema.
+// DataOS, Callback y Dashboard. Cada constructor migra su propio esquema.
 func NewApplication(platform *Platform, modules ModuleSet) (*Application, error) {
-	log := logger.New("Platform", "Info")
 	app := &Application{Modules: modules}
 
-	var baselineModule *BaselineModule
 	if modules.Has(ModuleBaseline) {
 		m, err := NewBaselineModule(platform)
 		if err != nil {
 			return nil, fmt.Errorf("módulo %s: %w", ModuleBaseline, err)
 		}
-		baselineModule = m
 		app.runners = append(app.runners, Runner{Name: "scheduler de línea base", Start: m.NewScheduler().Start})
-	}
-
-	if modules.Has(ModuleProcessing) {
-		m, err := NewProcessingModule(platform, baselineModule)
-		if err != nil {
-			return nil, fmt.Errorf("módulo %s: %w", ModuleProcessing, err)
-		}
-		app.runners = append(app.runners, Runner{Name: "reconciliador de processing", Start: m.NewScheduler().Start})
 	}
 
 	if modules.Has(ModuleDataOS) {
@@ -56,10 +42,6 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 			return nil, fmt.Errorf("módulo %s: crear scheduler: %w", ModuleDataOS, err)
 		}
 		app.runners = append(app.runners, Runner{Name: "scheduler de ingesta DataOS", Start: ingestionScheduler.Start})
-
-		if !modules.Has(ModuleProcessing) {
-			log.Warn("dataos habilitado sin processing: los eventos MeasurementsIngested se descartan")
-		}
 	}
 
 	if modules.Has(ModuleCallback) {

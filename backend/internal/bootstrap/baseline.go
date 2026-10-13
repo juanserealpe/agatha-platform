@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline"
 	baselineServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/application/services"
 	baselineDomain "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/domain/services"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/knownevents"
@@ -26,8 +25,6 @@ const (
 
 // BaselineModule expone Baseline ya cableado.
 type BaselineModule struct {
-	// Facade es el contrato que consumirá Processing (vía su port + adapter acá).
-	Facade baseline.Facade
 	// Recalculator lo usa cmd/baseline para recalcular (o dry-run) a demanda.
 	Recalculator *baselineServices.RecalculationService
 	// Backfiller lo usa cmd/baseline -backfill para cargar el histórico de
@@ -63,29 +60,16 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 	knownEvents := knownevents.NewStaticProvider()
 
 	recalculator := baselineServices.NewRecalculationService(historyReader, baselineRepository, knownEvents, cfg, logBaseline, time.Now)
-	queryService := baselineServices.NewQueryService(historyReader, baselineRepository, logBaseline)
 	replayService := baselineServices.NewReplayService(historyReader, knownEvents, cfg, logBaseline)
 	backfiller := baselineServices.NewBackfillService(historyReader, baselineRepository, replayService, logBaseline)
 
 	return &BaselineModule{
-		Facade:       baseline.NewFacade(queryService),
 		Recalculator: recalculator,
 		Backfiller:   backfiller,
 		NewScheduler: func() *scheduling.RecalcScheduler {
 			return scheduling.NewRecalcScheduler(recalculator, logBaseline, tickMinute)
 		},
 	}, nil
-}
-
-// newBaselineReplayer compone baseline.Replayer para cmd/replay: solo lee
-// la BD (sin AutoMigrate ni BaselineRepository).
-func newBaselineReplayer(platform *Platform) baseline.Replayer {
-	log := logger.New("Baseline", "Info")
-
-	historyReader := baselineRepositories.NewHistoryReader(platform.DB, baselineMetricIDsFromEnv(log))
-	replay := baselineServices.NewReplayService(historyReader, knownevents.NewStaticProvider(), baselineConfigFromEnv(log), log)
-
-	return baseline.NewReplayer(replay)
 }
 
 func baselineMetricIDsFromEnv(log *logger.Logger) baselineMappers.MetricIDs {

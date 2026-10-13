@@ -17,19 +17,16 @@ func NewExclusionPolicy(cfg Config) ExclusionPolicy {
 	return ExclusionPolicy{capRatio: cfg.ExclusionCapRatio}
 }
 
-// Apply: cada marca t ⇒ [t − 24 h, t); se agregan por I descendente (empate: t
-// ascendente) mientras la unión sea ≤ tope × (to − from). En la primera marca
-// que lo superaría se detiene y marca CapReached. Los marks deben ser horas
-// alineadas en [from + 24 h, to].
-func (p ExclusionPolicy) Apply(marks []HourMark, from, to time.Time) entities.ExclusionSet {
-	return p.ApplyWithKnown(marks, nil, from, to)
-}
-
-// ApplyWithKnown es Apply más los eventos conocidos: se excluyen SIEMPRE
-// (recortados a [from, to)), se unen a los periodos de las marcas y sus horas
-// cuentan para el tope, de modo que las marcas solo disponen del resto.
-// MarkedHours sigue conteniendo solo las marcas aceptadas (criterio de
-// convergencia). Un periodo que solo proviene de un evento tiene PeakI = 0.
+// ApplyWithKnown: cada marca t ⇒ [t − 24 h, t); se agregan por I descendente
+// (empate: t ascendente) mientras la unión sea ≤ tope × (to − from). En la
+// primera marca que lo superaría se detiene y marca CapReached. Los marks
+// deben ser horas alineadas en [from + 24 h, to].
+//
+// Los eventos conocidos se excluyen SIEMPRE (recortados a [from, to)), se unen
+// a los periodos de las marcas y sus horas cuentan para el tope, de modo que
+// las marcas solo disponen del resto. MarkedHours contiene solo las marcas
+// aceptadas (criterio de convergencia). Un periodo que solo proviene de un
+// evento tiene PeakI = 0.
 func (p ExclusionPolicy) ApplyWithKnown(
 	marks []HourMark,
 	known []entities.KnownEvent,

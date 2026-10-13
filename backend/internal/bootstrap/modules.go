@@ -12,21 +12,19 @@ const ModulesEnv = "AGATHA_MODULES"
 // Module identifica un módulo habilitable del monolito.
 type Module string
 
-// Módulos disponibles. El orden de moduleOrder es el orden de arranque: los
-// consumidores del bus (Processing) se suscriben antes de que Ingestion publique.
+// Módulos disponibles. El orden de moduleOrder es el orden de arranque.
 const (
-	ModuleBaseline   Module = "baseline"   // scheduler de recálculo de líneas base
-	ModuleProcessing Module = "processing" // subscriber del bus + reconciliador horario; requiere baseline
-	ModuleDataOS     Module = "dataos"     // ingesta de contingencia: consulta programada a DataOS
-	ModuleCallback   Module = "callback"   // ingesta principal: POST /ingestion/callback
-	ModuleDashboard  Module = "dashboard"  // API HTTP de solo lectura: GET /api/dashboard/*
+	ModuleBaseline  Module = "baseline"  // scheduler de recálculo de líneas base
+	ModuleDataOS    Module = "dataos"    // ingesta de contingencia: consulta programada a DataOS
+	ModuleCallback  Module = "callback"  // ingesta principal: POST /ingestion/callback
+	ModuleDashboard Module = "dashboard" // API HTTP de solo lectura: GET /api/dashboard/*
 )
 
-var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleDataOS, ModuleCallback, ModuleDashboard}
+var moduleOrder = []Module{ModuleBaseline, ModuleDataOS, ModuleCallback, ModuleDashboard}
 
 // DefaultModules se usa cuando AGATHA_MODULES está vacía: la plataforma completa
 // con el callback como ingesta.
-const DefaultModules = "baseline,processing,callback,dashboard"
+const DefaultModules = "baseline,callback,dashboard"
 
 // ErrInvalidModules indica una selección de módulos desconocida o inconsistente.
 var ErrInvalidModules = errors.New("selección de módulos inválida")
@@ -35,9 +33,8 @@ var ErrInvalidModules = errors.New("selección de módulos inválida")
 type ModuleSet map[Module]bool
 
 // ParseModules interpreta una lista separada por comas (sin distinguir
-// mayúsculas, ignorando espacios y repetidos) y valida sus dependencias:
-//   - processing requiere baseline (consulta la línea base vigente);
-//   - callback y dataos son excluyentes (duplicarían raw_measurements).
+// mayúsculas, ignorando espacios y repetidos) y valida que callback y dataos
+// no vayan juntos (duplicarían raw_measurements).
 //
 // Una lista vacía equivale a DefaultModules.
 func ParseModules(raw string) (ModuleSet, error) {
@@ -59,9 +56,6 @@ func ParseModules(raw string) (ModuleSet, error) {
 
 	if len(set) == 0 {
 		return nil, fmt.Errorf("%w: no se habilitó ningún módulo", ErrInvalidModules)
-	}
-	if set.Has(ModuleProcessing) && !set.Has(ModuleBaseline) {
-		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleProcessing, ModuleBaseline)
 	}
 	if set.Has(ModuleCallback) && set.Has(ModuleDataOS) {
 		return nil, fmt.Errorf("%w: %s y %s no pueden correr a la vez (duplicarían raw_measurements)",

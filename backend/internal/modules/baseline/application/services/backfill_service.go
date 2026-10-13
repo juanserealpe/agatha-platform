@@ -93,7 +93,7 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 	}
 	result.From = from
 
-	versions, _, err := s.replay.SimulateVersions(ctx, cmd.PointID, from, result.To)
+	versions, err := s.replay.SimulateVersions(ctx, cmd.PointID, from, result.To)
 	if err != nil {
 		return result, err
 	}

@@ -24,17 +24,17 @@ func TestParseModules(t *testing.T) {
 		if got, want := set.String(), "callback,dashboard"; got != want {
 			t.Fatalf("set = %q, se esperaba %q", got, want)
 		}
-		if !set.Has(ModuleCallback) || !set.Has(ModuleDashboard) || set.Has(ModuleProcessing) {
+		if !set.Has(ModuleCallback) || !set.Has(ModuleDashboard) || set.Has(ModuleBaseline) {
 			t.Fatalf("Has no refleja el set %q", set)
 		}
 	})
 
 	t.Run("String sigue el orden de arranque", func(t *testing.T) {
-		set, err := ParseModules("dashboard,processing,callback,baseline")
+		set, err := ParseModules("dashboard,callback,baseline")
 		if err != nil {
 			t.Fatalf("error inesperado: %v", err)
 		}
-		if got, want := set.String(), "baseline,processing,callback,dashboard"; got != want {
+		if got, want := set.String(), "baseline,callback,dashboard"; got != want {
 			t.Fatalf("set = %q, se esperaba %q", got, want)
 		}
 	})
@@ -44,7 +44,6 @@ func TestParseModules(t *testing.T) {
 		raw  string
 	}{
 		{"módulo desconocido", "callback,reports"},
-		{"processing sin baseline", "callback,processing"},
 		{"callback y dataos a la vez", "callback,dataos,dashboard"},
 		{"solo separadores", ",,"},
 	}
@@ -67,7 +66,7 @@ func TestModuleSetHasHTTP(t *testing.T) {
 		{"callback", true},
 		{"dashboard", true},
 		{"baseline", false},
-		{"dataos,baseline,processing", false},
+		{"dataos,baseline", false},
 	}
 
 	for _, tt := range tests {

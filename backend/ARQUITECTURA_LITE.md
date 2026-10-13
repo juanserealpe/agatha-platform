@@ -43,7 +43,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 
 | Tópico | Publicador | Consumidores |
 |---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Processing (evalúa las horas listas del punto → `feature_evaluations`) |
+| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy: Processing está descableado (evaluaba las horas listas del punto → `feature_evaluations`) |
 
 ## Errors (`shared/errors`)
 
@@ -154,15 +154,13 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 **Eventos conocidos**: los intervalos de fugas/intervenciones conocidas se excluyen siempre del cálculo (además de lo que marca el barrido) y la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`. Los entrega el port `KnownEventsProvider`; hoy es una lista **estática en código** (`infrastructure/knownevents`, solo punto 11556), a reemplazar por un adapter del módulo de alertas en `internal/bootstrap`.
 
-**Contrato público (congelado para Processing)**: `baseline.Facade.GetEffectiveBaseline(ctx, pointID, at)` → `EffectiveBaseline` (`types.go`, solo stdlib). Vigencia `[valid_from, valid_to)` no retroactiva; sin versión ⇒ `Status = NONE` (no es error).
+**Contrato público**: ninguno por ahora. La fachada (`Facade.GetEffectiveBaseline`) y el `Replayer` se retiraron en el refactor de octubre de 2026; el módulo solo se usa desde su scheduler y `cmd/baseline`.
 
 | Trigger | Accion | Componente |
 |---|---|---|
 | `RecalcScheduler` (al arrancar + cada hora en `BASELINE_TICK_MINUTE`) | Recalcula los puntos activos a los que les toca (sin versión ⇒ `BOOTSTRAP`; `LOW`/`NO_EXCLUSION_HISTORY` cada 24 h; resto cada 168 h) | `RecalculationService.RecalculateDue` → `Recalculate` |
 | `cmd/baseline -point -asof [-dry-run] [-json]` | Recálculo manual / validación con el analista | `RecalculationService.Recalculate` |
 | `cmd/baseline -point -backfill [-from] [-asof] [-dry-run] [-json]` | Histórico retroactivo: persiste, en una TX, las versiones que habrían existido desde el primer registro (política real, `created_at = valid_from`). Solo en un punto sin versiones | `BackfillService.Backfill` → `ReplayService.SimulateVersions` + `SaveHistory` |
-| `Facade.GetEffectiveBaseline` | Versión vigente en `at` + `first_seen_at` | `QueryService.GetEffective` |
-| `Replayer.SimulateVersions` / `ComputeAt` (solo `cmd/replay`) | Versiones que habrían existido en `[from, to)` (reloj virtual horario, política real, solo datos anteriores a cada recálculo) o una versión en `asOf`; nunca escribe | `ReplayService` |
 
 **Aislamiento**: solo LEE `raw_measurements` y `devices` (modelo de lectura propio, sin FK a tablas de Ingestion) y ESCRIBE `baseline_versions` / `baseline_component_stats`. No importa `ingestion`, `processing` ni `shared/eventbus` (`depguard` `baseline-isolation`). No publica ni consume eventos.
 
@@ -171,6 +169,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 ---
 
 # Modulo: Processing
+
+> **Estado: descableado (octubre de 2026).** El código de `modules/processing` se conserva, pero `internal/bootstrap` ya no lo compone: no hay módulo `processing` en `AGATHA_MODULES`, no hay suscriptor del evento ni reconciliador, y `cmd/replay` se eliminó. Lo que sigue describe el diseño para cuando se vuelva a cablear; requiere reponer un contrato público en Baseline.
 
 **Responsabilidad**: cada hora y para cada punto activo, evaluar las ventanas de 24 h y 6 h que terminan en esa hora contra la línea base vigente y persistir **una fila por (punto, ventana, hora)** en `feature_evaluations` (Cobertura, D, P, Ex, C, D_Pl, z, s(z), I) o el motivo `NO_CALCULABLE`. **Mide, no interpreta**: rachas, cortes, categorías y alertas son del Rule Engine. Todo cálculo pasa por `shared/features`. Detalle en `modules/processing/PROCESSING_README.MD`.
 
@@ -197,26 +197,23 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | Constructor | Módulo | Notas |
 |---|---|---|
 | `NewPlatform()` | Shared | BD única + `InMemoryBus`. `Platform.Close(ctx)` drena el bus. |
-| `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Facade`, `Recalculator`, `Backfiller` y `NewScheduler()`. |
+| `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Recalculator`, `Backfiller` y `NewScheduler()`. |
 | `NewIngestionModule(platform)` | Ingestion (DataOS) | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
 | `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
-| `NewProcessingModule(platform, baseline)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + adapter sobre `baseline.Facade` + subscriber. Expone `NewScheduler()` (reconciliador). Llamar antes de que Ingestion publique. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
-| `NewIngestionApplication()` | Baseline + Processing + Ingestion | Composición para `cmd/scheduler` y `cmd/ingestion` (solo `cmd/scheduler` arranca los schedulers de Baseline y Processing). |
-| `NewReadOnlyPlatform()` / `RunReplay(opts)` | Processing + Baseline (`Replayer`) | Composición de solo lectura para `cmd/replay`: sin AutoMigrate, sin suscripciones ni schedulers, sesión `default_transaction_read_only=on`. |
+| `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
 **Entrypoints (`cmd/`)**:
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `dataos`, `callback`, `dashboard`; vacía = `baseline,processing,callback,dashboard`). `bootstrap.ParseModules` valida que `processing` requiera `baseline` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`). `bootstrap.ParseModules` valida que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
-| `cmd/scheduler` | Ingestion programada + Processing (subscriber + reconciliador) + scheduler de Baseline. |
+| `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
-| `cmd/ingestion` | Ingesta única (rango fijo) + Processing sin reconciliador (el evento evalúa las horas listas); sale al terminar. |
-| `cmd/replay` | Reproducción histórica de Processing a CSV (`-point`, `-from`, `-to`, `-mode asof\|fixed`, `-fixed-asof`, `-out`); solo lectura; sale al terminar. |
+| `cmd/ingestion` | Ingesta única (rango fijo); sale al terminar. |
 
-**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
+**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
 
 ---
 

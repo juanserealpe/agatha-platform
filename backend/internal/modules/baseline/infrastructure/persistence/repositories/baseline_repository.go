@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -32,31 +31,14 @@ func NewBaselineRepository(db *gorm.DB) *BaselineRepository {
 	return &BaselineRepository{db: db}
 }
 
-// GetEffective devuelve la versión con valid_from <= at < valid_to (nil si no hay).
-func (r *BaselineRepository) GetEffective(ctx context.Context, pointID int64, at time.Time,
-) (*entities.BaselineVersion, error) {
-	at = at.UTC()
-
-	return r.findOne(ctx, func(q *gorm.DB) *gorm.DB {
-		return q.
-			Where("measuring_point_id = ? AND valid_from <= ?", pointID, at).
-			Where("(valid_to IS NULL OR valid_to > ?)", at).
-			Order("valid_from DESC")
-	})
-}
-
 // GetLatest devuelve la versión más reciente del punto (nil si no hay).
 func (r *BaselineRepository) GetLatest(ctx context.Context, pointID int64) (*entities.BaselineVersion, error) {
-	return r.findOne(ctx, func(q *gorm.DB) *gorm.DB {
-		return q.Where("measuring_point_id = ?", pointID).Order("version DESC")
-	})
-}
-
-func (r *BaselineRepository) findOne(ctx context.Context, scope func(*gorm.DB) *gorm.DB,
-) (*entities.BaselineVersion, error) {
 	var rows []models.BaselineVersionModel
 
-	err := scope(r.db.WithContext(ctx).Preload("ComponentStats")).
+	err := r.db.WithContext(ctx).
+		Preload("ComponentStats").
+		Where("measuring_point_id = ?", pointID).
+		Order("version DESC").
 		Limit(1).
 		Find(&rows).Error
 	if err != nil {

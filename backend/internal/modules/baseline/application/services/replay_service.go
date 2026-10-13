@@ -14,8 +14,7 @@ import (
 )
 
 // ReplayService reconstruye, sin escribir en la BD, las versiones de línea
-// base que habrían existido en el pasado. Lo usa la herramienta de
-// reproducción (cmd/replay) vía baseline.Replayer.
+// base que habrían existido en el pasado. Lo usa BackfillService (UC-B4).
 //
 // No tiene BaselineRepository: la imposibilidad de persistir es estructural.
 type ReplayService struct {
@@ -47,8 +46,8 @@ func NewReplayService(
 // punto UTC) y, en cada hora, aplica la RecalculationPolicy real sobre la
 // última versión simulada; si toca, estima con SOLO los datos de
 // [hora − HistoryDays, hora). Devuelve las versiones en orden de ValidFrom
-// (ID = 0, número secuencial, ValidTo cerrado por la siguiente) y el primer
-// registro de B2 del dispositivo. Lee el histórico una sola vez.
+// (ID = 0, número secuencial, ValidTo cerrado por la siguiente). Lee el
+// histórico una sola vez.
 //
 // Los eventos conocidos se aplican con retrospectiva: una versión simulada
 // excluye la parte ya transcurrida de un evento aunque en su momento todavía
@@ -57,17 +56,17 @@ func NewReplayService(
 // Aproximación: producción recalcula en el minuto BASELINE_TICK_MINUTE; la
 // simulación lo hace en la hora en punto.
 func (s *ReplayService) SimulateVersions(ctx context.Context, pointID int64, from, to time.Time,
-) ([]entities.BaselineVersion, *time.Time, error) {
+) ([]entities.BaselineVersion, error) {
 	if pointID <= 0 {
-		return nil, nil, domain.ErrInvalidMeasuringPointID
+		return nil, domain.ErrInvalidMeasuringPointID
 	}
 
 	start := ceilHour(from.UTC())
 	end := to.UTC()
 
-	samples, known, firstSeen, err := s.load(ctx, pointID, start.Add(-s.cfg.HistoryWindow()), end)
+	samples, known, err := s.load(ctx, pointID, start.Add(-s.cfg.HistoryWindow()), end)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	versions := []entities.BaselineVersion{}
@@ -75,7 +74,7 @@ func (s *ReplayService) SimulateVersions(ctx context.Context, pointID int64, fro
 
 	for tick := start; tick.Before(end); tick = tick.Add(time.Hour) {
 		if ctx.Err() != nil {
-			return nil, nil, ctx.Err()
+			return nil, ctx.Err()
 		}
 
 		due, trigger := s.policy.IsDue(latest, tick)
@@ -100,31 +99,7 @@ func (s *ReplayService) SimulateVersions(ctx context.Context, pointID int64, fro
 	s.log.Info("[ReplayService] Versiones simuladas",
 		"measuring_point_id", pointID, "from", start, "to", end, "versions", len(versions))
 
-	return versions, firstSeen, nil
-}
-
-// ComputeAt calcula una sola versión con los datos de [asOf − HistoryDays,
-// asOf) (modo "línea base fija"). Version = nil si el histórico es insuficiente.
-func (s *ReplayService) ComputeAt(ctx context.Context, pointID int64, asOf time.Time) (EffectiveResult, error) {
-	if pointID <= 0 {
-		return EffectiveResult{}, domain.ErrInvalidMeasuringPointID
-	}
-
-	asOf = asOf.UTC()
-
-	samples, known, firstSeen, err := s.load(ctx, pointID, asOf.Add(-s.cfg.HistoryWindow()), asOf)
-	if err != nil {
-		return EffectiveResult{}, err
-	}
-
-	result := EffectiveResult{FirstSeenAt: firstSeen}
-
-	if version, ok := s.estimate(pointID, samples, known, asOf, entities.TriggerManual); ok {
-		version.Version = 1
-		result.Version = &version
-	}
-
-	return result, nil
+	return versions, nil
 }
 
 // estimate ejecuta el estimador real con los samples de [asOf − HistoryDays,
@@ -146,29 +121,22 @@ func (s *ReplayService) estimate(
 	return newVersion(pointID, estimation, from, asOf, trigger, asOf), true
 }
 
-// load lee, una sola vez, los samples y los eventos conocidos de [from, to) y
-// el primer registro de B2.
+// load lee, una sola vez, los samples y los eventos conocidos de [from, to).
 func (s *ReplayService) load(ctx context.Context, pointID int64, from, to time.Time,
-) ([]features.Sample, []entities.KnownEvent, *time.Time, error) {
+) ([]features.Sample, []entities.KnownEvent, error) {
 	raw, err := s.history.GetSamples(ctx, pointID, from, to)
 	if err != nil {
 		s.log.Error("[ReplayService] Error consultando el histórico", "measuring_point_id", pointID, "error", err)
-		return nil, nil, nil, domain.ErrConsultingHistory
-	}
-
-	firstSeen, err := s.history.GetFirstSeenAt(ctx, pointID)
-	if err != nil {
-		s.log.Error("[ReplayService] Error consultando el primer registro", "measuring_point_id", pointID, "error", err)
-		return nil, nil, nil, domain.ErrConsultingHistory
+		return nil, nil, domain.ErrConsultingHistory
 	}
 
 	known, err := s.events.GetKnownEvents(ctx, pointID, from, to)
 	if err != nil {
 		s.log.Error("[ReplayService] Error consultando los eventos conocidos", "measuring_point_id", pointID, "error", err)
-		return nil, nil, nil, domain.ErrConsultingKnownEvents
+		return nil, nil, domain.ErrConsultingKnownEvents
 	}
 
-	return features.Normalize(raw), known, firstSeen, nil
+	return features.Normalize(raw), known, nil
 }
 
 // between devuelve la sub-secuencia [from, to) de samples ordenados (sin copiar).

@@ -61,14 +61,10 @@ func NewRobustBaselineEstimator(cfg Config) RobustBaselineEstimator {
 	}
 }
 
-// Estimate calcula la línea base sobre [from, to). samples debe estar normalizado.
-func (e RobustBaselineEstimator) Estimate(samples []features.Sample, from, to time.Time) Estimation {
-	return e.EstimateExcluding(samples, from, to, nil)
-}
-
-// EstimateExcluding es Estimate con eventos conocidos: sus intervalos quedan
-// fuera del cálculo desde la primera pasada (la base nunca los ve) y en todas
-// las siguientes, además de lo que marque el barrido. Si alguno cae dentro de
+// EstimateExcluding calcula la línea base sobre [from, to). samples debe estar
+// normalizado. Los intervalos de los eventos conocidos quedan fuera del
+// cálculo desde la primera pasada (la base nunca los ve) y en todas las
+// siguientes, además de lo que marque el barrido. Si alguno cae dentro de
 // [from, to) la estimación lleva el flag KNOWN_EVENTS_EXCLUDED.
 func (e RobustBaselineEstimator) EstimateExcluding(
 	samples []features.Sample,

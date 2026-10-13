@@ -3,11 +3,10 @@ services:
   # Monolito Agatha: un solo proceso (el bus de eventos es en memoria y no cruza
   # contenedores). Los módulos se eligen con AGATHA_MODULES, separados por comas:
   #   baseline    scheduler de recálculo de líneas base
-  #   processing  subscriber del bus + reconciliador horario (requiere baseline)
   #   dataos      ingesta de contingencia: consulta programada a DataOS
   #   callback    ingesta principal: POST :8080/ingestion/callback (excluyente con dataos)
   #   dashboard   API de solo lectura: GET :8080/api/dashboard/*
-  # Vacía = baseline,processing,callback,dashboard. Cambiarla NO requiere rebuild.
+  # Vacía = baseline,callback,dashboard. Cambiarla NO requiere rebuild.
   platform:
     build:
       context: .

@@ -1,6 +1,6 @@
 # Modulo: Baseline (Device Context & Baseline)
 
-**Responsabilidad**: mantener, por dispositivo y **versionada en el tiempo**, la línea base estadística de su comportamiento normal, y exponerla con una consulta síncrona (`Facade.GetEffectiveBaseline`) que consumirá Processing.
+**Responsabilidad**: mantener, por dispositivo y **versionada en el tiempo**, la línea base estadística de su comportamiento normal.
 
 - **Señal**: `mediana_B2`, `θ_D = P90_B2`, `P90_Planitud`, `min_elevado_B2`, `Δmin`.
 - **Componentes**: mediana y MAD crudo de D, P, Ex (ventanas 6 h y 24 h) y C (solo 24 h).
@@ -11,34 +11,19 @@ Es **autosuficiente**: solo lee `raw_measurements` y `devices` (escritor: Ingest
 
 ```
 baseline/
-├── facade.go / types.go              # Contrato público (solo stdlib). CONGELADO para Processing
 ├── domain/
 │   ├── errors.go
 │   ├── entities/                     # BaselineVersion, SignalBaseline, ComponentStat, ExcludedPeriod,
 │   │                                 # ExclusionSet, EstimationSummary, PassReport, enums
-│   ├── services/                     # Servicios puros (sin IO) + tests
+│   ├── services/                     # Servicios puros (sin IO)
 │   └── repositories/                 # Ports: HistoryReader, BaselineRepository, KnownEventsProvider
-├── application/services/             # UC-B1/UC-B2 RecalculationService, UC-B3 QueryService,
-│                                     # UC-B4 BackfillService, ReplayService (simulación)
+├── application/services/             # UC-B1/UC-B2 RecalculationService, UC-B4 BackfillService,
+│                                     # ReplayService (simulación)
 └── infrastructure/
-    ├── persistence/                  # models (GORM), mappers, repositories (+ tests integration)
+    ├── persistence/                  # models (GORM), mappers, repositories
     ├── knownevents/static_provider.go # Eventos conocidos: lista ESTÁTICA en código (provisional)
     └── scheduling/recalc_scheduler.go
 ```
-
-## Contrato público (Facade)
-
-```go
-GetEffectiveBaseline(ctx, measuringPointID, at) (EffectiveBaseline, error)
-```
-
-| Campo | Notas |
-|---|---|
-| `Status` | `AVAILABLE` \| `NONE`. **Ausencia no es error**: `NONE` + `DeviceFirstSeenAt` |
-| `VersionID`, `Version`, `ValidFrom`, `Confidence` (`NORMAL`\|`LOW`), `AlgorithmVersion` | Versión con `valid_from <= at < valid_to` |
-| `Signal *SignalStats` | `MedianB2`, `ThetaD`, `P90Planitud *`, `MinElevatedB2 *` (nil ⇒ `SIGNAL_DEGENERATE`), `DeltaMin` |
-| `Components []ComponentStats` | `WindowHours` (6\|24), `Component` (`D`\|`P`\|`EX`\|`C`), `Median`, `MAD` (crudo), `NWindows` |
-| `Flags []string` | Orden canónico, ver abajo |
 
 ## Casos de uso
 
@@ -46,7 +31,6 @@ GetEffectiveBaseline(ctx, measuringPointID, at) (EffectiveBaseline, error)
 |---|---|---|
 | UC-B1 | `RecalculationService.Recalculate(RecalculateCommand{PointID, AsOf, Trigger, DryRun})` | UC-B2, `cmd/baseline` |
 | UC-B2 | `RecalculationService.RecalculateDue(now)` — secuencial; un punto que falla no detiene al resto | `RecalcScheduler` |
-| UC-B3 | `QueryService.GetEffective(pointID, at)` | `Facade` |
 | UC-B4 | `BackfillService.Backfill(BackfillCommand{PointID, From, To, DryRun})` — histórico retroactivo de versiones | `cmd/baseline -backfill` |
 
 UC-B1: valida punto → `GetSamples([asOf − 90 d, asOf))` → `GetKnownEvents` del mismo rango (si falla ⇒ `ErrConsultingKnownEvents`, no se calcula) → `features.Normalize` → `RobustBaselineEstimator.EstimateExcluding` → `INSUFFICIENT_HISTORY` no persiste (log `Info` solo si cambia el motivo) → `DryRun` no persiste → `SaveNewVersion` (conflicto concurrente = no-op).
@@ -62,7 +46,7 @@ UC-B4: valida punto → (salvo `DryRun`) `GetLatest` y, si el punto **ya tiene v
 5. **Barrido horario**: horas alineadas a UTC `t ∈ [history_from + 24 h, history_to]` (cerrado en ambos extremos: la ventana que termina en `history_from + 24 h` es `[history_from, history_from + 24 h)` y está completa; con 90 días alineados son 24 × 90 − 23 = 2 137 horas), ventana `[t − 24 h, t)` sobre todos los samples (dos punteros). El spec original decía `(history_from + 24 h, …]`: era un error.
 
 **Decisiones de implementación no explícitas en el spec**:
-- `Confidence = NORMAL` exige las **7 combinaciones** (6 h: D, P, EX; 24 h: D, P, EX, C) con ≥ 60 ventanas. Si falta alguna ⇒ `LOW` (sin ella Processing no puede calcular I).
+- `Confidence = NORMAL` exige las **7 combinaciones** (6 h: D, P, EX; 24 h: D, P, EX, C) con ≥ 60 ventanas. Si falta alguna ⇒ `LOW` (sin ella no se puede calcular I).
 - "Sin estadísticas 24 h" = falta cualquiera de 24 h D, P, EX o C.
 - `Δmin` cuando B2 tiene un solo valor distinto ⇒ `1` (resolución práctica de B2).
 - Piso de Ex con señal degenerada ⇒ `Δmin`.
@@ -119,7 +103,7 @@ Lecturas: `raw_measurements` (métricas 12/13/18, una consulta por punto, pivote
 |---|---|---|
 | `ErrInvalidMeasuringPointID` | `INVALID_MEASURING_POINT_ID` | `pointID ≤ 0` |
 | `ErrConsultingHistory` | `CONSULTING_MEASUREMENTS` | Falla `GetSamples` / `GetFirstSeenAt` / `ListActive…` |
-| `ErrConsultingBaseline` | `CONSULTING_BASELINE` | Falla `GetEffective` / `GetLatest` |
+| `ErrConsultingBaseline` | `CONSULTING_BASELINE` | Falla `GetLatest` |
 | `ErrPersistingBaseline` | `PERSISTING_BASELINE` | Falla `SaveNewVersion` / `SaveHistory` |
 | `ErrBaselineConcurrentUpdate` | `CONSULTING_BASELINE` | Otro proceso creó la vigente (no-op) |
 | `ErrConsultingKnownEvents` | `CONSULTING_BASELINE` | Falla `GetKnownEvents`: no se calcula (una línea base contaminada es peor que ninguna) |
@@ -144,18 +128,13 @@ Un valor inválido se ignora con `Warn` y se usa el default.
 
 ## Aislamiento
 
-`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing` ni `shared/eventbus`. Solo `shared/{logger, errors, features}`. Processing consume la fachada a través de **su propio port** (`BaselineProvider`) y el adapter `baselineProviderAdapter` en `internal/bootstrap/processing.go`.
+`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing` ni `shared/eventbus`. Solo `shared/{logger, errors, features}`. Hoy **no expone contrato público** a otros módulos: la fachada y el replayer se retiraron.
 
-## Reproducción histórica (`replayer.go`)
+## Simulación de versiones (`ReplayService`)
 
-Segunda interfaz pública, **solo para `cmd/replay`**; no toca la `Facade` congelada:
+`ReplayService.SimulateVersions(ctx, point, from, to)` devuelve las versiones que **habrían existido** en `[from, to)`: reloj virtual horario (horas en punto), `RecalculationPolicy` real sobre la última versión simulada y `RobustBaselineEstimator` con **solo** los datos de `[hora − 90 d, hora)`. Orden ascendente por `ValidFrom`, `ID = 0`, `Version` secuencial. Una sola lectura del histórico.
 
-| Método | Qué hace |
-|---|---|
-| `Replayer.SimulateVersions(ctx, point, from, to)` | Versiones que **habrían existido** en `[from, to)`: reloj virtual horario (horas en punto), `RecalculationPolicy` real sobre la última versión simulada, `RobustBaselineEstimator` con **solo** los datos de `[hora − 90 d, hora)`. Orden ascendente por `ValidFrom`, `VersionID = 0`, `Version` secuencial. Una sola lectura del histórico |
-| `Replayer.ComputeAt(ctx, point, asOf)` | Una versión calculada en `asOf` (modo "línea base fija"); histórico insuficiente ⇒ `Status = NONE` |
-
-Implementación: `application/services/ReplayService`. No recibe `BaselineRepository`: **no puede** escribir (quien persiste una simulación es `BackfillService`, UC-B4). Comparte con `Recalculate` la construcción de la versión (`newVersion`). Aproximación: producción recalcula en `BASELINE_TICK_MINUTE`; la simulación, en la hora en punto. Se compone con `newBaselineReplayer(platform)` (bootstrap), sin `AutoMigrate`.
+No recibe `BaselineRepository`: **no puede** escribir. Quien persiste la simulación es `BackfillService` (UC-B4), su único consumidor. Comparte con `Recalculate` la construcción de la versión (`newVersion`). Aproximación: producción recalcula en `BASELINE_TICK_MINUTE`; la simulación, en la hora en punto.
 
 ## Histórico retroactivo (UC-B4, `cmd/baseline -backfill`)
 
@@ -172,20 +151,15 @@ Flujo completo (primera ejecución y recálculos): `FLUJO_BASELINE.md`.
 
 ## Cableado y entrypoints
 
-`bootstrap.NewBaselineModule(platform)` → `BaselineModule{Facade, Recalculator, Backfiller, NewScheduler}`.
+`bootstrap.NewBaselineModule(platform)` → `BaselineModule{Recalculator, Backfiller, NewScheduler}`.
 
 | Entrypoint | Baseline |
 |---|---|
-| `cmd/platform` | Se compone después de `NewPlatform` y antes de Processing (que recibe su `Facade`) e Ingestion; su scheduler arranca primero y se espera antes de `Platform.Close` |
+| `cmd/platform` | Se compone después de `NewPlatform` y antes de Ingestion; su scheduler arranca primero y se espera antes de `Platform.Close` |
 | `cmd/scheduler` | Vía `NewIngestionApplication()`; arranca su scheduler |
 | `cmd/ingestion` | Se compone (migra) pero no arranca el scheduler |
 | `cmd/baseline` | `baseline -point 11556 -asof 2026-07-01T00:00:00Z [-dry-run] [-json]` — validación con el analista (pasadas, θ_D, % excluido, ventanas, periodos excluidos). `baseline -point 11556 -backfill [-from …] [-asof …] [-dry-run] [-json]` — histórico retroactivo (UC-B4), una fila por versión |
-| `cmd/replay` | Solo `Replayer` (lectura): `newBaselineReplayer(platform)` sobre una plataforma de solo lectura |
 
 ## Tests
 
-- `go test ./internal/modules/baseline/...` — dominio, aplicación (fakes), mappers, scheduler, fachada, replay (las versiones simuladas = `Recalculate` dry-run en el mismo `asOf` aunque haya datos "envenenados" después; separación 24 h con `LOW` y 168 h con `NORMAL`); incluye rendimiento (90 días < 5 s; se omite con `-short`; con `-race` supera el presupuesto por la instrumentación).
-- Eventos conocidos: dominio (`known_events_test.go`: exclusión sin marcas, fusión con marcas, tope, recorte al histórico, evento que el barrido no detecta, evento fuera del histórico = mismo resultado), aplicación (flag, rango consultado, fallo del provider, replay = recálculo) y `knownevents/static_provider_test.go` (fechas de Bogotá a UTC, filtro por rango y por punto).
-- Backfill (`backfill_service_test.go`): guarda exactamente lo simulado desde el primer registro, en orden y con `created_at = valid_from`; `-from` explícito; dry-run no persiste; punto con versiones, sin datos, rango sin recálculos y errores de consulta/persistencia.
-- `go test -tags integration ./internal/modules/baseline/infrastructure/persistence/repositories/` con `DATABASE_URL` — migración/índice parcial, versionado, concurrencia, pivote, `SaveHistory` (todo o nada, vigencias encadenadas, rechazo con versiones existentes).
-- **Golden del estudio (15.5, bloqueante para T8)**: `application/services/golden_study_test.go`. Se activa al poner `testdata/study_11556.csv` (timestamp RFC3339, B1, B2, Planitud) y `BASELINE_STUDY_ASOF`. Espera θ_D = 67, mediana 54, ≈ 21,8 % ± 0,5 pp, 4 pasadas, sin tope.
+El módulo no tiene tests por ahora: se retiraron en el refactor de octubre de 2026.

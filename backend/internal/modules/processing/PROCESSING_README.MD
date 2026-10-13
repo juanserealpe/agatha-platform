@@ -1,5 +1,7 @@
 # Modulo: Processing
 
+> **Estado: descableado (octubre de 2026).** `internal/bootstrap` ya no compone este módulo y `cmd/replay` se eliminó. El código se conserva; lo que sigue describe el diseño para cuando se vuelva a cablear.
+
 **Responsabilidad**: cada hora y para cada punto activo, evaluar las ventanas de **24 h** y **6 h** que terminan en esa hora contra la línea base vigente y **persistir una fila por ventana y hora** en `feature_evaluations` (Cobertura, D, P, Ex, C, D_Pl, z, s(z), I) o el motivo por el que no se pudo calcular.
 
 Processing **mide, no interpreta**: las horas seguidas, los cortes de I, las categorías y las alertas son del Rule Engine (decisión del analista, opción B). Todas las fórmulas vienen del kernel `shared/features`; Processing no reimplementa ninguna. Todo en **UTC** (`America/Bogota` solo en logs).
