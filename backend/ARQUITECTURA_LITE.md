@@ -127,7 +127,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `GET` | `DeviceHandler.GetAllDevices` | `DashboardService.GetAllDevices` | Lista todos los dispositivos con última conexión y batería |
 | `GET` | `MeasurementHandler.GetMeasurements` | `DashboardService.GetMeasurements` | Mediciones por `deviceId`, `startDate`, `endDate` (query params RFC3339) |
 | `GET` | `SeriesHandler.GetVariables` | `SeriesService.GetVariables` | Catálogo de variables graficables |
-| `GET` | `SeriesHandler.GetSeries` | `SeriesService.GetSeries` | Series por `deviceId`, `startDate`, `endDate` y `variables` opcional (hoy `b1`, `b2`, `densidad`, `indicador`). Lee `raw_measurements` y `feature_evaluations`. Agregar una variable es una línea en `domain/entities/series_catalog.go` |
+| `GET` | `SeriesHandler.GetSeries` | `SeriesService.GetSeries` | Series por `deviceId`, `startDate`, `endDate` y `variables` opcional (hoy `b1`, `b2`, `densidad`, `indicador`, `temperatura`, `humedad`, `deriva`, `pitch`, `roll`, `aceleracion`). Lee `raw_measurements` y `feature_evaluations`. Agregar una variable es una línea en `domain/entities/series_catalog.go` |
 
 ## DTOs Clave
 

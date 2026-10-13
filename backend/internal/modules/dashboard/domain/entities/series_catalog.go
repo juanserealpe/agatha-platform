@@ -16,6 +16,12 @@ var seriesCatalog = []SeriesDefinition{
 	{Key: "b2", Name: "B2 fuga 1200-2000Hz", Unit: "-", Source: SourceMeasurement, MetricID: 13},
 	{Key: "densidad", Name: "Densidad (D, 24 h)", Unit: "%", Source: SourceEvaluation, Column: "d", WindowHours: 24},
 	{Key: "indicador", Name: "Indicador I (24 h)", Unit: "-", Source: SourceEvaluation, Column: "i", WindowHours: 24},
+	{Key: "temperatura", Name: "Temperatura", Unit: "°C", Source: SourceMeasurement, MetricID: 20},
+	{Key: "humedad", Name: "Humedad", Unit: "%", Source: SourceMeasurement, MetricID: 21},
+	{Key: "deriva", Name: "Deriva", Unit: "°", Source: SourceMeasurement, MetricID: 19},
+	{Key: "pitch", Name: "Pitch", Unit: "°", Source: SourceMeasurement, MetricID: 1},
+	{Key: "roll", Name: "Roll", Unit: "°", Source: SourceMeasurement, MetricID: 2},
+	{Key: "aceleracion", Name: "Aceleración (magnitud promedio)", Unit: "g", Source: SourceMeasurement, MetricID: 8},
 }
 
 // SeriesCatalog devuelve una copia del catálogo, en su orden.

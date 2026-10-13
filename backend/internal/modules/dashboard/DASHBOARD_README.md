@@ -52,11 +52,17 @@ Un solo endpoint devuelve variables de distintas tablas con la misma forma (`tim
 | `b2` | B2 fuga 1200-2000Hz | `measurement` | `raw_measurements`, `metric_id = 13` |
 | `densidad` | Componente D de la ventana de 24 h (% de registros con B2 sobre el umbral) | `evaluation` | `feature_evaluations.d`, `window_hours = 24` |
 | `indicador` | Índice I de la ventana de 24 h (0 a 1) | `evaluation` | `feature_evaluations.i`, `window_hours = 24` |
+| `temperatura` | Temperatura (°C) | `measurement` | `raw_measurements`, `metric_id = 20` |
+| `humedad` | Humedad (%) | `measurement` | `raw_measurements`, `metric_id = 21` |
+| `deriva` | Deriva (°) | `measurement` | `raw_measurements`, `metric_id = 19` |
+| `pitch` | Pitch (°) | `measurement` | `raw_measurements`, `metric_id = 1` |
+| `roll` | Roll (°) | `measurement` | `raw_measurements`, `metric_id = 2` |
+| `aceleracion` | Magnitud promedio del acelerómetro (g) | `measurement` | `raw_measurements`, `metric_id = 8` |
 
 **Agregar una variable = una línea** en `domain/entities/series_catalog.go`. No se tocan el handler, el servicio ni los lectores:
 
 ```go
-{Key: "temperatura", Name: "Temperatura", Unit: "°C", Source: SourceMeasurement, MetricID: 20},
+{Key: "bateria", Name: "Batería", Unit: "%", Source: SourceMeasurement, MetricID: 5},
 {Key: "indicador_6h", Name: "Indicador I (6 h)", Unit: "-", Source: SourceEvaluation, Column: "i", WindowHours: 6},
 ```
 
