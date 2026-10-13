@@ -2,7 +2,7 @@
 
 1. **AISLAMIENTO MODULAR**: Prohibido importar paquetes internos entre módulos (`modules/dashboard` NUNCA importa `modules/ingestion/internal/...`). Comunicación solo vía interfaces públicas/facades en la raíz del módulo o eventos de `shared/eventbus`.
 2. **CAPA SHARED OBLIGATORIA**: Prohibido `log.Println`, `json.NewEncoder` directo o `fmt.Errorf` genérico. Es obligatorio usar `shared/logger`, `shared/http` y `shared/errors`.
-3. **ACCESO A BD COMPARTIDA**: Una sola BD para el monolito. `ingestion` gestiona la ESCRITURA de telemetría; `dashboard` realiza LECTURA (`SELECT`) de métricas y mediciones para visualización.
+3. **ACCESO A BD COMPARTIDA**: Una sola BD para el monolito. `ingestion` gestiona la ESCRITURA de telemetría; `dashboard` realiza LECTURA (`SELECT`) de métricas, mediciones y evaluaciones (`feature_evaluations`) para visualización.
 4. **ERRORES DE DOMINIO**: Envolver siempre con `shared/errors.AppError` antes de llegar al handler HTTP.
 5. **CONTEXTO LOCAL Y VERSIÓN**: Todo agente DEBE consultar `backend/internal/modules/[modulo]/README.md` antes de modificar un módulo. Ignorar carpetas/archivos históricos `docs/` salvo instrucción explícita.
 6. **EVENTOS ENTRE MÓDULOS**: El tipo del evento y su tópico viven en `modules/<publicador>/contract/` (solo stdlib). El consumidor NO importa al publicador (ni su `contract/`): define su propio tipo y `internal/bootstrap` (composition root, ÚNICO punto que conoce el bus y ambos módulos) traduce y suscribe. Se publica DESPUÉS del commit y un fallo al publicar nunca falla la operación. Reglas completas: `internal/shared/eventbus/README.md`. Reforzado con `depguard` en `backend/.golangci.yml`.
@@ -126,6 +126,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 |--------|---------|----------|-------------|
 | `GET` | `DeviceHandler.GetAllDevices` | `DashboardService.GetAllDevices` | Lista todos los dispositivos con última conexión y batería |
 | `GET` | `MeasurementHandler.GetMeasurements` | `DashboardService.GetMeasurements` | Mediciones por `deviceId`, `startDate`, `endDate` (query params RFC3339) |
+| `GET` | `SeriesHandler.GetVariables` | `SeriesService.GetVariables` | Catálogo de variables graficables |
+| `GET` | `SeriesHandler.GetSeries` | `SeriesService.GetSeries` | Series por `deviceId`, `startDate`, `endDate` y `variables` opcional (hoy `b1`, `b2`, `densidad`, `indicador`). Lee `raw_measurements` y `feature_evaluations`. Agregar una variable es una línea en `domain/entities/series_catalog.go` |
 
 ## DTOs Clave
 
@@ -135,6 +137,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `MeasurementsResponse` | `deviceId int64`, `startDate`, `endDate`, `measurements []MetricMeasurementsResponse` |
 | `MetricMeasurementsResponse` | `metricId uint64`, `metricName string`, `unit string`, `data []MeasurementPointResponse` |
 | `MeasurementPointResponse` | `timestamp time.Time`, `value float64` |
+| `SeriesResponse` | `deviceId int64`, `startDate`, `endDate`, `series []VariableSeriesResponse` |
+| `VariableSeriesResponse` | `key string`, `name string`, `unit string`, `source string` (`measurement`\|`evaluation`), `data []MeasurementPointResponse` |
 
 ## Validaciones
 

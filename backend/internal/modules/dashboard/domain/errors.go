@@ -57,4 +57,14 @@ var (
 		Code:    errors.CodeConsultingMeasurements,
 		Message: "no fue posible consultar las mediciones",
 	}
+
+	ErrUnknownVariable = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "alguna de las variables solicitadas no existe",
+	}
+
+	ErrConsultingSeries = &errors.AppError{
+		Code:    errors.CodeConsultingMeasurements,
+		Message: "no fue posible consultar las series del dispositivo",
+	}
 )
