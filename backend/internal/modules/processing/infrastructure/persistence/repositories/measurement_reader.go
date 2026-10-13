@@ -43,25 +43,35 @@ func (r *MeasurementReader) GetSamples(ctx context.Context, pointID int64, from,
 	return mappers.ToSamples(rows, r.ids), nil
 }
 
+// GetFirstTimestamp devuelve MIN(timestamp) de B2 del punto (nil si no hay).
+func (r *MeasurementReader) GetFirstTimestamp(ctx context.Context, pointID int64) (*time.Time, error) {
+	return r.boundaryTimestamp(ctx, pointID, "MIN(timestamp)")
+}
+
 // GetLatestTimestamp devuelve MAX(timestamp) de B2 del punto (nil si no hay).
 func (r *MeasurementReader) GetLatestTimestamp(ctx context.Context, pointID int64) (*time.Time, error) {
-	var latest sql.NullTime
+	return r.boundaryTimestamp(ctx, pointID, "MAX(timestamp)")
+}
+
+func (r *MeasurementReader) boundaryTimestamp(ctx context.Context, pointID int64, aggregate string,
+) (*time.Time, error) {
+	var ts sql.NullTime
 
 	err := r.db.WithContext(ctx).
 		Table("raw_measurements").
-		Select("MAX(timestamp)").
+		Select(aggregate).
 		Where("measuring_point_id = ? AND metric_id = ?", pointID, r.ids.B2).
 		Row().
-		Scan(&latest)
+		Scan(&ts)
 	if err != nil {
 		return nil, err
 	}
 
-	if !latest.Valid {
+	if !ts.Valid {
 		return nil, nil
 	}
 
-	utc := latest.Time.UTC()
+	utc := ts.Time.UTC()
 	return &utc, nil
 }
 

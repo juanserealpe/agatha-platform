@@ -19,10 +19,11 @@ const (
 type BaselineSnapshot struct {
 	// Available = false ⇒ no hay versión vigente (NO_SIGNAL_BASELINE). No es error.
 	Available  bool
-	VersionID  int64 // 0 en las versiones simuladas por el replay
+	VersionID  int64
 	Version    int
 	ValidFrom  time.Time
-	Confidence string // ConfidenceNormal | ConfidenceLow
+	ValidTo    *time.Time // nil ⇒ es la versión vigente hoy
+	Confidence string     // ConfidenceNormal | ConfidenceLow
 	// FirstSeenAt es el primer registro de B2 del dispositivo (nil si no hay).
 	// Se informa aunque Available = false.
 	FirstSeenAt      *time.Time
@@ -30,6 +31,14 @@ type BaselineSnapshot struct {
 	Stats            map[int]features.ComponentStats // clave: 6 | 24
 	Flags            []string
 	AlgorithmVersion string
+}
+
+// IsEffectiveAt indica si la versión está vigente en t: ValidFrom <= t < ValidTo.
+func (s BaselineSnapshot) IsEffectiveAt(t time.Time) bool {
+	if !s.Available || t.Before(s.ValidFrom) {
+		return false
+	}
+	return s.ValidTo == nil || t.Before(*s.ValidTo)
 }
 
 // IsSignalDegenerate indica si la señal no tiene MinElevatedB2 (flag SIGNAL_DEGENERATE).

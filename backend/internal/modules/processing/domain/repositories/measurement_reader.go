@@ -15,6 +15,9 @@ type MeasurementReader interface {
 	// por timestamp y ordenados (una consulta). Valores no finitos ⇒ Has* = false.
 	GetSamples(ctx context.Context, pointID int64, from, to time.Time) ([]features.Sample, error)
 
+	// GetFirstTimestamp devuelve MIN(timestamp) de B2 del punto (nil si no hay).
+	GetFirstTimestamp(ctx context.Context, pointID int64) (*time.Time, error)
+
 	// GetLatestTimestamp devuelve MAX(timestamp) de B2 del punto (nil si no hay).
 	GetLatestTimestamp(ctx context.Context, pointID int64) (*time.Time, error)
 

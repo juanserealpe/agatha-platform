@@ -43,7 +43,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 
 | Tópico | Publicador | Consumidores |
 |---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy: Processing está descableado (evaluaba las horas listas del punto → `feature_evaluations`) |
+| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy (Processing evalúa por scheduler, no por evento) |
 
 ## Errors (`shared/errors`)
 
@@ -170,23 +170,23 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Processing
 
-> **Estado: descableado (octubre de 2026).** El código de `modules/processing` se conserva, pero `internal/bootstrap` ya no lo compone: no hay módulo `processing` en `AGATHA_MODULES`, no hay suscriptor del evento ni reconciliador, y `cmd/replay` se eliminó. Lo que sigue describe el diseño para cuando se vuelva a cablear; requiere reponer un contrato público en Baseline.
-
-**Responsabilidad**: cada hora y para cada punto activo, evaluar las ventanas de 24 h y 6 h que terminan en esa hora contra la línea base vigente y persistir **una fila por (punto, ventana, hora)** en `feature_evaluations` (Cobertura, D, P, Ex, C, D_Pl, z, s(z), I) o el motivo `NO_CALCULABLE`. **Mide, no interpreta**: rachas, cortes, categorías y alertas son del Rule Engine. Todo cálculo pasa por `shared/features`. Detalle en `modules/processing/PROCESSING_README.MD`.
+**Responsabilidad**: cada hora y para cada punto activo, evaluar las ventanas de 24 h y 6 h que terminan en esa hora contra la línea base vigente en ella y persistir **una fila por (punto, ventana, hora)** en `feature_evaluations` (Cobertura, D, P, Ex, C, D_Pl, z, s(z), I) o el motivo `NO_CALCULABLE`. **Mide, no interpreta**: rachas, cortes, categorías y alertas son del Rule Engine. Todo cálculo pasa por `shared/features`. Detalle en `modules/processing/PROCESSING_README.MD`.
 
 | Trigger | Accion | Componente |
 |---|---|---|
-| Evento `ingestion.measurements_ingested` | Evalúa las horas listas del punto (máx. 24) | `MeasurementsIngestedSubscriber.Handle` → `EvaluationService.EvaluatePending` |
-| `HourlyScheduler` (al arrancar + minuto 35) | Reconciliador: completa las horas sin fila de cada punto activo (máx. 72 por tick; grace 30 min) | `EvaluationService.Reconcile` |
-| `cmd/replay -point -from -to -mode asof\|fixed` | Reproducción histórica a CSV, sin escribir en la BD | `bootstrap.RunReplay` |
+| `HourlyScheduler` (al arrancar + minuto 35) | Evalúa las horas pendientes de cada punto activo (máx. 72 por tick; grace 30 min). Único disparador automático | `EvaluationService.Reconcile` → `EvaluatePending` |
+| `cmd/processing -point` | Evalúa a demanda las horas pendientes de un punto | `EvaluationService.EvaluatePending` |
+| `cmd/processing -point -backfill [-from] [-asof] [-dry-run] [-json]` | Histórico: evalúa todas las horas del rango con la versión de línea base vigente en cada una; solo inserta las que faltan | `EvaluationService.Backfill` |
 
-**Garantías**: idempotente (índice único + `ON CONFLICT DO NOTHING`, lock en proceso por punto); una TX por lote (todas las horas o ninguna); un fallo de lectura o de Baseline **no** persiste filas `NO_CALCULABLE` falsas (aborta y el reconciliador reintenta); toda hora `≤ floorHour(now − 30 min)` tiene fila tras el tick del reconciliador.
+**Línea base**: Processing la lee directo de `baseline_versions` / `baseline_component_stats` con un modelo de solo lectura propio (port `BaselineProvider`, adapter `repositories.BaselineReader`). Baseline no expone nada: el acople es de esquema. Un punto sin ninguna versión **no se evalúa** (se espera a la primera), y nunca se evalúan horas anteriores a la primera versión.
 
-**Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingMeasurements`, `ErrConsultingBaseline`, `ErrConsultingEvaluations` (`CONSULTING_EVALUATIONS`), `ErrPersistingEvaluations` (`PERSISTING_EVALUATIONS`). `NO_CALCULABLE`, ausencia de línea base y conflicto de unicidad no son errores. Subscriber y scheduler registran `code` + mensaje y no reintentan.
+**Garantías**: idempotente (índice único + `ON CONFLICT DO NOTHING`); una TX por lote (todas las horas o ninguna); un fallo de lectura **no** persiste filas `NO_CALCULABLE` falsas (aborta y el siguiente tick reintenta); sin estado en memoria: tras una caída retoma desde la última fila guardada, en orden y sin huecos.
 
-**Aislamiento**: solo importa `shared/{logger, errors, features}`; no importa `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `processing-isolation`). Lee `raw_measurements` y `devices` con su propio modelo y consume Baseline vía su port `BaselineProvider`; el adapter `baselineProviderAdapter`, la traducción del evento y la suscripción viven en `internal/bootstrap/processing.go`.
+**Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingMeasurements`, `ErrConsultingBaseline`, `ErrConsultingEvaluations` (`CONSULTING_EVALUATIONS`), `ErrPersistingEvaluations` (`PERSISTING_EVALUATIONS`). `NO_CALCULABLE`, ausencia de línea base y conflicto de unicidad no son errores.
 
-**Inicialización**: `bootstrap.NewProcessingModule(platform, baselineModule)`. Debe correr en el MISMO proceso que Ingestion (bus en memoria) y antes de que se publique. `toMeasurementsIngestedNotice` mapea `watermark` → `Watermark` (hora lista = `floorHour(watermark)`), `batch_seq` → `BatchSeq` y `from` → `From`; si el evento no trae `watermark` (cero), la hora lista se deriva de `MAX(timestamp)` en la BD.
+**Aislamiento**: solo importa `shared/{logger, errors, features}`; no importa `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `processing-isolation`). No publica ni consume eventos.
+
+**Inicialización**: `bootstrap.NewProcessingModule(platform)`. Para un punto con historia: `baseline -backfill` → `processing -backfill` → habilitar `processing` en `AGATHA_MODULES`.
 
 ---
 
@@ -200,6 +200,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Recalculator`, `Backfiller` y `NewScheduler()`. |
 | `NewIngestionModule(platform)` | Ingestion (DataOS) | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
 | `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
+| `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
@@ -207,10 +208,11 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`). `bootstrap.ParseModules` valida que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing` se habilita a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
+| `cmd/processing` | Evaluación a demanda de un punto (`-point`) o carga del histórico de evaluaciones (`-backfill`, `-from`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo); sale al terminar. |
 
 **Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
@@ -295,6 +297,6 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `UNIQUE (measuring_point_id, window_hours, evaluated_at)` (`ux_feature_evaluations_point_window_hour`): idempotencia, última hora evaluada y lectura del Rule Engine. ~17 500 filas por dispositivo por año.
 - Resultado: `status` (`CALCULATED`|`NO_CALCULABLE`), `no_calc_reason` (`NO_SIGNAL_BASELINE`|`SIGNAL_DEGENERATE`|`LOW_COVERAGE`|`NO_COMPONENT_BASELINE`|`INSUFFICIENT_COHERENCE_DATA`), `n_expected`, `n_received`, `n_valid`, `coverage`.
 - Componentes y scores (NULL = no calculado): `d`, `p_hours`, `ex`, `c`, `d_pl`, `c_from_24h`, `z_d`, `z_p`, `z_ex`, `z_c`, `s_d`, `s_p`, `s_ex`, `s_c`, `i`.
-- Marcas y trazabilidad: `low_confidence`, `silent`, `flags` (TEXT[]), `baseline_version_id` (sin FK), `baseline_version`, `algorithm_version`, `config_version` (`m=12,13,18`), `trigger` (`EVENT`|`RECONCILER`), `source_batch_seq`, `input_max_ts`, `created_at`. Inmutable.
+- Marcas y trazabilidad: `low_confidence`, `silent`, `flags` (TEXT[]), `baseline_version_id` (sin FK), `baseline_version`, `algorithm_version`, `config_version` (`m=12,13,18`), `trigger` (`RECONCILER`|`MANUAL`|`BACKFILL`), `source_batch_seq` (NULL hoy), `input_max_ts`, `created_at`. Inmutable.
 
 > La crea `AutoMigrate` en `NewProcessingModule`.

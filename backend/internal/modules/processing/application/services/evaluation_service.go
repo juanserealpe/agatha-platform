@@ -26,9 +26,11 @@ type EvaluationService struct {
 	cfg         Config
 	log         *logger.Logger
 
-	// locks serializa, por punto, el worker del bus y el reconciliador.
-	mu    sync.Mutex
-	locks map[int64]*sync.Mutex
+	// locks serializa, por punto, el reconciliador y la carga del histórico.
+	// waiting recuerda los puntos sin línea base para avisarlo una sola vez.
+	mu      sync.Mutex
+	locks   map[int64]*sync.Mutex
+	waiting map[int64]bool
 }
 
 func NewEvaluationService(
@@ -49,9 +51,10 @@ func NewEvaluationService(
 			ConfigVersion: cfg.ConfigVersion,
 			SilentPeriod:  cfg.SilentPeriod,
 		}),
-		cfg:   cfg,
-		log:   log,
-		locks: map[int64]*sync.Mutex{},
+		cfg:     cfg,
+		log:     log,
+		locks:   map[int64]*sync.Mutex{},
+		waiting: map[int64]bool{},
 	}
 }
 
@@ -59,7 +62,9 @@ func NewEvaluationService(
 // hasta ReadyUntil y las guarda en una sola TX. Ante un fallo de lectura o de
 // línea base aborta SIN persistir: las filas son inmutables y un fallo
 // transitorio no debe quedar grabado como NO_CALCULABLE (el reconciliador
-// reintenta). Todos los errores devueltos son *AppError de processing/domain.
+// reintenta). Un punto sin ninguna versión de línea base no se evalúa: se
+// espera a que Baseline cree la primera. Todos los errores devueltos son
+// *AppError de processing/domain.
 func (s *EvaluationService) EvaluatePending(ctx context.Context, cmd EvaluatePendingCommand,
 ) (EvaluationResult, error) {
 	result := EvaluationResult{PointID: cmd.PointID}
@@ -80,6 +85,11 @@ func (s *EvaluationService) EvaluatePending(ctx context.Context, cmd EvaluatePen
 	}
 	result.ReadyUntil = readyUntil
 
+	earliest, ok, err := s.earliestSlot(ctx, cmd.PointID)
+	if err != nil || !ok {
+		return result, err
+	}
+
 	last, err := s.evaluations.GetLastEvaluatedAt(ctx, cmd.PointID)
 	if err != nil {
 		s.log.Error("[EvaluationService] Error consultando la última hora evaluada",
@@ -89,7 +99,7 @@ func (s *EvaluationService) EvaluatePending(ctx context.Context, cmd EvaluatePen
 
 	s.warnLateData(cmd, last)
 
-	slots := s.planner.Plan(last, readyUntil, cmd.MaxSlots)
+	slots := s.planner.PlanFrom(last, earliest, readyUntil, cmd.MaxSlots)
 	if len(slots) == 0 {
 		return result, nil
 	}
@@ -98,7 +108,7 @@ func (s *EvaluationService) EvaluatePending(ctx context.Context, cmd EvaluatePen
 	result.Planned = len(slots)
 	result.FirstSlot, result.LastSlot = &first, &end
 
-	evals, err := s.evaluate(ctx, cmd, slots, now)
+	evals, err := s.evaluate(ctx, cmd.PointID, slots, cmd.Trigger, cmd.BatchSeq, now)
 	if err != nil {
 		return result, err
 	}
@@ -215,45 +225,100 @@ func (s *EvaluationService) resolveReadyUntil(ctx context.Context, cmd EvaluateP
 	return ready, true, nil
 }
 
-// evaluate lee una vez los samples de [primera − 24 h, última) y evalúa cada
-// hora en orden. Cualquier fallo aborta el lote completo.
-func (s *EvaluationService) evaluate(ctx context.Context, cmd EvaluatePendingCommand, slots []time.Time, now time.Time,
-) ([]entities.FeatureEvaluation, error) {
-	from := slots[0].Add(-entities.Window24h * time.Hour)
-	to := slots[len(slots)-1]
+// earliestSlot devuelve la primera hora evaluable del punto: la primera hora
+// en punto con una versión de línea base vigente. ok = false ⇒ el punto aún
+// no tiene línea base y no se evalúa (se avisa una sola vez).
+func (s *EvaluationService) earliestSlot(ctx context.Context, pointID int64) (time.Time, bool, error) {
+	firstValidFrom, err := s.baseline.GetFirstValidFrom(ctx, pointID)
+	if err != nil {
+		s.log.Error("[EvaluationService] Error consultando la primera versión de línea base",
+			"measuring_point_id", pointID, "error", err)
+		return time.Time{}, false, domain.ErrConsultingBaseline
+	}
 
-	raw, err := s.reader.GetSamples(ctx, cmd.PointID, from, to)
+	s.mu.Lock()
+	wasWaiting := s.waiting[pointID]
+	s.waiting[pointID] = firstValidFrom == nil
+	s.mu.Unlock()
+
+	if firstValidFrom == nil {
+		if !wasWaiting {
+			s.log.Info("[EvaluationService] El punto no tiene línea base; se espera a la primera versión",
+				"measuring_point_id", pointID)
+		}
+		return time.Time{}, false, nil
+	}
+
+	return ceilHour(*firstValidFrom), true, nil
+}
+
+// evaluate lee una vez los samples de [primera − 24 h, última) y las versiones
+// de línea base vigentes en [primera, última], y evalúa cada hora en orden con
+// la versión vigente en ella. Cualquier fallo aborta el lote completo.
+func (s *EvaluationService) evaluate(
+	ctx context.Context,
+	pointID int64,
+	slots []time.Time,
+	trigger entities.Trigger,
+	batchSeq *int64,
+	now time.Time,
+) ([]entities.FeatureEvaluation, error) {
+	first, end := slots[0], slots[len(slots)-1]
+	from := first.Add(-entities.Window24h * time.Hour)
+
+	raw, err := s.reader.GetSamples(ctx, pointID, from, end)
 	if err != nil {
 		s.log.Error("[EvaluationService] Error consultando las mediciones",
-			"measuring_point_id", cmd.PointID, "from", from, "to", to, "error", err)
+			"measuring_point_id", pointID, "from", from, "to", end, "error", err)
 		return nil, domain.ErrConsultingMeasurements
 	}
 	samples := features.Normalize(raw)
 
+	firstSeen, err := s.reader.GetFirstTimestamp(ctx, pointID)
+	if err != nil {
+		s.log.Error("[EvaluationService] Error consultando el primer dato del punto",
+			"measuring_point_id", pointID, "error", err)
+		return nil, domain.ErrConsultingMeasurements
+	}
+
+	versions, err := s.baseline.GetVersions(ctx, pointID, first, end)
+	if err != nil {
+		s.log.Error("[EvaluationService] Error consultando las versiones de línea base",
+			"measuring_point_id", pointID, "from", first, "to", end, "error", err)
+		return nil, domain.ErrConsultingBaseline
+	}
+
 	evals := make([]entities.FeatureEvaluation, 0, 2*len(slots))
 
 	for _, t := range slots {
-		snapshot, err := s.baseline.GetEffective(ctx, cmd.PointID, t)
-		if err != nil {
-			s.log.Error("[EvaluationService] Error consultando la línea base vigente",
-				"measuring_point_id", cmd.PointID, "at", t, "error", err)
-			return nil, domain.ErrConsultingBaseline
-		}
+		snapshot := effectiveAt(versions, t)
+		snapshot.FirstSeenAt = firstSeen
 
 		w24, w6 := s.evaluator.Evaluate(domainServices.EvaluationInput{
-			PointID:   cmd.PointID,
+			PointID:   pointID,
 			At:        t,
 			Window24:  domainServices.SliceWindow(samples, t, entities.Window24h),
 			Window6:   domainServices.SliceWindow(samples, t, entities.Window6h),
 			Baseline:  snapshot,
-			Trigger:   cmd.Trigger,
-			BatchSeq:  cmd.BatchSeq,
+			Trigger:   trigger,
+			BatchSeq:  batchSeq,
 			CreatedAt: now,
 		})
 		evals = append(evals, w24, w6)
 	}
 
 	return evals, nil
+}
+
+// effectiveAt devuelve la versión vigente en t (ValidFrom <= t < ValidTo). Si
+// ninguna lo está devuelve un snapshot con Available = false.
+func effectiveAt(versions []entities.BaselineSnapshot, t time.Time) entities.BaselineSnapshot {
+	for i := len(versions) - 1; i >= 0; i-- {
+		if versions[i].IsEffectiveAt(t) {
+			return versions[i]
+		}
+	}
+	return entities.BaselineSnapshot{}
 }
 
 // warnLateData: un registro anterior a la última hora evaluada ya no cambia
@@ -302,4 +367,12 @@ func (s *EvaluationService) lock(pointID int64) (unlock func()) {
 
 func floorHour(t time.Time) time.Time {
 	return t.UTC().Truncate(time.Hour)
+}
+
+func ceilHour(t time.Time) time.Time {
+	floor := floorHour(t)
+	if floor.Equal(t) {
+		return floor
+	}
+	return floor.Add(time.Hour)
 }

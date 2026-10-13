@@ -27,6 +27,10 @@ type Trigger string
 const (
 	TriggerEvent      Trigger = "EVENT"
 	TriggerReconciler Trigger = "RECONCILER"
+	// TriggerBackfill es la carga del histórico (cmd/processing -backfill).
+	TriggerBackfill Trigger = "BACKFILL"
+	// TriggerManual es una evaluación a demanda (cmd/processing).
+	TriggerManual Trigger = "MANUAL"
 	// TriggerReplay solo lo usa cmd/replay; nunca se persiste.
 	TriggerReplay Trigger = "REPLAY"
 )
