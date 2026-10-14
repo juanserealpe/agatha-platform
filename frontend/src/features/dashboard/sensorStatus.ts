@@ -4,9 +4,12 @@ export type DeviceStatus = "online" | "delayed" | "offline";
 const ONLINE_THRESHOLD_MIN = 20;
 const DELAYED_THRESHOLD_MIN = 120;
 
-export function getDeviceStatus(lastConnection: string | null): DeviceStatus {
+export function getDeviceStatus(
+    lastConnection: string | null,
+    now: number = Date.now()
+): DeviceStatus {
     if (!lastConnection) return "offline";
-    const minutesSince = (Date.now() - new Date(lastConnection).getTime()) / 60000;
+    const minutesSince = (now - new Date(lastConnection).getTime()) / 60000;
     if (minutesSince <= ONLINE_THRESHOLD_MIN) return "online";
     if (minutesSince <= DELAYED_THRESHOLD_MIN) return "delayed";
     return "offline";

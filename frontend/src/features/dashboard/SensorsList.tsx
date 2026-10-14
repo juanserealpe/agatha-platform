@@ -1,5 +1,6 @@
 import { getBatteryVisual } from "@/theme/severity";
 import type { Device } from "@/services/dashboard/dashboard.types";
+import { useEffect, useState } from "react";
 import {
     getDeviceStatus,
     DEVICE_STATUS_LABEL,
@@ -12,7 +13,18 @@ interface SensorsListProps {
     selectedDeviceId?: number;
 }
 
+function useNow(intervalMs = 30_000) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), intervalMs);
+        return () => clearInterval(id);
+    }, [intervalMs]);
+    return now;
+}
+
 export function SensorsList({ devices, onSensorClick, selectedDeviceId }: SensorsListProps) {
+    const now = useNow();
+
     return (
         <div className="flex flex-col gap-2 h-full">
             <h3 className="text-sm font-bold text-gray-900 px-1">
@@ -20,7 +32,7 @@ export function SensorsList({ devices, onSensorClick, selectedDeviceId }: Sensor
             </h3>
             <div className="flex flex-col gap-2 overflow-y-auto">
                 {devices.map((device) => {
-                    const status = getDeviceStatus(device.lastConnection);
+                    const status = getDeviceStatus(device.lastConnection, now);
                     const battery = getBatteryVisual(device.lastBatteryLevel ?? 0);
                     const isSelected = device.id === selectedDeviceId;
 
