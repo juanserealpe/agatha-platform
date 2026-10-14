@@ -1,20 +1,21 @@
 // features/dashboard/MetricsAccordion.tsx
 import { useMemo, useState } from "react";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
-import { MetricChart } from "./MetricChart";
-import { METRIC_SECTIONS, type MetricSectionKey } from "./metricSections";
+import { MetricChart } from "../MetricChart";
+import { FugaSection } from "../sections/FugaSection";
+import { METRIC_SECTIONS, type MetricSectionKey } from "../metricSections";
 import type { MetricMeasurements } from "@/services/dashboard/measurement.types";
 
 interface MetricsAccordionProps {
     measurements: MetricMeasurements[];
+    deviceId?: number;
+    startDate: string;
+    endDate: string;
 }
 
-export function MetricsAccordion({ measurements }: MetricsAccordionProps) {
-    const [openSections, setOpenSections] = useState<MetricSectionKey[]>([]);
+export function MetricsAccordion({ measurements, deviceId, startDate, endDate }: MetricsAccordionProps) {
+    const [openSections, setOpenSections] = useState<string[]>([]);
 
-    // clave del fix: esto solo se recalcula cuando measurements cambia de verdad,
-    // así los arrays que le llegan a cada MetricChart mantienen su referencia
-    // entre renders y React.memo funciona como debe.
     const sectionsWithGroups = useMemo(() => {
         const byId = new Map<number, MetricMeasurements>();
         for (const m of measurements) byId.set(m.metricId, m);
@@ -34,7 +35,18 @@ export function MetricsAccordion({ measurements }: MetricsAccordionProps) {
     }, [measurements]);
 
     return (
-        <Accordion value={openSections} onValueChange={(v) => setOpenSections(v as MetricSectionKey[])}>
+        <Accordion value={openSections} onValueChange={(v) => setOpenSections(v as string[])}>
+            {/* Sección nueva: pide sus propios datos al endpoint /series */}
+            <AccordionItem value="fuga">
+                <AccordionTrigger>Fuga</AccordionTrigger>
+                <AccordionContent>
+                    {openSections.includes("fuga") && deviceId !== undefined && (
+                        <FugaSection deviceId={deviceId} startDate={startDate} endDate={endDate} />
+                    )}
+                </AccordionContent>
+            </AccordionItem>
+
+            {/* Secciones que todavía usan el flujo anterior */}
             {sectionsWithGroups.map(({ key, label, groups }) => {
                 const isOpen = openSections.includes(key);
                 return (

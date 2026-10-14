@@ -1,2 +1,2 @@
-export { FiltersBar } from "./FiltersBar";
-export { SensorsList } from "./SensorsList";
+export { FiltersBar } from "./components/FiltersBar";
+export { SensorsList } from "./components/SensorsList";

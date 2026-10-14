@@ -1,6 +1,6 @@
 // features/dashboard/hooks/useDateRangeState.ts
 import { useState } from "react";
-import { DEFAULT_RANGE, getRangeDates, type QuickRange } from "../dateRanges";
+import { DEFAULT_RANGE, getRangeDates, type QuickRange } from "../lib/dateRanges";
 
 interface DateRangeValue {
     quickRange: QuickRange | null;

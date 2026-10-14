@@ -1,3 +1,4 @@
+import type { SeriesResponse } from "@/services/dashboard/series.types";
 import type { Device } from "./dashboard.types";
 import type { MeasurementsResponse } from "./measurement.types";
 
@@ -21,6 +22,25 @@ export const dashboardService = {
         const res = await fetch(`${BASE_URL}/api/dashboard/measurements?${params.toString()}`);
         if (!res.ok) {
             throw new Error(`No se pudo obtener las métricas (${res.status})`);
+        }
+        return res.json();
+    },
+
+    async getSeries(
+        deviceId: number,
+        startDate: string,
+        endDate: string,
+        variables: string[]
+    ): Promise<SeriesResponse> {
+        const params = new URLSearchParams({
+            deviceId: String(deviceId),
+            startDate,
+            endDate,
+            variables: variables.join(","),
+        });
+        const res = await fetch(`${BASE_URL}/api/dashboard/series?${params.toString()}`);
+        if (!res.ok) {
+            throw new Error(`No se pudieron obtener las series (${res.status})`);
         }
         return res.json();
     }

@@ -5,7 +5,7 @@ import {
     getDeviceStatus,
     DEVICE_STATUS_LABEL,
     DEVICE_STATUS_DOT_CLASS,
-} from "./sensorStatus";
+} from "../lib/sensorStatus";
 
 interface SensorsListProps {
     devices: Device[];

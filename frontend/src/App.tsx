@@ -10,8 +10,8 @@ import { PipelineMap } from "@/features/map";
 import { useDevices } from "@/features/dashboard/hooks/useDevices";
 import { useMeasurements } from "@/features/dashboard/hooks/useMeasurements";
 import { useDateRangeState } from "@/features/dashboard/hooks/useDateRangeState";
-import { MetricsAccordion } from "@/features/dashboard/MetricsAccordion";
-import { DateRangeControls } from "@/features/dashboard/DateRangeControls";
+import { MetricsAccordion } from "@/features/dashboard/components/MetricsAccordion";
+import { DateRangeControls } from "@/features/dashboard/components/DateRangeControls";
 import type { Device } from "@/services/dashboard/dashboard.types";
 // TODO: reemplazar por datos reales desde el backend (REST API, sección 8 del documento)
 const GASODUCTOS_MOCK = [
@@ -154,7 +154,12 @@ function App() {
               ) : measurementsError ? (
                 <Placeholder label="Error al cargar métricas" />
               ) : (
-                <MetricsAccordion measurements={measurementsData?.measurements ?? []} />
+                <MetricsAccordion
+                  measurements={measurementsData?.measurements ?? []}
+                  deviceId={selectedDevice?.id}
+                  startDate={startDate}
+                  endDate={endDate}
+                />
               )}
             </div>
           )

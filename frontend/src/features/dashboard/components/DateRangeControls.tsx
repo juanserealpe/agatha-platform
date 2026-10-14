@@ -1,7 +1,7 @@
 // features/dashboard/DateRangeControls.tsx
 import { Button } from "@/components/ui/button";
 import { CustomRangeDialog } from "./CustomRangeDialog";
-import { QUICK_RANGE_OPTIONS, type QuickRange } from "./dateRanges";
+import { QUICK_RANGE_OPTIONS, type QuickRange } from "../lib/dateRanges";
 
 interface DateRangeControlsProps {
     activeQuickRange: QuickRange | null;
