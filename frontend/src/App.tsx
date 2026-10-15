@@ -8,7 +8,6 @@ import { AlertModal } from "@/features/alerts";
 import { AlertBanner } from "@/features/alerts";
 import { PipelineMap } from "@/features/map";
 import { useDevices } from "@/features/dashboard/hooks/useDevices";
-import { useMeasurements } from "@/features/dashboard/hooks/useMeasurements";
 import { useDateRangeState } from "@/features/dashboard/hooks/useDateRangeState";
 import { MetricsAccordion } from "@/features/dashboard/components/MetricsAccordion";
 import { DateRangeControls } from "@/features/dashboard/components/DateRangeControls";
@@ -65,8 +64,11 @@ function Placeholder({ label }: { label: string }) {
 
 function App() {
   //const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
+  const { data: devices = [], isLoading, error } = useDevices();
+
   const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null); // para el panel real
+  const activeDevice = selectedDevice ?? devices[0] ?? null; // si no hay seleccionado, tomar el primero de la lista
   const [modalOpen, setModalOpen] = useState(false);
 
   // function handleSensorClick(sensor: Sensor) {
@@ -74,27 +76,13 @@ function App() {
   //   setModalOpen(true);
   // }
 
-  const { data: devices = [], isLoading, error } = useDevices();
+
 
   const [filters, setFilters] = useState<FiltersState>({
     gasoducto: "",
     sensor: "",
     criticidad: "",
   });
-
-  useEffect(() => {
-    if (!selectedDevice && devices.length > 0) {
-      setSelectedDevice(devices[0]);
-    }
-  }, [devices, selectedDevice]);
-
-  const { startDate, endDate, quickRange, selectQuickRange, selectCustomRange } = useDateRangeState();
-
-  const {
-    data: measurementsData,
-    isLoading: loadingMeasurements,
-    error: measurementsError,
-  } = useMeasurements(selectedDevice?.id, startDate, endDate);
 
 
   return (
@@ -134,34 +122,16 @@ function App() {
           ) : (
             <SensorsList
               devices={devices}
-              selectedDeviceId={selectedDevice?.id}
+              selectedDeviceId={activeDevice?.id}
               onSensorClick={setSelectedDevice}
             />
           )
         }
         telemetry={
-          !selectedDevice ? (
+          !activeDevice ? (
             <Placeholder label="Selecciona un sensor para ver sus gráficas" />
           ) : (
-            <div className="flex flex-col gap-3">
-              <DateRangeControls
-                activeQuickRange={quickRange}
-                onQuickRangeSelect={selectQuickRange}
-                onCustomRangeApply={selectCustomRange}
-              />
-              {loadingMeasurements ? (
-                <Placeholder label="Cargando métricas..." />
-              ) : measurementsError ? (
-                <Placeholder label="Error al cargar métricas" />
-              ) : (
-                <MetricsAccordion
-                  measurements={measurementsData?.measurements ?? []}
-                  deviceId={selectedDevice?.id}
-                  startDate={startDate}
-                  endDate={endDate}
-                />
-              )}
-            </div>
+            <MetricsAccordion deviceId={activeDevice.id} />
           )
         }
       />

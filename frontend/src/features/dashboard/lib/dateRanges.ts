@@ -10,8 +10,12 @@ export const QUICK_RANGE_OPTIONS: { value: QuickRange; label: string }[] = [
 
 export const DEFAULT_RANGE: QuickRange = "1w"; // 7 días, según lo acordado con tu compañero
 
+const ROUND_MS = 5 * 60_000;
+
 export function getRangeDates(range: QuickRange): { startDate: string; endDate: string } {
-    const end = new Date();
+    // Redondeo hacia arriba a 5 min: dentro de ese lapso la query es idéntica (hay caché)
+    // y el rango siempre incluye la última lectura.
+    const end = new Date(Math.floor(Date.now() / ROUND_MS) * ROUND_MS);
     const start = new Date(end);
     switch (range) {
         case "1h": start.setHours(start.getHours() - 1); break;

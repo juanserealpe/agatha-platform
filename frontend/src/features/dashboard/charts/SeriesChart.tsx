@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 //Cómo se dibuja una gráfica
 import { memo, useMemo, useState } from "react";
 import {
@@ -5,7 +6,7 @@ import {
     CartesianGrid, Legend, Brush, ReferenceArea, ReferenceLine,
 } from "recharts";
 import type { Series } from "@/services/dashboard/series.types";
-import type { ThresholdBand } from "../config/seriesSections";
+import type { ThresholdBand } from "../../dashboard/config/seriesSections";
 
 const LINE_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6"];
 const BUCKET_MS = 10_000;
@@ -13,15 +14,18 @@ const NO_THRESHOLDS: ThresholdBand[] = []; // referencia estable para que memo f
 
 const cleanUnit = (unit: string) => (unit === "-" ? "" : unit);
 
-function formatAxisDate(ts: number) {
-    return new Date(ts).toLocaleString("es-CO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-function formatTooltipDate(ts: number) {
-    return new Date(ts).toLocaleString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
+const axisDateFmt = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const tooltipDateFmt = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const yFmtBig = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
+const yFmtMid = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 });
+const yFmtSmall = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 3 });
+const valueFmt = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 4 });
+
+const formatAxisDate = (ts: number) => axisDateFmt.format(ts);
+const formatTooltipDate = (ts: number) => tooltipDateFmt.format(ts);
 function formatYTick(value: number) {
     const abs = Math.abs(value);
-    return value.toLocaleString("es-CO", { maximumFractionDigits: abs >= 100 ? 0 : abs >= 1 ? 2 : 3 });
+    return (abs >= 100 ? yFmtBig : abs >= 1 ? yFmtMid : yFmtSmall).format(value);
 }
 
 // Sin recorte por percentil: en detección de fuga el pico es justo lo que se quiere ver.
@@ -43,13 +47,13 @@ interface SeriesChartProps {
     title: string;
     series: Series[];
     thresholds?: ThresholdBand[];
+    colors?: string[];
 }
 
 export const SeriesChart = memo(function SeriesChart({
-    title,
-    series,
-    thresholds = NO_THRESHOLDS,
+    title, series, thresholds = NO_THRESHOLDS, colors = LINE_COLORS,
 }: SeriesChartProps) {
+
     const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
     const { data, yDomain } = useMemo(() => {
@@ -82,7 +86,8 @@ export const SeriesChart = memo(function SeriesChart({
 
     return (
         <div className="border border-gray-200 rounded-lg p-3">
-            <p className="text-sm font-medium text-gray-900 mb-2">
+            <p className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors[0] }} />
                 {title}
                 {unit ? ` (${unit})` : ""}
             </p>
@@ -143,7 +148,7 @@ export const SeriesChart = memo(function SeriesChart({
                                 type="monotone"
                                 dataKey={s.key}
                                 name={s.name}
-                                stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                                stroke={colors[i % colors.length]}
                                 strokeWidth={1.5}
                                 dot={data.length <= 30 ? { r: 2.5 } : false}
                                 isAnimationActive={false}
@@ -152,7 +157,7 @@ export const SeriesChart = memo(function SeriesChart({
                             />
                         ))}
                         {data.length > 20 && (
-                            <Brush dataKey="timestamp" height={24} stroke="#3b82f6" tickFormatter={formatAxisDate} travellerWidth={8} />
+                            <Brush dataKey="timestamp" height={24} stroke={colors[0]} tickFormatter={formatAxisDate} travellerWidth={8} />
                         )}
                     </LineChart>
                 </ResponsiveContainer>

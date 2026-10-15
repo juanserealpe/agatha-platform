@@ -15,7 +15,14 @@ export function CustomRangeDialog({ onApply }: CustomRangeDialogProps) {
 
     function handleApply() {
         if (!range?.from || !range?.to) return;
-        onApply({ startDate: range.from.toISOString(), endDate: range.to.toISOString() });
+
+        // Fin del día elegido, pero nunca después de "ahora": el backend rechaza fechas futuras
+        const endOfDay = new Date(range.to);
+        endOfDay.setHours(23, 59, 59, 999);
+        const nowMinute = Math.floor(Date.now() / 60_000) * 60_000;
+        const end = new Date(Math.min(endOfDay.getTime(), nowMinute));
+
+        onApply({ startDate: range.from.toISOString(), endDate: end.toISOString() });
         setOpen(false);
     }
 
@@ -28,7 +35,7 @@ export function CustomRangeDialog({ onApply }: CustomRangeDialogProps) {
                 <DialogHeader>
                     <DialogTitle>Selecciona un rango de fechas</DialogTitle>
                 </DialogHeader>
-                <DayPicker mode="range" numberOfMonths={1} selected={range} onSelect={setRange} />
+                <DayPicker mode="range" numberOfMonths={1} selected={range} onSelect={setRange} disabled={{ after: new Date() }} />
                 <Button onClick={handleApply} disabled={!range?.from || !range?.to}>
                     Aplicar
                 </Button>
