@@ -25,6 +25,8 @@ type EvaluationService struct {
 	evaluator   domainServices.WindowEvaluator
 	cfg         Config
 	log         *logger.Logger
+	// publisher publica un evento por ventana persistida (nil ⇒ no publica).
+	publisher ports.EventPublisher
 
 	// locks serializa, por punto, el reconciliador y la carga del histórico.
 	// waiting recuerda los puntos sin línea base para avisarlo una sola vez.
@@ -40,6 +42,7 @@ func NewEvaluationService(
 	clock ports.Clock,
 	cfg Config,
 	log *logger.Logger,
+	publisher ports.EventPublisher,
 ) *EvaluationService {
 	return &EvaluationService{
 		reader:      reader,
@@ -51,10 +54,11 @@ func NewEvaluationService(
 			ConfigVersion: cfg.ConfigVersion,
 			SilentPeriod:  cfg.SilentPeriod,
 		}),
-		cfg:     cfg,
-		log:     log,
-		locks:   map[int64]*sync.Mutex{},
-		waiting: map[int64]bool{},
+		cfg:       cfg,
+		log:       log,
+		publisher: publisher,
+		locks:     map[int64]*sync.Mutex{},
+		waiting:   map[int64]bool{},
 	}
 }
 
@@ -136,6 +140,8 @@ func (s *EvaluationService) EvaluatePending(ctx context.Context, cmd EvaluatePen
 		"first_slot", first,
 		"last_slot", end,
 	)
+
+	s.publishIndicatorEvaluated(ctx, cmd.PointID, evals, inserted)
 
 	return result, nil
 }

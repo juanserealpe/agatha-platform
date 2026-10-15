@@ -5,6 +5,7 @@ import (
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/application/ports"
 	processingServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/application/services"
+	processingEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/infrastructure/events"
 	processingMappers "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/infrastructure/persistence/mappers"
 	processingModels "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/infrastructure/persistence/models"
 	processingRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/infrastructure/persistence/repositories"
@@ -26,7 +27,8 @@ type ProcessingModule struct {
 // NewProcessingModule migra feature_evaluations y cablea Processing. Solo lee
 // raw_measurements y devices (de Ingestion) y baseline_versions y
 // baseline_component_stats (de Baseline), con sus propios modelos de lectura;
-// no importa a ninguno de los dos módulos ni usa el bus.
+// no importa a ninguno de los dos módulos. Publica processing.indicator_evaluated
+// en el bus de la Platform y no conoce a sus consumidores.
 func NewProcessingModule(platform *Platform) (*ProcessingModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
 	logProcessing := logger.New("Processing", "Info")
@@ -48,6 +50,7 @@ func NewProcessingModule(platform *Platform) (*ProcessingModule, error) {
 		ports.ClockFunc(time.Now),
 		cfg,
 		logProcessing,
+		processingEvents.NewBusEventPublisher(platform.EventBus),
 	)
 
 	return &ProcessingModule{

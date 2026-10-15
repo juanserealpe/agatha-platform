@@ -4,6 +4,7 @@ services:
   # contenedores). Los módulos se eligen con AGATHA_MODULES, separados por comas:
   #   baseline    scheduler de recálculo de líneas base
   #   processing  evaluación horaria del índice I (requiere baseline; cargar antes los históricos)
+  #   rule_engine consume processing.indicator_evaluated; hoy solo lo loguea (requiere processing)
   #   dataos      ingesta de contingencia: consulta programada a DataOS
   #   callback    ingesta principal: POST :8080/ingestion/callback (excluyente con dataos)
   #   dashboard   API de solo lectura: GET :8080/api/dashboard/*
@@ -21,7 +22,7 @@ services:
       - .env
 
     environment:
-      AGATHA_MODULES: callback,dashboard,baseline, processing
+      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine
 
     ports:
       - "8080:8080"

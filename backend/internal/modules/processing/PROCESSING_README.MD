@@ -16,15 +16,17 @@ processing/
 │   │   ├── window_slicer.go      # SliceWindow: [t − L, t) sin copiar
 │   │   └── window_evaluator.go   # kernel + precedencia de estados → 2 filas por hora
 │   └── repositories/    # Ports: MeasurementReader, EvaluationRepository
+├── contract/            # Superficie pública (solo stdlib): TopicIndicatorEvaluated, IndicatorEvaluated
 ├── application/
-│   ├── ports/           # BaselineProvider, Clock
+│   ├── ports/           # BaselineProvider, Clock, EventPublisher
 │   └── services/        # EvaluationService: UC-P1 EvaluatePending, UC-P2 Reconcile, UC-P3 Backfill
 └── infrastructure/
+    ├── events/          # BusEventPublisher / NoopEventPublisher (único lugar que conoce el bus)
     ├── persistence/     # models (GORM), mappers, repositories (incluye el lector de las tablas de Baseline)
     └── scheduling/      # HourlyScheduler (evaluación horaria)
 ```
 
-> `infrastructure/events/` (suscriptor del bus) e `infrastructure/replay/` (CSV) son del diseño anterior: **no están cableados** y quedan pendientes de borrar. Los tests de `application/services` tampoco compilan con los ports actuales; están pendientes de reescribir.
+> En `infrastructure/events/` quedan `MeasurementsIngestedNotice`/`Subscriber` e `infrastructure/replay/` (CSV) del diseño anterior: **no están cableados** y quedan pendientes de borrar.
 
 ## Entry Points
 
@@ -47,6 +49,20 @@ El scheduler es el **único disparador automático**. No hay suscripción al bus
 7. Por cada hora en orden: versión con `valid_from ≤ t < valid_to` → `SliceWindow` 24 h y 6 h → `WindowEvaluator` → 2 filas.
 8. `SaveAll` en **una TX** con `ON CONFLICT DO NOTHING`.
 9. **Si falla la línea base o la lectura, aborta sin persistir nada**. El siguiente tick reintenta.
+10. **Post-commit**: publica `processing.indicator_evaluated` por cada fila (ver *Eventos Publicados*).
+
+## Eventos Publicados
+
+| Tópico | Evento (`contract/`) | Campos |
+|---|---|---|
+| `processing.indicator_evaluated` | `IndicatorEvaluated` | `measuring_point_id`, `window_hours` (24 \| 6), `evaluated_at` (fin exclusivo de la ventana), `status`, `no_calc_reason`, `i` (null si no se calculó), `low_confidence`, `trigger`, `occurred_at`, `schema_version` — tiempos en UTC |
+
+- **Uno por ventana**: cada hora evaluada produce dos eventos (24 h y 6 h), también los `NO_CALCULABLE`.
+- Lo publica **solo** `EvaluatePending` (scheduler `RECONCILER` y `cmd/processing` `MANUAL`) **después** de `SaveAll`, a través del port `EventPublisher`. Un error al publicar se registra con `Warn` y no falla la evaluación.
+- **Backfill no publica**: el histórico son miles de filas y desbordaría la cola del bus (256 por suscripción); los consumidores leen `feature_evaluations`.
+- **Solo si el lote se insertó completo**. `SaveAll` devuelve cuántas filas insertó, no cuáles (GORM 1.31 no mapea bien `RETURNING` con conflictos parciales), así que con un conflicto parcial (otro proceso ya insertó parte) no publica nada y lo avisa con `Warn`. Si se insertó 0, tampoco.
+- Lleva `status` e `i` porque son el hecho que interesa (el Rule Engine los compara con sus reglas); la fila sigue siendo la fuente de verdad.
+- Consumidores: Rule Engine (`rule_engine.indicator_evaluated`, hoy solo log).
 
 ## UC-P2 `Reconcile`
 
@@ -126,19 +142,19 @@ Valor inválido ⇒ `Warn` y default.
 
 ## Reglas de Import (Aislamiento)
 
-Processing solo importa `shared/{logger, errors, features}`. **No** importa `modules/ingestion`, `modules/baseline` ni `shared/eventbus` (`depguard` `processing-isolation` y `processing-no-ingestion`).
+Processing solo importa `shared/{logger, errors, features}`, y `shared/eventbus` **únicamente** en `infrastructure/events`. **No** importa `modules/ingestion`, `modules/baseline` ni `modules/rule_engine` (`depguard` `processing-isolation` y `processing-no-ingestion`); `domain/` y `application/` no conocen el bus (`processing-core-no-eventbus`) y `contract/` es solo stdlib (`processing-contract-stdlib-only`).
 
 ## Cableado (Composition Root)
 
-`bootstrap.NewProcessingModule(platform)`: `AutoMigrate(feature_evaluations)` → lectores y repositorio → `EvaluationService` → `ProcessingModule{Evaluator, NewScheduler}`.
+`bootstrap.NewProcessingModule(platform)`: `AutoMigrate(feature_evaluations)` → lectores, repositorio y `BusEventPublisher(platform.EventBus)` → `EvaluationService` → `ProcessingModule{Evaluator, NewScheduler}`. No conoce a sus consumidores: la suscripción del Rule Engine vive en `bootstrap/rule_engine.go`.
 
 | Entrypoint | Processing |
 |---|---|
 | `cmd/platform` | Módulo `processing` de `AGATHA_MODULES` (requiere `baseline`; **no** está en el default). Arranca el `HourlyScheduler` |
-| `cmd/processing` | Evaluación a demanda y `-backfill`; sale al terminar |
+| `cmd/processing` | Evaluación a demanda y `-backfill`; sale al terminar. Publica en un bus sin suscriptores (no-op) |
 
 **Orden para habilitarlo en un punto con historia**: `baseline -backfill` → `processing -backfill` → agregar `processing` a `AGATHA_MODULES`.
 
 ## Tests
 
-Pendientes de reescribir. Los de `domain/services` y `mappers` siguen vigentes; los de `application/services` no compilan con los ports actuales.
+Los de `domain/services` y `mappers` siguen vigentes. `application/services/indicator_event_test.go` cubre la publicación (commit → publica 2 por hora; rollback, conflicto total o parcial → no publica; fallo del bus no falla; Backfill no publica) y `infrastructure/events/bus_event_publisher_test.go` el adapter y la serialización JSON. El resto de `application/services` sigue pendiente.

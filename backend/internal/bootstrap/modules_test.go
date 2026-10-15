@@ -39,12 +39,26 @@ func TestParseModules(t *testing.T) {
 		}
 	})
 
+	t.Run("rule_engine arranca después de processing", func(t *testing.T) {
+		set, err := ParseModules("rule_engine,callback,processing,baseline")
+		if err != nil {
+			t.Fatalf("error inesperado: %v", err)
+		}
+		if got, want := set.String(), "baseline,processing,rule_engine,callback"; got != want {
+			t.Fatalf("set = %q, se esperaba %q", got, want)
+		}
+		if !set.Has(ModuleRuleEngine) {
+			t.Fatal("Has(rule_engine) = false")
+		}
+	})
+
 	errorCases := []struct {
 		name string
 		raw  string
 	}{
 		{"módulo desconocido", "callback,reports"},
 		{"callback y dataos a la vez", "callback,dataos,dashboard"},
+		{"rule_engine sin processing", "baseline,rule_engine"},
 		{"solo separadores", ",,"},
 	}
 

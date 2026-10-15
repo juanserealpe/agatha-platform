@@ -183,7 +183,8 @@ Tres detalles que se olvidan seguido:
 
 | Tópico | Publicador | Evento (`contract/`) | Consumidores | Suscripción |
 |---|---|---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (`IngestService.IngestDataOs`, post-commit, si `Inserted > 0`) | `MeasurementsIngested` | Processing (solo log por ahora) | `processing.measurements_ingested` |
+| `ingestion.measurements_ingested` | Ingestion (`IngestService.IngestDataOs`, post-commit, si `Inserted > 0`) | `MeasurementsIngested` | Ninguno cableado hoy | — |
+| `processing.indicator_evaluated` | Processing (`EvaluationService.EvaluatePending`, post-commit, uno por ventana 24 h/6 h, solo si el lote se insertó completo; no en `Backfill`) | `IndicatorEvaluated` | Rule Engine (solo log por ahora) | `rule_engine.indicator_evaluated` |
 
 ---
 

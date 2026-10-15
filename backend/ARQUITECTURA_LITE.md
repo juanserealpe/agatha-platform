@@ -44,6 +44,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 | Tópico | Publicador | Consumidores |
 |---|---|---|
 | `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy (Processing evalúa por scheduler, no por evento) |
+| `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (solo log por ahora) |
 
 ## Errors (`shared/errors`)
 
@@ -188,9 +189,23 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 **Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingMeasurements`, `ErrConsultingBaseline`, `ErrConsultingEvaluations` (`CONSULTING_EVALUATIONS`), `ErrPersistingEvaluations` (`PERSISTING_EVALUATIONS`). `NO_CALCULABLE`, ausencia de línea base y conflicto de unicidad no son errores.
 
-**Aislamiento**: solo importa `shared/{logger, errors, features}`; no importa `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `processing-isolation`). No publica ni consume eventos.
+**Eventos**: publica `processing.indicator_evaluated` (`contract.IndicatorEvaluated`: `measuring_point_id`, `window_hours`, `evaluated_at`, `status`, `no_calc_reason`, `i`, `low_confidence`, `trigger`, `occurred_at`, `schema_version`) por cada fila persistida por `EvaluatePending`, a través del port `EventPublisher`. Solo si el lote se insertó completo (con conflicto parcial no se sabe qué filas son propias ⇒ `Warn` y no publica). `Backfill` no publica. No consume eventos.
+
+**Aislamiento**: solo importa `shared/{logger, errors, features}` y `shared/eventbus` únicamente en `infrastructure/events`; no importa `ingestion`, `baseline` ni `rule_engine` (`depguard` `processing-isolation`, `processing-core-no-eventbus`, `processing-contract-stdlib-only`).
 
 **Inicialización**: `bootstrap.NewProcessingModule(platform)`. Para un punto con historia: `baseline -backfill` → `processing -backfill` → habilitar `processing` en `AGATHA_MODULES`.
+
+---
+
+# Modulo: Rule Engine
+
+**Responsabilidad**: interpretar las evaluaciones de Processing con reglas (umbrales, rachas, categorías). **Hoy solo consume** `processing.indicator_evaluated` y lo registra en el log (`IndicatorEvaluatedSubscriber`). Próximo: umbral del indicador editable por `POST`. Detalle en `modules/rule_engine/README.MD`.
+
+| Trigger | Accion | Componente |
+|---|---|---|
+| Evento `processing.indicator_evaluated` (suscripción `rule_engine.indicator_evaluated`) | Log `Info` con punto, ventana, hora, estado, I y trigger | `IndicatorEvaluatedSubscriber.Handle(ctx, IndicatorEvaluatedNotice)` |
+
+**Aislamiento**: define su propio `IndicatorEvaluatedNotice`; no importa `processing` (ni su `contract/`), `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `rule-engine-isolation`). La traducción y la suscripción viven en `internal/bootstrap/rule_engine.go`.
 
 ---
 
@@ -204,7 +219,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `NewBaselineModule(platform)` | Baseline | AutoMigrate (tablas + índice parcial vía tags) + config `BASELINE_*`. Expone `Recalculator`, `Backfiller` y `NewScheduler()`. |
 | `NewIngestionModule(platform)` | Ingestion (DataOS) | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
 | `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
-| `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
+| `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + `BusEventPublisher`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
+| `NewRuleEngineModule(platform)` | Rule Engine | Suscribe `IndicatorEvaluatedSubscriber` a `processing.indicator_evaluated` (traduce contrato → Notice). Sin tablas ni rutas. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
@@ -212,14 +228,14 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing` se habilita a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → DataOS → Callback → Dashboard). Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing` y `rule_engine` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → Rule Engine → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
 | `cmd/processing` | Evaluación a demanda de un punto (`-point`) o carga del histórico de evaluaciones (`-backfill`, `-from`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo); sale al terminar. |
 
-**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
+**Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
 
 ---
 
