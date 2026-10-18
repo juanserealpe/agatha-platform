@@ -17,7 +17,7 @@ export function Header() {
                 </div>
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex flex-wrap items-center gap-3 md:gap-6">
                 <div className="font-data-mono text-xs text-gray-600 bg-gray-50 px-3 py-1.5 rounded border border-gray-200">
                     <span className="text-gray-400 mr-1">Sitio:</span>
                     Güepsa - San José de Pare

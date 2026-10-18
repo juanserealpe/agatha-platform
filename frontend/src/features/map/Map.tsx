@@ -197,11 +197,23 @@ function FitBoundsOnMount({ bounds }: { bounds: L.LatLngBounds }) {
     return null;
 }
 
+// Leaflet solo escucha el resize de la ventana; si el contenedor cambia por el layout
+// (grid, paneles, fuentes que cargan tarde) hay que avisarle o deja zonas grises sin tiles.
+function InvalidateSizeOnResize() {
+    const map = useMap();
+    useEffect(() => {
+        const observer = new ResizeObserver(() => map.invalidateSize());
+        observer.observe(map.getContainer());
+        return () => observer.disconnect();
+    }, [map]);
+    return null;
+}
+
 export function PipelineMap({ sensores, onSensorClick }: PipelineMapProps) {
     const [mainMap, setMainMap] = useState<L.Map | null>(null);
 
     return (
-        <div className="relative w-full h-[500px] rounded-xl overflow-hidden border border-border">
+        <div className="relative w-full h-full rounded-xl overflow-hidden border border-border shadow-xs">
             <MapContainer
                 bounds={FULL_BOUNDS}
                 style={{ height: "100%", width: "100%" }}
@@ -210,6 +222,7 @@ export function PipelineMap({ sensores, onSensorClick }: PipelineMapProps) {
                 <TileLayer url={ESRI_SATELLITE_URL} attribution={ESRI_ATTRIBUTION} />
                 <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" />
                 <FitBoundsOnMount bounds={FULL_BOUNDS} />
+                <InvalidateSizeOnResize />
                 <PipelineLayers sensores={sensores} onSensorClick={onSensorClick} />
             </MapContainer>
             {mainMap && <MiniMap parentMap={mainMap} sensores={sensores} />}

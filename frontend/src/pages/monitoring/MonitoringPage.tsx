@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, BellOff } from "lucide-react";
 import { EmptyState } from "@/shared/components/EmptyState";
+import { Panel } from "@/shared/components/Panel";
 import { SensorsList, useDevices } from "@/features/dashboard";
 import { PipelineMap } from "@/features/map";
 import { TelemetryPanel } from "@/features/telemetry";
@@ -32,6 +33,10 @@ const SENSORES_MOCK: Sensor[] = [
     },
 ];
 
+// Apilados (móvil/tablet) cada panel tiene un tope; en escritorio se reparten el alto de la fila.
+const SIDE_PANEL_CLASS = "max-h-[360px] lg:max-h-none lg:flex-1";
+const COUNT_BADGE_CLASS = "rounded-full bg-gray-100 px-2 py-0.5 font-data-mono text-xs text-gray-600";
+
 export function MonitoringPage() {
     const { data: devices = [], isLoading, error } = useDevices();
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
@@ -39,22 +44,35 @@ export function MonitoringPage() {
 
     return (
         <>
-            <div className="flex flex-col lg:flex-row gap-6">
-                <div className="lg:w-[65%]">
+            {/* En escritorio la fila ocupa el alto de la ventana bajo el header: el mapa la llena
+                y los paneles de la derecha se reparten ese alto con scroll interno, sin estirar la fila. */}
+            <div className="grid grid-cols-1 gap-6 lg:h-[clamp(560px,calc(100vh-240px),880px)] lg:grid-cols-[minmax(0,1fr)_340px]">
+                <div className="h-[60vh] min-h-[420px] lg:h-full lg:min-h-0">
                     <PipelineMap sensores={SENSORES_MOCK} />
                 </div>
-                <div className="lg:w-[35%]">
-                    {isLoading ? (
-                        <EmptyState title="Cargando sensores…" />
-                    ) : error ? (
-                        <EmptyState Icon={AlertCircle} title="No se pudieron cargar los sensores" description="Reintentando automáticamente." />
-                    ) : (
-                        <SensorsList
-                            devices={devices}
-                            selectedDeviceId={activeDevice?.id}
-                            onSensorClick={setSelectedDevice}
-                        />
-                    )}
+
+                <div className="flex min-h-0 flex-col gap-4">
+                    <Panel title="Últimas alertas" className={SIDE_PANEL_CLASS}>
+                        <EmptyState Icon={BellOff} title="Sin alertas recientes" />
+                    </Panel>
+
+                    <Panel
+                        title="Sensores"
+                        badge={isLoading || error ? undefined : <span className={COUNT_BADGE_CLASS}>{devices.length}</span>}
+                        className={SIDE_PANEL_CLASS}
+                    >
+                        {isLoading ? (
+                            <EmptyState title="Cargando sensores…" />
+                        ) : error ? (
+                            <EmptyState Icon={AlertCircle} title="No se pudieron cargar los sensores" description="Reintentando automáticamente." />
+                        ) : (
+                            <SensorsList
+                                devices={devices}
+                                selectedDeviceId={activeDevice?.id}
+                                onSensorClick={setSelectedDevice}
+                            />
+                        )}
+                    </Panel>
                 </div>
             </div>
 

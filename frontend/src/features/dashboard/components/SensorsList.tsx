@@ -18,22 +18,19 @@ export function SensorsList({ devices, onSensorClick, selectedDeviceId }: Sensor
     const now = useNow();
 
     return (
-        <div className="flex flex-col gap-2 h-full">
-            <h3 className="text-sm font-bold text-gray-900 px-1">
-                Sensores ({devices.length})
-            </h3>
-            <div className="flex flex-col gap-2 overflow-y-auto">
-                {devices.map((device) => {
-                    const status = getDeviceStatus(device.lastConnection, now);
-                    const battery = getBatteryVisual(device.lastBatteryLevel ?? 0);
-                    const isSelected = device.id === selectedDeviceId;
+        <ul className="flex flex-col gap-2">
+            {devices.map((device) => {
+                const status = getDeviceStatus(device.lastConnection, now);
+                const battery = getBatteryVisual(device.lastBatteryLevel ?? 0);
+                const isSelected = device.id === selectedDeviceId;
 
-                    return (
+                return (
+                    <li key={device.id}>
                         <button
-                            key={device.id}
                             type="button"
                             onClick={() => onSensorClick(device)}
-                            className={`text-left border rounded-lg p-3 flex items-center gap-3 transition-colors cursor-pointer hover:brightness-95 ${isSelected ? "ring-2 ring-blue-400 bg-blue-50" : "border-gray-200"
+                            aria-pressed={isSelected}
+                            className={`w-full text-left border rounded-lg p-3 flex items-center gap-3 transition-colors cursor-pointer hover:brightness-95 ${isSelected ? "ring-2 ring-blue-400 bg-blue-50" : "border-gray-200"
                                 }`}
                         >
                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${DEVICE_STATUS_DOT_CLASS[status]}`} />
@@ -50,9 +47,9 @@ export function SensorsList({ devices, onSensorClick, selectedDeviceId }: Sensor
                                 <span className="font-data-mono text-xs">{device.lastBatteryLevel ?? "—"}%</span>
                             </div>
                         </button>
-                    );
-                })}
-            </div>
-        </div>
+                    </li>
+                );
+            })}
+        </ul>
     );
 }
