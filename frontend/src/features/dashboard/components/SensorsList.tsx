@@ -1,6 +1,7 @@
 import { getBatteryVisual } from "@/theme/severity";
 import type { Device } from "@/services/dashboard/dashboard.types";
-import { useEffect, useState } from "react";
+import { useNow } from "@/shared/hooks/useNow";
+import { RelativeTime } from "@/shared/components/RelativeTime";
 import {
     getDeviceStatus,
     DEVICE_STATUS_LABEL,
@@ -11,15 +12,6 @@ interface SensorsListProps {
     devices: Device[];
     onSensorClick: (device: Device) => void;
     selectedDeviceId?: number;
-}
-
-function useNow(intervalMs = 30_000) {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const id = setInterval(() => setNow(Date.now()), intervalMs);
-        return () => clearInterval(id);
-    }, [intervalMs]);
-    return now;
 }
 
 export function SensorsList({ devices, onSensorClick, selectedDeviceId }: SensorsListProps) {
@@ -48,9 +40,8 @@ export function SensorsList({ devices, onSensorClick, selectedDeviceId }: Sensor
 
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-gray-900 truncate">{device.name}</p>
-                                <p className="text-xs text-gray-400">
-                                    {DEVICE_STATUS_LABEL[status]} <br /> Última comunicación:{" "}
-                                    {device.lastConnection ? new Date(device.lastConnection).toLocaleString() : "Nunca"}
+                                <p className="text-xs text-gray-500">
+                                    {DEVICE_STATUS_LABEL[status]} · <RelativeTime value={device.lastConnection} />
                                 </p>
                             </div>
 

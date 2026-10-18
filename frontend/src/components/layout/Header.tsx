@@ -1,12 +1,12 @@
-import { Radio, Wifi } from "lucide-react";
+import { Wifi } from "lucide-react";
+import tgiLogo from "@/assets/tgi-logo.png";
 
 export function Header() {
     return (
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200 text-blue-600 shadow-sm">
-                    <Radio size={28} />
-                </div>
+                <img src={tgiLogo} alt="TGI · Grupo Energía Bogotá" className="h-11 w-auto" />
+                <div className="h-10 w-px bg-gray-200" aria-hidden />
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 tracking-wide">
                         AGATHA

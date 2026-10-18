@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { AlertCircle } from "lucide-react";
+import { EmptyState } from "@/shared/components/EmptyState";
 import { SensorsList, useDevices } from "@/features/dashboard";
 import { PipelineMap } from "@/features/map";
 import { TelemetryPanel } from "@/features/telemetry";
@@ -30,14 +32,6 @@ const SENSORES_MOCK: Sensor[] = [
     },
 ];
 
-function Placeholder({ label }: { label: string }) {
-    return (
-        <div className="border border-dashed border-gray-300 rounded-lg p-6 text-sm text-gray-400 font-data-mono">
-            {label}
-        </div>
-    );
-}
-
 export function MonitoringPage() {
     const { data: devices = [], isLoading, error } = useDevices();
     const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
@@ -51,9 +45,9 @@ export function MonitoringPage() {
                 </div>
                 <div className="lg:w-[35%]">
                     {isLoading ? (
-                        <Placeholder label="Cargando sensores..." />
+                        <EmptyState title="Cargando sensores…" />
                     ) : error ? (
-                        <Placeholder label="Error al cargar sensores" />
+                        <EmptyState Icon={AlertCircle} title="No se pudieron cargar los sensores" description="Reintentando automáticamente." />
                     ) : (
                         <SensorsList
                             devices={devices}
@@ -67,7 +61,7 @@ export function MonitoringPage() {
             {activeDevice ? (
                 <TelemetryPanel deviceId={activeDevice.id} />
             ) : (
-                <Placeholder label="Selecciona un sensor para ver sus gráficas" />
+                <EmptyState title="Selecciona un sensor para ver sus gráficas" />
             )}
         </>
     );
