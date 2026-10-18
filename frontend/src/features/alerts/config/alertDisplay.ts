@@ -46,7 +46,6 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
 
 export const ALERT_STATUS_LABEL: Record<AlertStatus, string> = {
     unclassified: "Sin clasificar",
-    in_progress: "En curso",
     confirmed: "Confirmada",
     dismissed: "Falsa alerta",
 };

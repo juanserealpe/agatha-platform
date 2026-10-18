@@ -28,7 +28,7 @@ export function Panel({ title, badge, action, toolbar, footer, className, childr
             className={cn("flex min-h-0 flex-col rounded-xl border border-border bg-white shadow-xs", className)}
         >
             <header className="flex items-center gap-2 border-b border-border px-4 py-3">
-                <h2 id={titleId} className="font-data-mono text-xs font-bold uppercase tracking-wider text-gray-900">
+                <h2 id={titleId} className="whitespace-nowrap font-data-mono text-xs font-bold uppercase tracking-wider text-gray-900">
                     {title}
                 </h2>
                 {badge}

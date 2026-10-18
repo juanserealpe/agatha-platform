@@ -1,6 +1,5 @@
-import { BellOff } from "lucide-react";
 import { EmptyState } from "@/shared/components/EmptyState";
-import { Panel } from "@/shared/components/Panel";
+import { RecentAlertsPanel } from "@/features/alerts";
 import { SensorsPanel, useActiveDevice } from "@/features/sensors";
 import { PipelineMap } from "@/features/map";
 import { TelemetryPanel } from "@/features/telemetry";
@@ -47,9 +46,7 @@ export function MonitoringPage() {
                 </div>
 
                 <div className="flex min-h-0 flex-col gap-4">
-                    <Panel title="Últimas alertas" className={SIDE_PANEL_CLASS}>
-                        <EmptyState Icon={BellOff} title="Sin alertas recientes" />
-                    </Panel>
+                    <RecentAlertsPanel className={SIDE_PANEL_CLASS} />
 
                     <SensorsPanel
                         selectedDeviceId={activeDevice?.id}
