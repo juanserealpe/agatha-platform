@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useCallback, useEffect } from "react";
 import {
     MapContainer,
@@ -45,7 +44,7 @@ function cityLabelIcon(name: string) {
 
 interface PipelineLayersProps {
     sensores: Sensor[];
-    onSensorClick: (sensor: Sensor) => void;
+    onSensorClick?: (sensor: Sensor) => void;
 }
 
 function PipelineLayers({ sensores, onSensorClick }: PipelineLayersProps) {
@@ -74,7 +73,7 @@ function PipelineLayers({ sensores, onSensorClick }: PipelineLayersProps) {
                     key={sensor.id}
                     position={[sensor.coordenadas.lat, sensor.coordenadas.lng]}
                     icon={sensorIcon(sensor)}
-                    eventHandlers={{ click: () => onSensorClick(sensor) }}
+                    eventHandlers={{ click: () => onSensorClick?.(sensor) }}
                 >
                     <Tooltip
                         permanent={true}
@@ -187,7 +186,7 @@ function MiniMap({ parentMap, sensores }: { parentMap: L.Map; sensores: Sensor[]
 
 interface PipelineMapProps {
     sensores: Sensor[];
-    onSensorClick: (sensor: Sensor) => void;
+    onSensorClick?: (sensor: Sensor) => void;
 }
 
 function FitBoundsOnMount({ bounds }: { bounds: L.LatLngBounds }) {

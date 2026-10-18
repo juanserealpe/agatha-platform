@@ -2,7 +2,7 @@ import { Radio, Wifi } from "lucide-react";
 
 export function Header() {
     return (
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-4">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200 text-blue-600 shadow-sm">
                     <Radio size={28} />
@@ -12,7 +12,7 @@ export function Header() {
                         AGATHA
                     </h1>
                     <p className="font-data-mono text-gray-500 text-xs mt-1 uppercase tracking-wider">
-                        Alertas tempranas · Gasoducto Otero-Santana
+                        Monitoreo en tiempo real · Gasoducto Otero-Santana
                     </p>
                 </div>
             </div>

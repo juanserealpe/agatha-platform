@@ -1,14 +1,3 @@
-export interface FilterOption {
-    value: string;
-    label: string;
-}
-
-export interface FiltersState {
-    gasoducto: string;
-    sensor: string;
-    criticidad: string;
-}
-
 export type NivelAlerta = "verde" | "amarilla" | "roja";
 
 export type TipoAlerta = "movimiento_terreno" | "fuga";
@@ -31,32 +20,3 @@ export interface Sensor {
     esDatoReal?: boolean;
     tipoTuberia?: TipoTuberia;
 }
-
-export type MotivoObservacion =
-    | "fuga_reportada"
-    | "falla_sensor"
-    | "actividad_humana"
-    | "condiciones_climaticas";
-
-export interface AlertaExport {
-    nivelAlerta: NivelAlerta;
-    tipo: TipoAlerta;
-    sensorId: string;
-    pk: string;
-    coordenadas: { lat: number; lng: number };
-    observaciones: string | null;
-    lecturasSensor: Record<string, number>; // ej. { temperatura: 24.5, humedad: 60 }
-    umbralesAlerta: Record<string, number>; // el umbral que se cruzó, para explicar el porqué
-}
-
-export const TIPOS_ALERTA: Record<TipoAlerta, string> = {
-    movimiento_terreno: "Riesgo Movimiento de Terreno",
-    fuga: "Riesgo Fuga",
-};
-
-export const MOTIVOS_OBSERVACION: Record<MotivoObservacion, string> = {
-    fuga_reportada: "Fuga reportada",
-    falla_sensor: "Falla de sensor",
-    actividad_humana: "Actividad humana",
-    condiciones_climaticas: "Condiciones climáticas",
-};

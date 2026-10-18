@@ -52,7 +52,7 @@
     --color-alerta-amarilla: #f59e0b;
     --color-alerta-roja: #ef4444;
     --color-telemetry-cyan: #06b6d4;
-    --font-data-mono: "JetBrains Mono", monospace;
+    --font-data-mono: "JetBrains Mono Variable", monospace;
 
 }
 
@@ -147,7 +147,7 @@
   border: none !important;
   border-radius: 4px !important;
   color: white !important;
-  font-family: var(--font-data-mono), "JetBrains Mono", monospace;
+  font-family: var(--font-data-mono, "JetBrains Mono Variable", monospace);
   font-size: 10px !important;
   font-weight: 600;
   padding: 2px 6px !important;

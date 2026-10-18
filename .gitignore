@@ -30,3 +30,11 @@ frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/.env.*
+
+# Graphify
+graphify-out/
+
+# Claude Code (configuración local)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
