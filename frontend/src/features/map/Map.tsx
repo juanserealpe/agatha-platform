@@ -212,8 +212,9 @@ function InvalidateSizeOnResize() {
 export function PipelineMap({ sensores, onSensorClick }: PipelineMapProps) {
     const [mainMap, setMainMap] = useState<L.Map | null>(null);
 
+    // isolate: los z-index de Leaflet (400–1000) quedan contenidos y no tapan modales ni popovers de la app.
     return (
-        <div className="relative w-full h-full rounded-xl overflow-hidden border border-border shadow-xs">
+        <div className="relative isolate w-full h-full rounded-xl overflow-hidden border border-border shadow-xs">
             <MapContainer
                 bounds={FULL_BOUNDS}
                 style={{ height: "100%", width: "100%" }}

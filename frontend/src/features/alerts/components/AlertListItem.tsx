@@ -6,7 +6,7 @@ import { ALERT_STATUS_LABEL, ALERT_TYPE_LABEL, SEVERITY_STYLES } from "../config
 
 interface AlertListItemProps {
     alert: Alert;
-    onSelect?: (alertId: string) => void;
+    onSelect: (alertId: string) => void;
 }
 
 export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
@@ -16,12 +16,11 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
     return (
         <button
             type="button"
-            onClick={() => onSelect?.(alert.id)}
-            disabled={!onSelect}
+            onClick={() => onSelect(alert.id)}
             aria-label={`Alerta ${severity.label} de ${ALERT_TYPE_LABEL[alert.type]}, ${ALERT_STATUS_LABEL[alert.status]}`}
             className={cn(
                 "flex w-full flex-col gap-1 rounded-lg border border-l-4 border-gray-200 p-3 text-left transition-colors",
-                "enabled:hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900",
+                "hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900",
                 severity.accentClass,
                 isUnclassified ? "bg-white" : "bg-gray-50"
             )}

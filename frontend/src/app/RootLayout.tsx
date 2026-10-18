@@ -1,6 +1,7 @@
 import { Outlet } from "react-router";
 import { Header } from "@/components/layout/Header";
 import { NavTabs } from "@/components/layout/NavTabs";
+import { AlertDetailHost } from "@/features/alerts";
 
 export function RootLayout() {
     return (
@@ -12,6 +13,7 @@ export function RootLayout() {
                     <Outlet />
                 </main>
             </div>
+            <AlertDetailHost />
         </div>
     );
 }

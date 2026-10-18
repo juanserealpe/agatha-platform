@@ -4,17 +4,18 @@ import { ROUTES } from "@/app/routes";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
 import { usePendingAlerts, useRecentAlerts } from "../hooks/useAlerts";
+import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
 import { AlertListItem } from "./AlertListItem";
 
 interface RecentAlertsPanelProps {
-    onSelectAlert?: (alertId: string) => void;
     className?: string;
 }
 
-export function RecentAlertsPanel({ onSelectAlert, className }: RecentAlertsPanelProps) {
+export function RecentAlertsPanel({ className }: RecentAlertsPanelProps) {
     const { data: alerts = [], isLoading, error } = useRecentAlerts();
     const { data: pending = [] } = usePendingAlerts();
     const pendingCount = pending.length;
+    const { open: openAlertDetail } = useAlertDetailParam();
 
     return (
         <Panel
@@ -47,7 +48,7 @@ export function RecentAlertsPanel({ onSelectAlert, className }: RecentAlertsPane
                 <ul className="flex flex-col gap-2">
                     {alerts.map((alert) => (
                         <li key={alert.id}>
-                            <AlertListItem alert={alert} onSelect={onSelectAlert} />
+                            <AlertListItem alert={alert} onSelect={openAlertDetail} />
                         </li>
                     ))}
                 </ul>
