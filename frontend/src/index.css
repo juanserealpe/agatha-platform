@@ -149,7 +149,7 @@
   border-radius: 4px !important;
   color: white !important;
   font-family: var(--font-data-mono, "JetBrains Mono Variable", monospace);
-  font-size: 10px !important;
+  font-size: 12px !important;
   font-weight: 600;
   padding: 2px 6px !important;
   box-shadow: none !important;
@@ -157,4 +157,30 @@
 
 .leaflet-tooltip.pk-label::before {
   display: none !important; /* quita la flechita del tooltip */
+}
+/* Etiquetas de municipios sobre el mapa */
+.map-city-label {
+  font-family: var(--font-data-mono, "JetBrains Mono Variable", monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+
+/* Alerta roja sin clasificar: el punto titila */
+@keyframes map-node-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.25); }
+}
+
+.map-node--blink {
+  animation: map-node-blink 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-node--blink {
+    animation: none;
+    outline: 2px solid currentColor;
+  }
 }

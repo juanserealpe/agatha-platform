@@ -1,3 +1,5 @@
 export { SensorsPanel } from "./components/SensorsPanel";
 export { useActiveDevice } from "./hooks/useActiveDevice";
-export { formatPk } from "./lib/pk";
+export { useDevices } from "./hooks/useDevices";
+export { extractPk, formatPk } from "./lib/pk";
+export { getDeviceStatus } from "./lib/sensorStatus";
