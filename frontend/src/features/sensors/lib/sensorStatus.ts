@@ -18,11 +18,12 @@ export function getDeviceStatus(
 export const DEVICE_STATUS_LABEL: Record<DeviceStatus, string> = {
     online: "En línea",
     delayed: "Retrasado",
-    offline: "Sin conexión",
+    offline: "Sin comunicación",
 };
 
+// Estado de comunicación, no de alerta: se evita la escala amarillo/naranja/rojo, reservada a severidad.
 export const DEVICE_STATUS_DOT_CLASS: Record<DeviceStatus, string> = {
-    online: "bg-green-500",
-    delayed: "bg-yellow-500",
+    online: "bg-emerald-500",
+    delayed: "border-2 border-gray-400 bg-white",
     offline: "bg-gray-400",
 };

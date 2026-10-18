@@ -1,11 +1,9 @@
-import { useState } from "react";
-import { AlertCircle, BellOff } from "lucide-react";
+import { BellOff } from "lucide-react";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
-import { SensorsList, useDevices } from "@/features/dashboard";
+import { SensorsPanel, useActiveDevice } from "@/features/sensors";
 import { PipelineMap } from "@/features/map";
 import { TelemetryPanel } from "@/features/telemetry";
-import type { Device } from "@/services/dashboard/dashboard.types";
 import type { Sensor } from "@/services/types";
 
 // TODO(fase 9): sustituir por la configuración fija del piloto enlazada al estado real del dispositivo.
@@ -35,12 +33,9 @@ const SENSORES_MOCK: Sensor[] = [
 
 // Apilados (móvil/tablet) cada panel tiene un tope; en escritorio se reparten el alto de la fila.
 const SIDE_PANEL_CLASS = "max-h-[360px] lg:max-h-none lg:flex-1";
-const COUNT_BADGE_CLASS = "rounded-full bg-gray-100 px-2 py-0.5 font-data-mono text-xs text-gray-600";
 
 export function MonitoringPage() {
-    const { data: devices = [], isLoading, error } = useDevices();
-    const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-    const activeDevice = selectedDevice ?? devices[0] ?? null;
+    const { activeDevice, selectDevice } = useActiveDevice();
 
     return (
         <>
@@ -56,23 +51,11 @@ export function MonitoringPage() {
                         <EmptyState Icon={BellOff} title="Sin alertas recientes" />
                     </Panel>
 
-                    <Panel
-                        title="Sensores"
-                        badge={isLoading || error ? undefined : <span className={COUNT_BADGE_CLASS}>{devices.length}</span>}
+                    <SensorsPanel
+                        selectedDeviceId={activeDevice?.id}
+                        onSelect={selectDevice}
                         className={SIDE_PANEL_CLASS}
-                    >
-                        {isLoading ? (
-                            <EmptyState title="Cargando sensores…" />
-                        ) : error ? (
-                            <EmptyState Icon={AlertCircle} title="No se pudieron cargar los sensores" description="Reintentando automáticamente." />
-                        ) : (
-                            <SensorsList
-                                devices={devices}
-                                selectedDeviceId={activeDevice?.id}
-                                onSensorClick={setSelectedDevice}
-                            />
-                        )}
-                    </Panel>
+                    />
                 </div>
             </div>
 

@@ -7,6 +7,8 @@ interface PanelProps {
     badge?: ReactNode;
     /** Elemento alineado a la derecha del encabezado. */
     action?: ReactNode;
+    /** Contenido fijo entre el encabezado y el área con scroll, p. ej. un buscador. */
+    toolbar?: ReactNode;
     /** Contenido fijo bajo el área con scroll, p. ej. un botón "Ver todas". */
     footer?: ReactNode;
     className?: string;
@@ -17,7 +19,7 @@ interface PanelProps {
  * Contenedor con encabezado fijo y cuerpo con scroll interno.
  * La altura la decide el padre (flex/grid); el panel nunca crece más allá de ella.
  */
-export function Panel({ title, badge, action, footer, className, children }: PanelProps) {
+export function Panel({ title, badge, action, toolbar, footer, className, children }: PanelProps) {
     const titleId = useId();
 
     return (
@@ -32,6 +34,8 @@ export function Panel({ title, badge, action, footer, className, children }: Pan
                 {badge}
                 {action && <div className="ml-auto">{action}</div>}
             </header>
+
+            {toolbar && <div className="border-b border-border px-3 py-2">{toolbar}</div>}
 
             <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
 
