@@ -28,6 +28,18 @@ function iconFor(state: NodeState, size: number): L.DivIcon {
 export const nodeIcon = (state: NodeState) => iconFor(state, 18);
 export const miniNodeIcon = (state: NodeState) => iconFor({ ...state, hasWarning: false, isBlinking: false }, 9);
 
+const pkLabelCache = new Map<string, L.DivIcon>();
+
+/** Etiqueta de PK como marcador propio: así el tooltip del punto queda libre para el hover. */
+export function pkLabelIcon(text: string): L.DivIcon {
+    let icon = pkLabelCache.get(text);
+    if (!icon) {
+        icon = L.divIcon({ className: "", html: `<span class="map-pk-label">${text}</span>`, iconSize: [0, 0] });
+        pkLabelCache.set(text, icon);
+    }
+    return icon;
+}
+
 export function cityLabelIcon(name: string): L.DivIcon {
     return L.divIcon({ className: "map-city-label", html: name, iconSize: [0, 0] });
 }

@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { RecentAlertsPanel } from "@/features/alerts";
 import { SensorsPanel, useActiveDevice } from "@/features/sensors";
@@ -10,6 +11,12 @@ const SIDE_PANEL_CLASS = "max-h-[360px] lg:max-h-none lg:flex-1";
 export function MonitoringPage() {
     const { activeDevice, selectDevice } = useActiveDevice();
     const nodes = usePilotNodes();
+    const telemetryRef = useRef<HTMLElement>(null);
+
+    function showTelemetry(deviceId: number) {
+        selectDevice(deviceId);
+        telemetryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
 
     return (
         <>
@@ -17,7 +24,7 @@ export function MonitoringPage() {
                 y los paneles de la derecha se reparten ese alto con scroll interno, sin estirar la fila. */}
             <div className="grid grid-cols-1 gap-6 lg:h-[clamp(560px,calc(100vh-240px),880px)] lg:grid-cols-[minmax(0,1fr)_340px]">
                 <div className="h-[60vh] min-h-[420px] lg:h-full lg:min-h-0">
-                    <PipelineMap nodes={nodes} />
+                    <PipelineMap nodes={nodes} onShowTelemetry={showTelemetry} />
                 </div>
 
                 <div className="flex min-h-0 flex-col gap-4">
@@ -31,11 +38,13 @@ export function MonitoringPage() {
                 </div>
             </div>
 
-            {activeDevice ? (
-                <TelemetryPanel deviceId={activeDevice.id} />
-            ) : (
-                <EmptyState title="Selecciona un sensor para ver sus gráficas" />
-            )}
+            <section ref={telemetryRef} aria-label="Telemetría del sensor" className="scroll-mt-4">
+                {activeDevice ? (
+                    <TelemetryPanel deviceId={activeDevice.id} />
+                ) : (
+                    <EmptyState title="Selecciona un sensor para ver sus gráficas" />
+                )}
+            </section>
         </>
     );
 }

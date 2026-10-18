@@ -1,13 +1,17 @@
 import { useMemo } from "react";
 import { usePendingAlerts } from "@/features/alerts";
 import { extractPk, getDeviceStatus, useDevices } from "@/features/sensors";
+import type { Alert } from "@/services/alerts";
+import type { Device } from "@/services/dashboard/dashboard.types";
 import { useNow } from "@/shared/hooks/useNow";
 import { PILOT_SENSORS, type PilotSensor } from "../data/pilotSensors";
-import { getNodeState, type NodeState } from "../lib/nodeState";
+import { getNodeState, pickMostSevereAlert, type NodeState } from "../lib/nodeState";
 
 export interface MapNode extends PilotSensor {
     /** Dispositivo del backend enlazado por PK; null si el punto no está operativo. */
-    deviceId: number | null;
+    device: Device | null;
+    /** Alerta vigente más grave del dispositivo, si la hay. */
+    activeAlert: Alert | null;
     state: NodeState;
 }
 
@@ -22,12 +26,13 @@ export function usePilotNodes(): MapNode[] {
         () =>
             PILOT_SENSORS.map((sensor) => {
                 const device = devices.find((candidate) => extractPk(candidate.name) === sensor.pkMeters) ?? null;
+                const alerts = device ? pendingAlerts.filter((alert) => alert.deviceId === device.id) : [];
                 const state = getNodeState({
                     isLinked: device !== null,
                     isOffline: device !== null && getDeviceStatus(device.lastConnection, now) === "offline",
-                    alerts: device ? pendingAlerts.filter((alert) => alert.deviceId === device.id) : [],
+                    alerts,
                 });
-                return { ...sensor, deviceId: device?.id ?? null, state };
+                return { ...sensor, device, activeAlert: pickMostSevereAlert(alerts), state };
             }),
         [devices, pendingAlerts, now]
     );

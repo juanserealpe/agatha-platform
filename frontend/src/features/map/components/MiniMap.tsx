@@ -56,7 +56,7 @@ function MinimapViewport({ parentMap, nodes }: MiniMapProps) {
             <Polyline positions={ROUTE_COORDINATES} pathOptions={{ ...PIPE_CASING_STYLE, weight: 4 }} />
             <Polyline positions={ROUTE_COORDINATES} pathOptions={{ ...PIPE_STYLES.steel.path, weight: 2 }} />
             {nodes.map((node) => (
-                <Marker key={node.id} position={node.position} icon={miniNodeIcon(node.state)} interactive={false} />
+                <Marker key={node.id} position={node.position} icon={miniNodeIcon(node.state)} interactive={false} keyboard={false} />
             ))}
 
             {/* Área que muestra ahora el mapa principal */}

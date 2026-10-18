@@ -34,7 +34,7 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
             </div>
 
             <p className="font-data-mono text-xs text-gray-500">
-                {alert.pkMeters !== null && <>{formatPk(alert.pkMeters)} · </>}
+                Disp. {alert.deviceId} · {alert.pkMeters !== null && <>{formatPk(alert.pkMeters)} · </>}
                 <span className={isUnclassified ? "font-semibold text-gray-700" : undefined}>
                     {ALERT_STATUS_LABEL[alert.status]}
                 </span>

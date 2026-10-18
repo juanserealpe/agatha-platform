@@ -138,26 +138,42 @@
     }
 }
 
-/* Reemplaza la sección actual de .pk-label con esto al final de index.css */
-.leaflet-tooltip.pk-label {
-  display: block !important;
-  opacity: 1 !important;
-  pointer-events: none !important; /* Evita que la etiqueta bloquee el clic sobre el marcador */
-
-  background: rgba(17, 24, 39, 0.85) !important;
-  border: none !important;
-  border-radius: 4px !important;
-  color: white !important;
+/* Etiqueta de PK sobre cada punto (marcador propio, centrada encima del punto) */
+.map-pk-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, calc(-100% - 14px));
+  pointer-events: none;
+  white-space: nowrap;
+  background: rgba(17, 24, 39, 0.85);
+  border-radius: 4px;
+  color: white;
   font-family: var(--font-data-mono, "JetBrains Mono Variable", monospace);
-  font-size: 12px !important;
+  font-size: 12px;
   font-weight: 600;
-  padding: 2px 6px !important;
-  box-shadow: none !important;
+  padding: 2px 6px;
 }
 
-.leaflet-tooltip.pk-label::before {
-  display: none !important; /* quita la flechita del tooltip */
+/* Popups y tooltips de Leaflet con la tipografía de la app */
+.leaflet-popup-content-wrapper,
+.leaflet-tooltip {
+  font-family: var(--font-sans);
 }
+
+.leaflet-popup-content-wrapper {
+  border-radius: 10px;
+}
+
+/* Leaflet añade margen vertical a cada <p> del popup; el espaciado lo controla el layout del contenido. */
+.leaflet-popup-content {
+  margin: 14px 16px;
+}
+
+.leaflet-popup-content p {
+  margin: 0;
+}
+
 /* Etiquetas de municipios sobre el mapa */
 .map-city-label {
   font-family: var(--font-data-mono, "JetBrains Mono Variable", monospace);

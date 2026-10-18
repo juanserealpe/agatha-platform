@@ -22,9 +22,11 @@ export interface NodeInput {
 
 const SEVERITY_ORDER: AlertSeverity[] = ["red", "orange", "yellow"];
 
-function mostSevere(alerts: Alert[]): Alert | null {
+/** La alerta vigente más grave (las falsas alertas no cuentan). */
+export function pickMostSevereAlert(alerts: Alert[]): Alert | null {
+    const active = alerts.filter((alert) => alert.status !== "dismissed");
     for (const severity of SEVERITY_ORDER) {
-        const match = alerts.find((alert) => alert.severity === severity);
+        const match = active.find((alert) => alert.severity === severity);
         if (match) return match;
     }
     return null;
@@ -33,7 +35,7 @@ function mostSevere(alerts: Alert[]): Alert | null {
 export function getNodeState({ isLinked, isOffline, alerts }: NodeInput): NodeState {
     if (!isLinked) return { tone: "unavailable", hasWarning: false, isBlinking: false };
 
-    const alert = mostSevere(alerts.filter((item) => item.status !== "dismissed"));
+    const alert = pickMostSevereAlert(alerts);
     if (!alert) {
         return { tone: isOffline ? "unavailable" : "normal", hasWarning: false, isBlinking: false };
     }

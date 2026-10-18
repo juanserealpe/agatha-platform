@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Alert } from "@/services/alerts";
-import { getNodeState } from "./nodeState";
+import { getNodeState, pickMostSevereAlert } from "./nodeState";
 
 const alert = (overrides: Partial<Alert>): Alert => ({
     id: "a",
@@ -54,5 +54,14 @@ describe("getNodeState", () => {
     it("ignora las falsas alertas", () => {
         const alerts = [alert({ severity: "red", status: "dismissed" })];
         expect(getNodeState({ isLinked: true, isOffline: false, alerts }).tone).toBe("normal");
+    });
+});
+
+describe("pickMostSevereAlert", () => {
+    it("devuelve la más grave e ignora las falsas alertas", () => {
+        const red = alert({ id: "r", severity: "red", status: "dismissed" });
+        const orange = alert({ id: "o", severity: "orange" });
+        expect(pickMostSevereAlert([red, orange])?.id).toBe("o");
+        expect(pickMostSevereAlert([])).toBeNull();
     });
 });

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { MapContainer, TileLayer } from "react-leaflet";
 import type L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import { TILE_LAYERS } from "../config/mapStyles";
 import type { MapNode } from "../hooks/usePilotNodes";
 import { FULL_BOUNDS } from "../lib/bounds";
@@ -12,9 +11,11 @@ import { PipelineLayers } from "./PipelineLayers";
 
 interface PipelineMapProps {
     nodes: MapNode[];
+    /** Acción "Ver telemetría" del popup de un punto. */
+    onShowTelemetry?: (deviceId: number) => void;
 }
 
-export function PipelineMap({ nodes }: PipelineMapProps) {
+export function PipelineMap({ nodes, onShowTelemetry }: PipelineMapProps) {
     const [mainMap, setMainMap] = useState<L.Map | null>(null);
 
     // isolate: los z-index de Leaflet (400–1000) quedan contenidos y no tapan modales ni popovers de la app.
@@ -25,7 +26,7 @@ export function PipelineMap({ nodes }: PipelineMapProps) {
                 <TileLayer url={TILE_LAYERS.places.url} />
                 <FitBoundsOnMount />
                 <InvalidateSizeOnResize />
-                <PipelineLayers nodes={nodes} />
+                <PipelineLayers nodes={nodes} onShowTelemetry={onShowTelemetry} />
             </MapContainer>
 
             {mainMap && <MiniMap parentMap={mainMap} nodes={nodes} />}
