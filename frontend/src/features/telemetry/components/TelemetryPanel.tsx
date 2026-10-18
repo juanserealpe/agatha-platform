@@ -4,7 +4,7 @@ import { SectionHeader } from "./SectionHeader";
 import { SeriesSection } from "../sections/SeriesSection";
 import { SECTION_ORDER } from "../config/sectionStyles";
 
-export function MetricsAccordion({ deviceId }: { deviceId: number }) {
+export function TelemetryPanel({ deviceId }: { deviceId: number }) {
     const [openSections, setOpenSections] = useState<string[]>([]);
 
     return (

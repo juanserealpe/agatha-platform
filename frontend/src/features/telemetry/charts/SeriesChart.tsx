@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 //Cómo se dibuja una gráfica
 import { memo, useMemo, useState } from "react";
 import {
@@ -6,7 +5,7 @@ import {
     CartesianGrid, Legend, Brush, ReferenceArea, ReferenceLine,
 } from "recharts";
 import type { Series } from "@/services/dashboard/series.types";
-import type { ThresholdBand } from "../../dashboard/config/seriesSections";
+import type { ThresholdBand } from "../config/seriesSections";
 
 const LINE_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6"];
 const BUCKET_MS = 10_000;
@@ -124,7 +123,7 @@ export const SeriesChart = memo(function SeriesChart({
                             labelFormatter={(ts) => formatTooltipDate(ts as number)}
                             formatter={(value, name) => {
                                 const u = cleanUnit(series.find((s) => s.name === name)?.unit ?? "");
-                                const v = Number(value).toLocaleString("es-CO", { maximumFractionDigits: 4 });
+                                const v = valueFmt.format(Number(value));
                                 return [`${v}${u ? ` ${u}` : ""}`, String(name)];
                             }}
                         />

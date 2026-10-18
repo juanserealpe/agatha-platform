@@ -1,16 +1,11 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { FiltersBar, SensorsList } from "@/features/dashboard";
+import { FiltersBar, SensorsList, useDevices } from "@/features/dashboard";
 import type { FiltersState, Sensor } from "@/services/types";
 import { AlertModal } from "@/features/alerts";
 import { AlertBanner } from "@/features/alerts";
 import { PipelineMap } from "@/features/map";
-import { useDevices } from "@/features/dashboard/hooks/useDevices";
-import { useDateRangeState } from "@/features/dashboard/hooks/useDateRangeState";
-import { MetricsAccordion } from "@/features/dashboard/components/MetricsAccordion";
-import { DateRangeControls } from "@/features/dashboard/components/DateRangeControls";
+import { TelemetryPanel } from "@/features/telemetry";
 import type { Device } from "@/services/dashboard/dashboard.types";
 // TODO: reemplazar por datos reales desde el backend (REST API, sección 8 del documento)
 const GASODUCTOS_MOCK = [
@@ -131,7 +126,7 @@ function App() {
           !activeDevice ? (
             <Placeholder label="Selecciona un sensor para ver sus gráficas" />
           ) : (
-            <MetricsAccordion deviceId={activeDevice.id} />
+            <TelemetryPanel deviceId={activeDevice.id} />
           )
         }
       />
