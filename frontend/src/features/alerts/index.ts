@@ -1,4 +1,5 @@
 export { AlertDetailHost } from "./components/AlertDetailHost";
+export { NewAlertToast } from "./components/NewAlertToast";
 export { RecentAlertsPanel } from "./components/RecentAlertsPanel";
 export { useAlert, usePendingAlerts, useRecentAlerts } from "./hooks/useAlerts";
 export { alertKeys } from "./hooks/alertKeys";

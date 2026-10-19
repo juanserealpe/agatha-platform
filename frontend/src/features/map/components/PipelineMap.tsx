@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { MapContainer, TileLayer } from "react-leaflet";
 import type L from "leaflet";
 import { TILE_LAYERS } from "../config/mapStyles";
@@ -13,9 +13,11 @@ interface PipelineMapProps {
     nodes: MapNode[];
     /** Acción "Ver telemetría" del popup de un punto. */
     onShowTelemetry?: (deviceId: number) => void;
+    /** Contenido flotante arriba a la derecha del mapa (p. ej. avisos), sin tapar el centro. */
+    topRightOverlay?: ReactNode;
 }
 
-export function PipelineMap({ nodes, onShowTelemetry }: PipelineMapProps) {
+export function PipelineMap({ nodes, onShowTelemetry, topRightOverlay }: PipelineMapProps) {
     const [mainMap, setMainMap] = useState<L.Map | null>(null);
 
     // isolate: los z-index de Leaflet (400–1000) quedan contenidos y no tapan modales ni popovers de la app.
@@ -29,6 +31,11 @@ export function PipelineMap({ nodes, onShowTelemetry }: PipelineMapProps) {
                 <PipelineLayers nodes={nodes} onShowTelemetry={onShowTelemetry} />
             </MapContainer>
 
+            {topRightOverlay && (
+                <div className="pointer-events-none absolute right-3 top-3 z-[1000] flex justify-end [&>*]:pointer-events-auto">
+                    {topRightOverlay}
+                </div>
+            )}
             {mainMap && <MiniMap parentMap={mainMap} nodes={nodes} />}
             <MapLegend />
         </div>
