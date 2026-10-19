@@ -22,7 +22,7 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
             style={{ "--glow-color": severity.hex } as CSSProperties}
             aria-label={`Alerta ${severity.label} de ${ALERT_TYPE_LABEL[alert.type]}, ${ALERT_STATUS_LABEL[alert.status]}`}
             className={cn(
-                "flex w-full flex-col gap-1 rounded-lg border-2 p-3 text-left transition-colors",
+                "flex w-full flex-col gap-1 rounded-lg border-2 px-3 py-2 text-left transition-colors",
                 "hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900",
                 severity.borderClass,
                 isUnclassified ? "bg-white" : "bg-gray-50",

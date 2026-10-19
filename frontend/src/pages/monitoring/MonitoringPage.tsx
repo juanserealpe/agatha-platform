@@ -5,8 +5,10 @@ import { SensorsPanel, useActiveDevice } from "@/features/sensors";
 import { PipelineMap, usePilotNodes } from "@/features/map";
 import { TelemetryPanel } from "@/features/telemetry";
 
-// Apilados (móvil/tablet) cada panel tiene un tope; en escritorio se reparten el alto de la fila.
-const SIDE_PANEL_CLASS = "max-h-[360px] lg:max-h-none lg:flex-1";
+// Apilados (móvil/tablet) cada panel tiene un tope. En escritorio, alertas (lo urgente y lo que más crece)
+// toma el alto libre; sensores (pocos en el piloto) ocupa solo lo que necesita, hasta un 45 % de la columna.
+const ALERTS_PANEL_CLASS = "max-h-[420px] lg:max-h-none lg:flex-1";
+const SENSORS_PANEL_CLASS = "max-h-[360px] lg:max-h-[45%] lg:flex-none";
 
 export function MonitoringPage() {
     const { activeDevice, selectDevice } = useActiveDevice();
@@ -20,20 +22,20 @@ export function MonitoringPage() {
 
     return (
         <>
-            {/* En escritorio la fila ocupa el alto de la ventana bajo el header: el mapa la llena
-                y los paneles de la derecha se reparten ese alto con scroll interno, sin estirar la fila. */}
-            <div className="grid grid-cols-1 gap-6 lg:h-[clamp(560px,calc(100vh-240px),880px)] lg:grid-cols-[minmax(0,1fr)_340px]">
+            {/* En escritorio la fila ocupa el alto de la ventana bajo el header (sin pasarse, para no obligar a
+                hacer scroll de página sobre el mapa): el mapa la llena y los paneles usan scroll interno. */}
+            <div className="grid grid-cols-1 gap-4 lg:h-[clamp(520px,calc(100vh-180px),960px)] lg:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="h-[60vh] min-h-[420px] lg:h-full lg:min-h-0">
                     <PipelineMap nodes={nodes} onShowTelemetry={showTelemetry} />
                 </div>
 
                 <div className="flex min-h-0 flex-col gap-4">
-                    <RecentAlertsPanel className={SIDE_PANEL_CLASS} />
+                    <RecentAlertsPanel className={ALERTS_PANEL_CLASS} />
 
                     <SensorsPanel
                         selectedDeviceId={activeDevice?.id}
                         onSelect={selectDevice}
-                        className={SIDE_PANEL_CLASS}
+                        className={SENSORS_PANEL_CLASS}
                     />
                 </div>
             </div>
