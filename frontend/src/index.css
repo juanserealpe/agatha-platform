@@ -200,3 +200,25 @@
     outline: 2px solid currentColor;
   }
 }
+
+/* Alerta sin atender: resplandor que pulsa alrededor de la tarjeta (el contenido no pierde opacidad) */
+@keyframes alert-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--glow-color) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow-color) 30%, transparent),
+      0 0 14px 2px color-mix(in srgb, var(--glow-color) 45%, transparent);
+  }
+}
+
+.alert-glow {
+  animation: alert-glow 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-glow {
+    animation: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--glow-color) 30%, transparent);
+  }
+}
