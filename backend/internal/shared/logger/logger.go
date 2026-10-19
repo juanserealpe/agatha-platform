@@ -13,6 +13,7 @@ import (
 type Level string
 
 const (
+	LevelDebug Level = "DEBUG"
 	LevelInfo  Level = "INFO"
 	LevelWarn  Level = "WARN"
 	LevelError Level = "ERROR"
@@ -53,6 +54,15 @@ func New(module string, level string) *Logger {
 		module: module,
 		level:  Level(strings.ToUpper(level)),
 	}
+}
+
+// Debug solo se imprime si el logger se creó con nivel DEBUG (detalle de
+// diagnóstico que en producción no aporta).
+func (l *Logger) Debug(msg string, keysAndValues ...interface{}) {
+	if l.level != LevelDebug {
+		return
+	}
+	l.log(LevelDebug, msg, keysAndValues...)
 }
 
 func (l *Logger) Info(msg string, keysAndValues ...interface{}) {

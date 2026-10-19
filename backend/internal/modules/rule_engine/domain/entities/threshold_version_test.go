@@ -1,0 +1,116 @@
+package entities
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain"
+)
+
+func TestThresholdParams_Validate(t *testing.T) {
+	valid := DefaultThresholdParams()
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("los valores por defecto deben ser válidos: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ThresholdParams)
+		want   error
+	}{
+		{"amarillo = 0", func(p *ThresholdParams) { p.Amarillo = 0 }, domain.ErrThresholdOrder},
+		{"amarillo = naranja", func(p *ThresholdParams) { p.Amarillo = p.Naranja }, domain.ErrThresholdOrder},
+		{"naranja > rojo", func(p *ThresholdParams) { p.Naranja = 0.40 }, domain.ErrThresholdOrder},
+		{"rojo > 1", func(p *ThresholdParams) { p.Rojo = 1.01 }, domain.ErrThresholdOrder},
+		{"margen negativo", func(p *ThresholdParams) { p.ExitMargin = -0.01 }, domain.ErrExitMarginRange},
+		{"margen = amarillo", func(p *ThresholdParams) { p.ExitMargin = p.Amarillo }, domain.ErrExitMarginRange},
+		{"min_hours 0", func(p *ThresholdParams) { p.MinHours = 0 }, domain.ErrHoursRange},
+		{"exit_hours 0", func(p *ThresholdParams) { p.ExitHours = 0 }, domain.ErrHoursRange},
+		{"escalamiento 0", func(p *ThresholdParams) { p.EscalateNaranjaAfterHours = intPtr(0) }, domain.ErrHoursRange},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := DefaultThresholdParams()
+			tt.mutate(&p)
+			if err := p.Validate(); !errors.Is(err, tt.want) {
+				t.Fatalf("err = %v, se esperaba %v", err, tt.want)
+			}
+		})
+	}
+
+	t.Run("rojo = 1 y escalamientos NULL son válidos", func(t *testing.T) {
+		p := DefaultThresholdParams()
+		p.Rojo = 1
+		p.EscalateAmarilloAfterHours, p.EscalateNaranjaAfterHours = nil, nil
+		if err := p.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestThresholdParams_NormalizeRoundsToColumnPrecision(t *testing.T) {
+	p := DefaultThresholdParams()
+	p.Amarillo, p.Naranja = 0.18004, 0.18001 // distintos, pero iguales en NUMERIC(5,4)
+
+	n := p.Normalize()
+	if n.Amarillo != 0.18 || n.Naranja != 0.18 {
+		t.Fatalf("normalize = %v / %v", n.Amarillo, n.Naranja)
+	}
+	if err := n.Validate(); !errors.Is(err, domain.ErrThresholdOrder) {
+		t.Fatalf("tras redondear deben quedar iguales e inválidos: %v", err)
+	}
+}
+
+func TestThresholdPatch_CopiesOmittedFields(t *testing.T) {
+	base := DefaultThresholdParams()
+
+	got := ThresholdPatch{
+		Rojo:                      Some(0.40),
+		EscalateNaranjaAfterHours: Some[*int](nil), // explícitamente sin escalamiento
+	}.ApplyTo(base)
+
+	if got.Rojo != 0.40 || got.EscalateNaranjaAfterHours != nil {
+		t.Fatalf("campos informados no aplicados: %+v", got)
+	}
+	if got.Amarillo != base.Amarillo || got.Naranja != base.Naranja || got.MinHours != base.MinHours ||
+		got.ExitMargin != base.ExitMargin || got.ExitHours != base.ExitHours ||
+		got.EscalateAmarilloAfterHours == nil || *got.EscalateAmarilloAfterHours != 12 {
+		t.Fatalf("campos omitidos no copiados: %+v", got)
+	}
+
+	// La copia no comparte punteros con la base.
+	*got.EscalateAmarilloAfterHours = 99
+	if *base.EscalateAmarilloAfterHours != 12 {
+		t.Fatal("ApplyTo comparte el puntero del escalamiento con la base")
+	}
+}
+
+func TestThresholdParams_HistoryDepth(t *testing.T) {
+	p := DefaultThresholdParams()
+	if got := p.HistoryDepth(); got != 13 { // máx(2, 12, 6, 2) + 1
+		t.Fatalf("K = %d, se esperaba 13", got)
+	}
+
+	p.EscalateAmarilloAfterHours, p.EscalateNaranjaAfterHours = nil, nil
+	p.ExitHours = 5
+	if got := p.HistoryDepth(); got != 6 {
+		t.Fatalf("K = %d, se esperaba 6", got)
+	}
+}
+
+func TestThresholdVersion_IsEffectiveAt(t *testing.T) {
+	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	to := from.Add(24 * time.Hour)
+
+	closed := ThresholdVersion{ValidFrom: from, ValidTo: &to}
+	if !closed.IsEffectiveAt(from) || closed.IsEffectiveAt(to) || closed.IsEffectiveAt(from.Add(-time.Second)) {
+		t.Fatal("una versión cerrada aplica en [valid_from, valid_to)")
+	}
+
+	open := ThresholdVersion{ValidFrom: from}
+	if !open.IsEffectiveAt(from.Add(1000 * time.Hour)) {
+		t.Fatal("una versión vigente aplica desde valid_from en adelante")
+	}
+}

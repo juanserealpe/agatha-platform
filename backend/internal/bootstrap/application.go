@@ -44,7 +44,11 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 	// Las suscripciones quedan registradas aquí, antes de que arranque cualquier
 	// scheduler (Runners): ningún evento se publica sin su consumidor.
 	if modules.Has(ModuleRuleEngine) {
-		NewRuleEngineModule(platform)
+		m, err := NewRuleEngineModule(platform)
+		if err != nil {
+			return nil, fmt.Errorf("módulo %s: %w", ModuleRuleEngine, err)
+		}
+		m.SubscribeIndicatorEvaluated()
 	}
 
 	if modules.Has(ModuleDataOS) {

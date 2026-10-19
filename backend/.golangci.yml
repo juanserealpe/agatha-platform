@@ -84,6 +84,13 @@ linters:
               desc: "rule_engine no importa baseline"
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
               desc: "rule_engine no conoce el bus; la suscripción vive en bootstrap"
+        # Contrato público del Rule Engine: solo stdlib (lo importarán bootstrap y Alert Management).
+        rule-engine-contract-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/modules/rule_engine/contract/**"
+          allow:
+            - $gostd
         # Baseline es autosuficiente: solo lee tablas. Nunca conoce a Processing.
         baseline-isolation:
           list-mode: lax

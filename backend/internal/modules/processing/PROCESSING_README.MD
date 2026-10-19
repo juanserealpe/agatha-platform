@@ -62,7 +62,7 @@ El scheduler es el **único disparador automático**. No hay suscripción al bus
 - **Backfill no publica**: el histórico son miles de filas y desbordaría la cola del bus (256 por suscripción); los consumidores leen `feature_evaluations`.
 - **Solo si el lote se insertó completo**. `SaveAll` devuelve cuántas filas insertó, no cuáles (GORM 1.31 no mapea bien `RETURNING` con conflictos parciales), así que con un conflicto parcial (otro proceso ya insertó parte) no publica nada y lo avisa con `Warn`. Si se insertó 0, tampoco.
 - Lleva `status` e `i` porque son el hecho que interesa (el Rule Engine los compara con sus reglas); la fila sigue siendo la fuente de verdad.
-- Consumidores: Rule Engine (`rule_engine.indicator_evaluated`, hoy solo log).
+- Consumidores: Rule Engine (`rule_engine.indicator_evaluated`): interpreta las de 24 h `CALCULATED` con sus umbrales. Su backfill (`cmd/rule_engine -backfill`) lee directamente `feature_evaluations`: correrlo DESPUÉS de `processing -backfill`.
 
 ## UC-P2 `Reconcile`
 

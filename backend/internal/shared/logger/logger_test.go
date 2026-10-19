@@ -48,3 +48,19 @@ func TestLogger_NormalizesTimeFieldsToBogota(t *testing.T) {
 		t.Fatalf("quedó un campo en UTC: %q", out)
 	}
 }
+
+func TestLogger_DebugOnlyPrintsWithDebugLevel(t *testing.T) {
+	silent := captureOutput(t, func() {
+		New("test", "Info").Debug("detalle", "k", 1)
+	})
+	if silent != "" {
+		t.Fatalf("un logger INFO no debe imprimir Debug: %q", silent)
+	}
+
+	out := captureOutput(t, func() {
+		New("test", "debug").Debug("detalle", "k", 1)
+	})
+	if !strings.Contains(out, "[DEBUG] [test] detalle") {
+		t.Fatalf("un logger DEBUG debe imprimir Debug: %q", out)
+	}
+}

@@ -3,7 +3,7 @@
 //
 //	baseline    scheduler de recálculo de líneas base
 //	processing  evaluación horaria del índice I (requiere baseline)
-//	rule_engine consume processing.indicator_evaluated; hoy solo lo loguea (requiere processing)
+//	rule_engine interpreta processing.indicator_evaluated con umbrales versionados (requiere processing)
 //	dataos      ingesta de contingencia: consulta programada a DataOS
 //	callback    ingesta principal: POST /ingestion/callback (excluyente con dataos)
 //	dashboard   API HTTP de solo lectura: GET /api/dashboard/*

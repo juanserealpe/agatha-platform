@@ -23,6 +23,11 @@ var errorStatus = map[appErrors.ErrorCode]int{
 	appErrors.CodePersistingBaseline:     http.StatusInternalServerError,
 	appErrors.CodeConsultingEvaluations:  http.StatusInternalServerError,
 	appErrors.CodePersistingEvaluations:  http.StatusInternalServerError,
+
+	appErrors.CodeConsultingThresholds:      http.StatusInternalServerError,
+	appErrors.CodePersistingThresholds:      http.StatusInternalServerError,
+	appErrors.CodeConsultingRuleEvaluations: http.StatusInternalServerError,
+	appErrors.CodePersistingRuleEvaluations: http.StatusInternalServerError,
 }
 
 func HandleError(w http.ResponseWriter, err error) {

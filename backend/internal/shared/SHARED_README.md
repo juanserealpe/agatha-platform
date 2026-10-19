@@ -56,7 +56,7 @@ sharedHTTP.HandleError(w, err)
 
 ## 3. Logger (`shared/logger`)
 
-Métodos: `Info(msg, kv...)`, `Warn(msg, kv...)`, `Error(msg, kv...)`. Timezone fijo: `America/Bogota`.
+Métodos: `Debug(msg, kv...)` (solo con nivel `DEBUG`), `Info(msg, kv...)`, `Warn(msg, kv...)`, `Error(msg, kv...)`. Timezone fijo: `America/Bogota`.
 
 ```go
 log := logger.New("ingestion", "INFO")

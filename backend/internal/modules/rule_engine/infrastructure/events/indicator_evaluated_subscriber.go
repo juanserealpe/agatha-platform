@@ -1,25 +1,36 @@
+// Package events recibe los eventos que le interesan al Rule Engine. No conoce
+// el bus ni a los publicadores: internal/bootstrap traduce y suscribe.
 package events
 
 import (
 	"context"
 
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/application/services"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// IndicatorEvaluatedSubscriber recibe cada ventana evaluada por Processing.
-// Por ahora solo la registra en el log; acá se conectarán las reglas (p. ej.
-// el umbral del indicador).
+// IndicatorEvaluator es el caso de uso que interpreta cada ventana evaluada
+// (en producción, *services.EvaluationService).
+type IndicatorEvaluator interface {
+	EvaluateIndicator(ctx context.Context, notice services.IndicatorEvaluatedNotice) (services.EvaluationResult, error)
+}
+
+// IndicatorEvaluatedSubscriber recibe cada ventana evaluada por Processing y
+// la entrega a EvaluateIndicator (que filtra 24 h CALCULATED, guarda y publica).
 type IndicatorEvaluatedSubscriber struct {
-	logger *logger.Logger
+	evaluator IndicatorEvaluator
+	logger    *logger.Logger
 }
 
 // NewIndicatorEvaluatedSubscriber crea el subscriber.
-func NewIndicatorEvaluatedSubscriber(logger *logger.Logger) *IndicatorEvaluatedSubscriber {
-	return &IndicatorEvaluatedSubscriber{logger: logger}
+func NewIndicatorEvaluatedSubscriber(evaluator IndicatorEvaluator, logger *logger.Logger) *IndicatorEvaluatedSubscriber {
+	return &IndicatorEvaluatedSubscriber{evaluator: evaluator, logger: logger}
 }
 
-// Handle registra el indicador recibido. Idempotente: no tiene efectos.
-func (s *IndicatorEvaluatedSubscriber) Handle(_ context.Context, notice IndicatorEvaluatedNotice) {
+// Handle interpreta el indicador recibido. Un error se registra y no se
+// reintenta: el evento es una pista y feature_evaluations la fuente de verdad
+// (el backfill puede completar la hora perdida).
+func (s *IndicatorEvaluatedSubscriber) Handle(ctx context.Context, notice services.IndicatorEvaluatedNotice) {
 	fields := []interface{}{
 		"measuring_point_id", notice.MeasuringPointID,
 		"window_hours", notice.WindowHours,
@@ -37,5 +48,9 @@ func (s *IndicatorEvaluatedSubscriber) Handle(_ context.Context, notice Indicato
 		"trigger", notice.Trigger,
 	)
 
-	s.logger.Info("evento de indicador evaluado recibido", fields...)
+	s.logger.Debug("evento de indicador evaluado recibido", fields...)
+
+	if _, err := s.evaluator.EvaluateIndicator(ctx, notice); err != nil {
+		s.logger.Error("no fue posible interpretar el indicador evaluado", append(fields, "error", err)...)
+	}
 }

@@ -16,7 +16,7 @@ type Module string
 const (
 	ModuleBaseline   Module = "baseline"    // scheduler de recálculo de líneas base
 	ModuleProcessing Module = "processing"  // evaluación horaria del índice I; requiere baseline
-	ModuleRuleEngine Module = "rule_engine" // consume processing.indicator_evaluated; requiere processing
+	ModuleRuleEngine Module = "rule_engine" // interpreta processing.indicator_evaluated con umbrales; requiere processing
 	ModuleDataOS     Module = "dataos"      // ingesta de contingencia: consulta programada a DataOS
 	ModuleCallback   Module = "callback"    // ingesta principal: POST /ingestion/callback
 	ModuleDashboard  Module = "dashboard"   // API HTTP de solo lectura: GET /api/dashboard/*
