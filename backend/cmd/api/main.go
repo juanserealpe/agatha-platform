@@ -22,9 +22,15 @@ func main() {
 	mux := http.NewServeMux()
 	bootstrap.NewDashboardModule(platform).RegisterRoutes(mux)
 
+	handler, err := bootstrap.WithCORS(mux)
+	if err != nil {
+		log.Error("configuración CORS inválida", "variable", bootstrap.CORSAllowedOriginsEnv, "error", err)
+		os.Exit(2)
+	}
+
 	server := &http.Server{
 		Addr:              httpAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
