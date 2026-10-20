@@ -1,6 +1,6 @@
 # Modulo: Rule Engine
 
-**Responsabilidad**: interpretar cada hora calculada del índice I(24 h) de Processing con **umbrales versionados por punto** (Amarillo, Naranja, Rojo) y **reglas de persistencia e histéresis**, guardar el resultado en `rule_evaluations` y avisar a Alert Management **solo** cuando un punto está sobre el umbral (`rule_engine.leak_threshold_exceeded`) y una única vez cuando el episodio termina (`rule_engine.leak_threshold_cleared`). Processing **mide**; el Rule Engine **interpreta**; Alert Management (todavía no existe) **decide**.
+**Responsabilidad**: interpretar cada hora calculada del índice I(24 h) de Processing con **umbrales versionados por punto** (Amarillo, Naranja, Rojo) y **reglas de persistencia e histéresis**, guardar el resultado en `rule_evaluations` y publicar **cada hora** de 24 h a Alert Management (`rule_engine.level_evaluated`, v2), incluidas las de nivel NORMAL y las `NO_CALCULABLE`. Processing **mide**; el Rule Engine **interpreta** (es dueño del **nivel del indicador**: umbral + persistencia + episodio); Alert Management (todavía no existe) **decide** (alerta única, estabilización, atención, silencio, clasificación). El `CLEARED` del episodio **no cierra la alerta**: para Alert Management es una evaluación más.
 
 Todo en **UTC** (`America/Bogota` solo en logs). Hoy hay un solo tipo de evento: `FUGA`.
 
@@ -8,15 +8,15 @@ Todo en **UTC** (`America/Bogota` solo en logs). Hoy hay un solo tipo de evento:
 
 ```
 rule_engine/
-├── contract/                 # superficie pública (solo stdlib): tópicos + LeakThresholdExceeded/Cleared
+├── contract/                 # superficie pública (solo stdlib): tópico + LevelEvaluated (v2)
 ├── domain/
 │   ├── errors.go             # AppError del módulo
-│   ├── entities/             # Level/Rule/Emission, ThresholdParams/Patch/Version, RuleEvaluation, ThresholdSegment
+│   ├── entities/             # Level/Rule/EpisodeEvent/ReasonCode, ThresholdParams/Patch/Version, RuleEvaluation, Reason, ThresholdSegment
 │   ├── repositories/         # ThresholdRepository (+ ThresholdWriter transaccional), RuleEvaluationRepository
 │   └── services/             # lógica PURA: RawLevel, Assess (persistencia + histéresis), ClipTimeline
 ├── application/
 │   ├── ports/                # Clock, LevelEventPublisher, IndicatorSource (feature_evaluations, solo lectura)
-│   └── services/             # ThresholdService, EvaluationService (EvaluateIndicator), BackfillService
+│   └── services/             # ThresholdService, EvaluationService (EvaluateIndicator), BackfillService, LevelEvaluatedFromRow
 └── infrastructure/
     ├── events/               # IndicatorEvaluatedSubscriber → EvaluateIndicator
     └── persistence/
@@ -56,17 +56,19 @@ Versión aplicable a la hora t: `valid_from <= t AND (valid_to IS NULL OR valid_
 | `measuring_point_id`, `event_type`, `evaluated_at` | `UNIQUE` (`ux_rule_evaluations_point_event_hour`): idempotencia y clave de los eventos. |
 | `indicator_value` NUMERIC | I(24 h) de la hora (copia de `feature_evaluations.i`). |
 | `raw_level` | Nivel que marca el umbral, sin reglas. **Las rachas se cuentan sobre este valor guardado**: un cambio de umbral no reinterpreta el pasado. |
-| `level` | Nivel interpretado (persistencia, histéresis, racha de entrada). |
+| `computed_level` | `max(raw, persistencia)`, **sin** histéresis ni racha de entrada: lo que sostiene la evidencia en esta hora. Alert Management sube y estabiliza con este valor (el HOLD es un artefacto del episodio). |
+| `level` | Nivel del episodio (persistencia, histéresis, racha de entrada). En el evento: `episode_level`. |
 | `rule` | `THRESHOLD` \| `PERSISTENCE` \| `HOLD` \| `NONE`: por qué tiene ese `level`. |
 | `in_episode`, `hours_above`, `hours_in_level` | Estado para la hora siguiente (no hay estado en memoria) y contexto para Alert Management. |
 | `threshold_version_id` FK | Versión usada (trazabilidad; la vigente en `evaluated_at`). |
 | `low_confidence` | Copia de Processing (línea base de confianza baja). |
-| `emitted` | `NONE` \| `EXCEEDED` \| `CLEARED`: qué evento correspondía (aunque fuera tardía y no se publicara). |
+| `episode_event` | `OPENED` (esta hora abrió el episodio) \| `CLEARED` (lo cerró) \| `NONE`. |
+| `reasons` JSONB | Motivos de `computed_level` (mismo formato que el evento): `LEAK_THRESHOLD {i, threshold}` si raw ≥ AMARILLO y `LEAK_PERSISTENCE {hours, from}` si la racha subió un nivel. `[]` si NORMAL. |
 | `created_at` | Auditoría. |
 
 `CHECK` en los enums. Índice `ix_rule_evaluations_point_event_recent (measuring_point_id, event_type, evaluated_at DESC)` para leer las últimas K horas (el único también lo cubriría; se dejó explícito según la especificación).
 
-Las horas `NO_CALCULABLE` **no generan fila**. Los dos esquemas los crea `persistence.Migrate` (ver "Migración").
+La fila contiene **todo** lo que lleva su `level_evaluated` (umbrales y salidas por la FK de la versión): `services.LevelEvaluatedFromRow(row, params, occurredAt)` reconstruye el mismo evento (base del reconciliador de Alert Management, AM-19). Las horas `NO_CALCULABLE` **no generan fila**. Los dos esquemas los crea `persistence.Migrate` (ver "Migración").
 
 ## Versionado y no retroactividad
 
@@ -94,9 +96,12 @@ Niveles `NORMAL < AMARILLO < NARANJA < ROJO`. Para cada hora calculada, con la v
 
 1. **Raw**: ROJO si I ≥ rojo; NARANJA si ≥ naranja; AMARILLO si ≥ amarillo; si no NORMAL.
 2. **Persistencia** (sobre el `raw_level` guardado): `runAmarillo`/`runNaranja` = horas consecutivas, terminando en la actual, con raw ≥ AMARILLO / ≥ NARANJA. Candidato ROJO si `runNaranja ≥ escalate_naranja`; si no NARANJA si `runAmarillo ≥ escalate_amarillo`. `nivelCalculado = max(raw, candidato)` (como mucho **un** nivel por regla). `rule = PERSISTENCE` si sube sobre el raw; si no `THRESHOLD`.
-3. **Fuera de episodio**: raw ≥ AMARILLO y `runAmarillo ≥ min_hours` ⇒ abre (`level = nivelCalculado`, `EXCEEDED`, `hours_above = runAmarillo`); si no `NORMAL`/`NONE`/`NONE`.
-4. **Dentro de episodio**: raw ≥ AMARILLO ⇒ `level = nivelCalculado` (sube o baja), `EXCEEDED`. raw NORMAL ⇒ `belowRun` = horas seguidas con I < `amarillo − exit_margin` **y raw guardado NORMAL**; si `belowRun ≥ exit_hours` cierra (`NORMAL`, `rule NONE`, `CLEARED`); si no `HOLD` (conserva el nivel, `NONE`).
+3. **Fuera de episodio**: raw ≥ AMARILLO y `runAmarillo ≥ min_hours` ⇒ abre (`level = nivelCalculado`, `OPENED`, `hours_above = runAmarillo`); si no `NORMAL`/`NONE`/`NONE`.
+4. **Dentro de episodio**: raw ≥ AMARILLO ⇒ `level = nivelCalculado` (sube o baja). raw NORMAL ⇒ `belowRun` = horas seguidas con I < `amarillo − exit_margin` **y raw guardado NORMAL**; si `belowRun ≥ exit_hours` cierra (`NORMAL`, `rule NONE`, `CLEARED`); si no `HOLD` (conserva el nivel).
 5. `hours_above` = horas calculadas desde la primera hora de la racha de entrada, incluida la actual (la hora de cierre cuenta: es la última del episodio; 0 fuera de episodio). `hours_in_level` = horas seguidas con el mismo `level`.
+6. `computed_level = nivelCalculado` en **todas** las horas (dentro o fuera de episodio, también en HOLD) y `reasons` lo explican: `LEAK_THRESHOLD` (`level` = raw, `i`, `threshold` = corte del raw) y, si la persistencia subió, `LEAK_PERSISTENCE` (`level` = nivel ganado, `hours` = racha, `from` = AMARILLO o NARANJA).
+
+**Salidas por nivel** (`ThresholdParams.ExitFor`): `corte − exit_margin`, redondeado a 4 decimales ⇒ 0,16 / 0,23 / 0,33. El Rule Engine solo usa la de AMARILLO para cerrar el episodio; las tres viajan en el evento (`exit`) para la histéresis por nivel de Alert Management. Si hacen falta márgenes distintos por nivel, se agregan columnas a `rule_threshold_versions`.
 
 **Huecos**: una hora `NO_CALCULABLE` no tiene fila, así que las rachas cuentan horas **calculadas**: un hueco **pausa** las rachas, no las reinicia.
 
@@ -104,32 +109,36 @@ Niveles `NORMAL < AMARILLO < NARANJA < ROJO`. Para cada hora calculada, con la v
 
 ### Escenario de referencia (valores por defecto, `level_assessor_test.go`)
 
-| I por hora | level | rule | emitted | Nota |
-|---|---|---|---|---|
-| 0,12 · 0,14 | NORMAL | NONE | NONE | |
-| 0,19 | NORMAL | NONE | NONE | racha de entrada pendiente (1 < 2) |
-| 0,20 | AMARILLO | THRESHOLD | EXCEEDED | abre, `hours_above` 2 |
-| 0,21 | AMARILLO | THRESHOLD | EXCEEDED | |
-| 0,27 | NARANJA | THRESHOLD | EXCEEDED | |
-| 0,22 | AMARILLO | THRESHOLD | EXCEEDED | baja dentro del episodio |
-| 12 h entre 0,18 y 0,24 | AMARILLO → NARANJA | THRESHOLD → PERSISTENCE | EXCEEDED | la racha ≥ AMARILLO viene desde la 0,19: llega a 12 en la 7.ª hora del bloque; la 12.ª es NARANJA/PERSISTENCE |
-| hueco NO_CALCULABLE | — | — | — | sin fila; la racha sigue |
-| 0,17 | NARANJA | HOLD | NONE | banda de histéresis |
-| 0,15 · 0,14 | NARANJA · NORMAL | HOLD · NONE | NONE · **CLEARED** | la 2.ª cumple `exit_hours` |
-| 0,20 · 0,21 | NORMAL · AMARILLO | NONE · THRESHOLD | NONE · EXCEEDED | episodio nuevo en la 2.ª hora |
+| I por hora | level (episode) | computed | rule | episode_event | Nota |
+|---|---|---|---|---|---|
+| 0,12 · 0,14 | NORMAL | NORMAL | NONE | NONE | |
+| 0,19 | NORMAL | AMARILLO | NONE | NONE | racha de entrada pendiente (1 < 2) |
+| 0,20 | AMARILLO | AMARILLO | THRESHOLD | **OPENED** | abre, `hours_above` 2 |
+| 0,21 | AMARILLO | AMARILLO | THRESHOLD | NONE | |
+| 0,27 | NARANJA | NARANJA | THRESHOLD | NONE | |
+| 0,22 | AMARILLO | AMARILLO | THRESHOLD | NONE | baja dentro del episodio |
+| 12 h entre 0,18 y 0,24 | AMARILLO → NARANJA | AMARILLO → NARANJA | THRESHOLD → PERSISTENCE | NONE | la racha ≥ AMARILLO viene desde la 0,19: llega a 12 en la 7.ª hora del bloque; la 12.ª es NARANJA/PERSISTENCE |
+| hueco NO_CALCULABLE | — | — | — | — | sin fila (se reenvía como `NO_CALCULABLE`); la racha sigue |
+| 0,17 | NARANJA | NORMAL | HOLD | NONE | banda de histéresis: el episodio conserva NARANJA, el computed no |
+| 0,15 · 0,14 | NARANJA · NORMAL | NORMAL | HOLD · NONE | NONE · **CLEARED** | la 2.ª cumple `exit_hours` |
+| 0,20 · 0,21 | NORMAL · AMARILLO | AMARILLO | NONE · THRESHOLD | NONE · **OPENED** | episodio nuevo en la 2.ª hora |
 
 Además: salto directo a ROJO (desde NORMAL respeta `min_hours`; dentro de un episodio sube de inmediato), persistencia NARANJA → ROJO a las 6 h, nunca dos niveles por persistencia, escalamiento NULL ⇒ nunca PERSISTENCE, 12 h literales desde una racha nueva ⇒ la 12.ª es la primera PERSISTENCE.
 
 ## Evaluación horaria (`EvaluationService.EvaluateIndicator`)
 
-Entrada: `IndicatorEvaluatedNotice` (vista propia del evento de Processing, traducida en bootstrap). Solo `WindowHours == 24` y `Status == CALCULATED`; el resto se ignora (`Debug`).
+Entrada: `IndicatorEvaluatedNotice` (vista propia del evento de Processing, traducida en bootstrap). Solo `WindowHours == 24`; las de 6 h, un estado desconocido o `CALCULATED` sin I se ignoran (`Debug`, `IGNORED`).
+
+**Hora `NO_CALCULABLE` (24 h)**: no crea fila. Bajo el lock del punto, si la hora ya tiene fila (`DUPLICATE`) o hay filas posteriores (tardía, `Warn`) no se reenvía; si no, publica `level_evaluated` con `status = NO_CALCULABLE` (`OutcomeNoCalculable`). En backfill nunca se reenvía. Qué hacer con ella (pausar la estabilización) lo decide Alert Management.
+
+**Hora `CALCULATED` (24 h)**:
 
 1. Si ya existe la fila (punto, evento, hora) ⇒ nada (`DUPLICATE`; no se republica).
 2. Versión vigente en `evaluated_at` (sin ninguna ⇒ primer uso, ver arriba) y las últimas K filas anteriores.
 3. `Assess` + `INSERT … ON CONFLICT DO NOTHING` en una TX. Las horas de un punto se serializan con un lock en memoria (la siguiente necesita la fila de la anterior).
-4. Post-commit, según `emitted`: publica `EXCEEDED` o `CLEARED`; `NONE` ⇒ nada. Un fallo al publicar **nunca** falla la evaluación.
+4. Post-commit publica `level_evaluated` (`LevelEvaluatedFromRow`) **en todas las horas**, también NORMAL y HOLD. Un fallo al publicar **nunca** falla la evaluación.
 5. Si hay filas posteriores del punto (llegada tardía o desordenada) ⇒ se guarda **sin publicar** + `Warn`. Las filas posteriores no se recalculan (para eso, `-rebuild`).
-6. Log `Info`: punto, hora, I, raw, level, rule, versión y evento emitido.
+6. Log `Info`: punto, hora, I, raw, computed, level, rule, versión y `episode_event`.
 
 Un error (BD) se registra en el subscriber y la hora queda sin interpretar: el evento es una pista; el backfill puede completarla.
 
@@ -143,17 +152,51 @@ Un error (BD) se registra en el subscriber y la hora queda sin interpretar: el e
 
 Best-effort: pueden perderse (overflow, reinicio) o duplicarse. `feature_evaluations` es la fuente de verdad; el backfill de Processing no publica.
 
-### Publicados (`contract/`, `SchemaVersion = 1`)
+### Publicados (`contract/`, `SchemaVersion = 2`)
 
-**`rule_engine.leak_threshold_exceeded`** — `LeakThresholdExceeded`, cada hora calculada con `emitted = EXCEEDED` (incluida la que abre):
+**`rule_engine.level_evaluated`** — `LevelEvaluated`, una por **cada** hora de 24 h que llega en vivo. Reemplaza a `leak_threshold_exceeded` / `leak_threshold_cleared` (v1, sin consumidores): Alert Management necesita también las horas NORMAL para contar la estabilización.
 
-`rule_evaluation_id`, `measuring_point_id`, `event_type` (`FUGA`), `evaluated_at`, `level` (AMARILLO|NARANJA|ROJO), `previous_level` (nivel de la hora calculada anterior), `rule` (THRESHOLD|PERSISTENCE), `indicator_value`, `thresholds{amarillo, naranja, rojo}`, `threshold_version_id`, `hours_above`, `hours_in_level`, `low_confidence`, `occurred_at`, `schema_version`.
+```json
+{
+  "rule_evaluation_id": 4821,
+  "measuring_point_id": 11556,
+  "event_type": "FUGA",
+  "evaluated_at": "2026-10-15T17:00:00Z",
+  "status": "CALCULATED",
+  "indicator_value": 0.22,
+  "raw_level": "AMARILLO",
+  "computed_level": "NARANJA",
+  "episode_level": "NARANJA",
+  "in_episode": true,
+  "episode_event": "NONE",
+  "reasons": [
+    { "code": "LEAK_THRESHOLD",   "level": "AMARILLO", "data": { "i": 0.22, "threshold": 0.18 } },
+    { "code": "LEAK_PERSISTENCE", "level": "NARANJA",  "data": { "hours": 12, "from": "AMARILLO" } }
+  ],
+  "thresholds": { "amarillo": 0.18, "naranja": 0.25, "rojo": 0.35 },
+  "exit":       { "amarillo": 0.16, "naranja": 0.23, "rojo": 0.33 },
+  "threshold_version_id": 3,
+  "hours_above": 14,
+  "low_confidence": false,
+  "occurred_at": "2026-10-15T17:35:04Z",
+  "schema_version": 2
+}
+```
 
-**`rule_engine.leak_threshold_cleared`** — `LeakThresholdCleared`, una sola vez al cerrar el episodio:
+| Campo | Significado |
+|---|---|
+| `status` | `CALCULATED` o `NO_CALCULABLE`. Con `NO_CALCULABLE`: `rule_evaluation_id = 0`, `indicator_value = null`, niveles y `episode_event` vacíos, sin `reasons` ni umbrales; trae `no_calc_reason` de Processing. |
+| `raw_level` / `computed_level` / `episode_level` | Umbral solo / `max(raw, persistencia)` / nivel del episodio (con HOLD). Alert Management sube y estabiliza con `computed_level`. |
+| `in_episode`, `episode_event` | Estado del episodio; `OPENED` en la hora que lo abre, `CLEARED` en la que lo cierra, `NONE` en el resto. |
+| `reasons[]` | Por qué `computed_level` (ver Algoritmo, paso 6). |
+| `thresholds`, `exit` | Cortes y salidas (`corte − exit_margin`) de la versión usada (`threshold_version_id`). |
+| `hours_above` | Horas calculadas del episodio, incluida esta (la de cierre cuenta; 0 fuera de episodio). |
 
-`rule_evaluation_id`, `measuring_point_id`, `event_type`, `evaluated_at`, `indicator_value`, `last_level` (nivel de la hora anterior al cierre), `hours_above` (duración del episodio, incluida la hora de cierre), `threshold_version_id`, `occurred_at`, `schema_version`.
+No se publica en el **backfill**, en **duplicados** ni en **llegadas tardías** (RE-06). **Clave de idempotencia para consumidores: `(measuring_point_id, event_type, evaluated_at)`.** Se publica por el puerto `LevelEventPublisher`; el adaptador al bus (`busLevelEventPublisher`) vive en `internal/bootstrap`. Hoy no hay suscriptores (Alert Management no existe): el bus los descarta.
 
-No se emite nada en horas sin superación, en la racha de entrada pendiente ni en la banda de histéresis. **Clave de idempotencia para consumidores: `(measuring_point_id, event_type, evaluated_at)`.** Se publican por el puerto `LevelEventPublisher`; el adaptador al bus (`busLevelEventPublisher`) vive en `internal/bootstrap`. Hoy no hay suscriptores (Alert Management no existe): el bus los descarta.
+### Pendiente (fase 2, RE-07)
+
+Rachas en tiempo de reloj con `hueco_max` (P1) e histéresis en la racha (P2): hoy un I que oscila alrededor de 0,18 durante días nunca llega a NARANJA por persistencia (la racha se corta en cada hora bajo el corte).
 
 ## Casos de uso de umbrales (`ThresholdService`, sin HTTP)
 
@@ -212,6 +255,7 @@ rule_engine -backfill [-point 11556] [-from 2026-07-09T00:00:00Z] [-to 2026-10-1
 
 `persistence.Migrate` (desde `NewRuleEngineModule`, idempotente, en cada arranque como los demás módulos):
 
+0. **Conversión v1 → v2** (`upgradeRuleEvaluationsToV2`, una TX, solo si existe la columna `emitted`): agrega `computed_level`, `episode_event` y `reasons`; `episode_event` = `CLEARED` si lo era, `OPENED` si era `EXCEEDED` y la hora calculada anterior no estaba en episodio (`LAG`), si no `NONE`; `computed_level` = `level` si `rule` ∈ {THRESHOLD, PERSISTENCE}, si no `raw_level` (exacto mientras `min_hours ≤ escalate_*`); `reasons = '[]'` (las filas v1 no guardaron la racha: para completarlas, `-rebuild` fuera de producción). Borra `emitted` y su `CHECK`.
 1. `AutoMigrate` de ambos modelos: tablas, `CHECK`, `UNIQUE`, índices y la FK (tags).
 2. SQL idempotente para lo que GORM no expresa: `CREATE EXTENSION IF NOT EXISTS btree_gist` y el `EXCLUDE` (dentro de un `DO $$ … IF NOT EXISTS (pg_constraint) …`). En Supabase `btree_gist` está disponible; el rol debe poder crear extensiones.
 3. `SeedInitialThresholds`: solo si `rule_threshold_versions` está vacía (y existen `devices` y `raw_measurements`).
@@ -237,11 +281,12 @@ Variables: `AGATHA_ENV` (`production` bloquea `-rebuild`), `RULE_ENGINE_BACKFILL
 
 ## Tests
 
-- `domain/services/level_assessor_test.go`: `RawLevel` en cada borde; escenario completo; persistencia AMARILLO→NARANJA (literal a las 12 h) y NARANJA→ROJO; salto directo a ROJO; nunca dos niveles; escalamiento NULL; histéresis; racha de salida consecutiva; salida con `raw_level` guardado tras un cambio de umbral.
-- `domain/services/timeline_test.go`, `domain/entities/threshold_version_test.go`: recorte de la línea de tiempo; validación, redondeo, parche, K y vigencia.
+- `domain/services/level_assessor_test.go`: `RawLevel` en cada borde; escenario completo (con `OPENED`/`CLEARED`); persistencia AMARILLO→NARANJA (literal a las 12 h) y NARANJA→ROJO; salto directo a ROJO; nunca dos niveles; escalamiento NULL; histéresis; racha de salida consecutiva; salida con `raw_level` guardado tras un cambio de umbral; `computed_level` sin HOLD ni racha de entrada; `reasons` de umbral y de persistencia.
+- `domain/services/timeline_test.go`, `domain/entities/threshold_version_test.go`: recorte de la línea de tiempo; validación, redondeo, parche, K, vigencia y cortes/salidas por nivel (0,16 / 0,23 / 0,33).
 - `application/services/threshold_service_test.go`: crear cierra la anterior en la misma TX; campos omitidos se copian; fecha pasada / orden / rangos / autoría ⇒ validación sin escribir nada; fecha futura; bulk atómico y "todos los puntos"; timeline con varias versiones; primer uso.
-- `application/services/evaluation_service_test.go`: ignora 6 h y `NO_CALCULABLE`; publica exceeded/cleared solo cuando corresponde (contrato completo); duplicado sin fila ni republicación; llegada tardía sin publicar; hueco que pausa; versión vigente en cada `evaluated_at`; primer uso; fallos de publicación y de guardado; el modo sin publicación produce las mismas filas.
+- `application/services/evaluation_service_test.go`: ignora 6 h; `NO_CALCULABLE` reenviada sin fila (contrato) y no reenviada si ya hay fila, si es tardía o en backfill; una `level_evaluated` por cada hora calculada (contrato completo, HOLD con computed NORMAL, cierre); motivo de persistencia; duplicado sin fila ni republicación; llegada tardía sin publicar; hueco que pausa; versión vigente en cada `evaluated_at`; primer uso; fallos de publicación y de guardado; el modo sin publicación produce las mismas filas.
+- `infrastructure/persistence/mappers/mappers_test.go`: `reasons` ida y vuelta en JSON (`[]` sin motivos).
 - `application/services/backfill_service_test.go`: orden y rachas por lotes, idempotencia, varias versiones, todos los puntos y rango, no publica, `-rebuild` bloqueado en production y recálculo fuera de ella.
 - `infrastructure/events/indicator_evaluated_subscriber_test.go`: delega al caso de uso y registra sus errores.
-- `internal/bootstrap/rule_engine_test.go`: traducción del contrato y **de punta a punta con el bus real** (secuencia que cruza el umbral con ventanas de 6 h y un `NO_CALCULABLE` ⇒ filas correctas y eventos exceeded/cleared en el bus).
-- `infrastructure/persistence/repositories/repositories_integration_test.go` (`-tags integration`, `DATABASE_URL`): EXCLUDE y CHECK, cierre + creación en la misma TX y rollback, timeline, idempotencia de `Save`, posición, borrado.
+- `internal/bootstrap/rule_engine_test.go`: traducción del contrato y **de punta a punta con el bus real** (secuencia que cruza el umbral con ventanas de 6 h y un `NO_CALCULABLE` ⇒ filas correctas y una `level_evaluated` por hora de 24 h, en orden, con `OPENED`/`CLEARED`).
+- `infrastructure/persistence/repositories/repositories_integration_test.go` (`-tags integration`, `DATABASE_URL`): EXCLUDE y CHECK (incluido `episode_event`), cierre + creación en la misma TX y rollback, timeline, idempotencia de `Save`, `computed_level`/`episode_event`/`reasons` ida y vuelta, posición, borrado.

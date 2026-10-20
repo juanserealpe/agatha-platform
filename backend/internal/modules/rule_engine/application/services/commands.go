@@ -24,9 +24,10 @@ type IndicatorEvaluatedNotice struct {
 
 // Valores del Notice que interpreta el Rule Engine.
 const (
-	WindowHours24    = 24
-	StatusCalculated = "CALCULATED"
-	TriggerBackfill  = "BACKFILL"
+	WindowHours24      = 24
+	StatusCalculated   = "CALCULATED"
+	StatusNoCalculable = "NO_CALCULABLE"
+	TriggerBackfill    = "BACKFILL"
 )
 
 // CreateThresholdVersionCommand es la entrada de CreateThresholdVersion.
@@ -56,8 +57,11 @@ type CreateThresholdVersionBulkCommand struct {
 type EvaluationOutcome string
 
 const (
-	// OutcomeIgnored: ventana de 6 h o NO_CALCULABLE (no genera fila).
+	// OutcomeIgnored: ventana de 6 h, estado desconocido o CALCULATED sin I (no genera fila).
 	OutcomeIgnored EvaluationOutcome = "IGNORED"
+	// OutcomeNoCalculable: hora NO_CALCULABLE de 24 h; no genera fila y se
+	// reenvía como level_evaluated (salvo tardía o en backfill).
+	OutcomeNoCalculable EvaluationOutcome = "NO_CALCULABLE"
 	// OutcomeDuplicate: la hora ya tenía fila; no se recalcula ni se republica.
 	OutcomeDuplicate EvaluationOutcome = "DUPLICATE"
 	// OutcomeNoThresholds: la hora es anterior a la primera versión de umbrales del punto.
@@ -71,10 +75,8 @@ type EvaluationResult struct {
 	Outcome EvaluationOutcome
 	// Evaluation es la fila guardada (solo con OutcomeSaved).
 	Evaluation entities.RuleEvaluation
-	// EpisodeOpened: esta hora abrió un episodio.
-	EpisodeOpened bool
-	// Late: había filas posteriores del punto (se guardó sin publicar).
+	// Late: había filas posteriores del punto (no se publicó).
 	Late bool
-	// Published: se publicó el evento correspondiente a Emitted.
+	// Published: se publicó la level_evaluated de la hora.
 	Published bool
 }

@@ -11,6 +11,5 @@ import (
 //
 // Se invoca SIEMPRE después de persistir; un error nunca hace fallar la evaluación.
 type LevelEventPublisher interface {
-	PublishLeakThresholdExceeded(ctx context.Context, event contract.LeakThresholdExceeded) error
-	PublishLeakThresholdCleared(ctx context.Context, event contract.LeakThresholdCleared) error
+	PublishLevelEvaluated(ctx context.Context, event contract.LevelEvaluated) error
 }

@@ -151,12 +151,7 @@ type busLevelEventPublisher struct {
 	bus eventbus.Bus
 }
 
-func (p busLevelEventPublisher) PublishLeakThresholdExceeded(ctx context.Context, e ruleEngineContract.LeakThresholdExceeded) error {
-	eventbus.PublishTyped(ctx, p.bus, ruleEngineContract.TopicLeakThresholdExceeded, e)
-	return nil
-}
-
-func (p busLevelEventPublisher) PublishLeakThresholdCleared(ctx context.Context, e ruleEngineContract.LeakThresholdCleared) error {
-	eventbus.PublishTyped(ctx, p.bus, ruleEngineContract.TopicLeakThresholdCleared, e)
+func (p busLevelEventPublisher) PublishLevelEvaluated(ctx context.Context, e ruleEngineContract.LevelEvaluated) error {
+	eventbus.PublishTyped(ctx, p.bus, ruleEngineContract.TopicLevelEvaluated, e)
 	return nil
 }

@@ -3,18 +3,44 @@
 //
 // Clave de idempotencia para los consumidores: (MeasuringPointID, EventType,
 // EvaluatedAt). Los eventos son best-effort: la fuente de verdad es la tabla
-// rule_evaluations.
+// rule_evaluations (las horas NO_CALCULABLE no tienen fila).
 package contract
 
 const (
-	// TopicLeakThresholdExceeded se publica por cada hora calculada en la que
-	// un episodio de fuga está por encima del umbral (rule_evaluations.emitted = EXCEEDED).
-	TopicLeakThresholdExceeded = "rule_engine.leak_threshold_exceeded"
-
-	// TopicLeakThresholdCleared se publica UNA vez, en la hora que cierra el
-	// episodio (rule_evaluations.emitted = CLEARED).
-	TopicLeakThresholdCleared = "rule_engine.leak_threshold_cleared"
+	// TopicLevelEvaluated se publica por CADA hora de 24 h que llega en vivo:
+	// las CALCULATED (incluidas las de nivel NORMAL) con su fila de
+	// rule_evaluations, y las NO_CALCULABLE sin fila. No se publica en el
+	// backfill, en llegadas tardías ni en duplicados.
+	TopicLevelEvaluated = "rule_engine.level_evaluated"
 
 	// SchemaVersion es la versión del esquema de los eventos de este contrato.
-	SchemaVersion = 1
+	// v2 reemplaza a leak_threshold_exceeded / leak_threshold_cleared (v1).
+	SchemaVersion = 2
+)
+
+// Status de la hora evaluada (los mismos valores que Processing).
+const (
+	StatusCalculated   = "CALCULATED"
+	StatusNoCalculable = "NO_CALCULABLE"
+)
+
+// Niveles (orden NORMAL < AMARILLO < NARANJA < ROJO).
+const (
+	LevelNormal   = "NORMAL"
+	LevelAmarillo = "AMARILLO"
+	LevelNaranja  = "NARANJA"
+	LevelRojo     = "ROJO"
+)
+
+// EpisodeEvent: qué pasó con el episodio del Rule Engine en la hora.
+const (
+	EpisodeEventOpened  = "OPENED"
+	EpisodeEventCleared = "CLEARED"
+	EpisodeEventNone    = "NONE"
+)
+
+// Códigos de Reason.
+const (
+	ReasonLeakThreshold   = "LEAK_THRESHOLD"
+	ReasonLeakPersistence = "LEAK_PERSISTENCE"
 )

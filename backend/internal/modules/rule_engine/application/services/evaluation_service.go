@@ -15,8 +15,9 @@ import (
 
 // EvaluationService implementa EvaluateIndicator: interpreta cada hora
 // calculada de 24 h con la versión de umbrales vigente en su evaluated_at,
-// guarda la fila en rule_evaluations y, post-commit, publica EXCEEDED o
-// CLEARED. Solo orquesta e IO: la lógica vive en domain/services.Assess.
+// guarda la fila en rule_evaluations y, post-commit, publica su
+// level_evaluated. Las horas NO_CALCULABLE se reenvían sin fila. Solo
+// orquesta e IO: la lógica vive en domain/services.Assess.
 type EvaluationService struct {
 	thresholds   repositories.ThresholdRepository
 	evaluations  repositories.RuleEvaluationRepository
@@ -64,8 +65,13 @@ func (s *EvaluationService) EvaluateIndicatorWithoutPublishing(ctx context.Conte
 }
 
 func (s *EvaluationService) evaluate(ctx context.Context, notice IndicatorEvaluatedNotice, publish bool) (EvaluationResult, error) {
-	// Solo se interpreta la ventana de 24 h calculada. Las NO_CALCULABLE no
-	// generan fila: las rachas cuentan horas calculadas (un hueco pausa, no reinicia).
+	// Las NO_CALCULABLE de 24 h no generan fila (las rachas cuentan horas
+	// calculadas: un hueco pausa, no reinicia), pero se reenvían.
+	if notice.WindowHours == WindowHours24 && notice.Status == StatusNoCalculable {
+		return s.forwardNoCalculable(ctx, notice, publish)
+	}
+
+	// Solo se interpreta la ventana de 24 h calculada.
 	if notice.WindowHours != WindowHours24 || notice.Status != StatusCalculated || notice.I == nil {
 		s.log.Debug("[EvaluationService] Ventana ignorada",
 			"measuring_point_id", notice.MeasuringPointID, "window_hours", notice.WindowHours,
@@ -115,6 +121,7 @@ func (s *EvaluationService) evaluate(ctx context.Context, notice IndicatorEvalua
 		EvaluatedAt:        at,
 		IndicatorValue:     *notice.I,
 		RawLevel:           a.RawLevel,
+		ComputedLevel:      a.ComputedLevel,
 		Level:              a.Level,
 		Rule:               a.Rule,
 		InEpisode:          a.InEpisode,
@@ -122,7 +129,8 @@ func (s *EvaluationService) evaluate(ctx context.Context, notice IndicatorEvalua
 		HoursInLevel:       a.HoursInLevel,
 		ThresholdVersionID: version.ID,
 		LowConfidence:      notice.LowConfidence,
-		Emitted:            a.Emitted,
+		EpisodeEvent:       a.EpisodeEvent,
+		Reasons:            a.Reasons,
 		CreatedAt:          s.clock.Now().UTC(),
 	}
 
@@ -138,18 +146,69 @@ func (s *EvaluationService) evaluate(ctx context.Context, notice IndicatorEvalua
 	}
 	row.ID = id
 
-	result := EvaluationResult{Outcome: OutcomeSaved, Evaluation: row, EpisodeOpened: a.EpisodeOpened, Late: hasLater}
+	result := EvaluationResult{Outcome: OutcomeSaved, Evaluation: row, Late: hasLater}
 	s.logEvaluation(row, version, publish)
 
-	// 4–5) Post-commit: publicar según emitted, salvo llegada tardía.
+	// 4–5) Post-commit: publicar la hora, salvo llegada tardía.
 	switch {
 	case hasLater:
 		s.log.Warn("[EvaluationService] Hora interpretada fuera de orden (hay horas posteriores): se guarda sin publicar",
-			"measuring_point_id", pointID, "evaluated_at", at, "emitted", row.Emitted)
+			"measuring_point_id", pointID, "evaluated_at", at, "episode_event", row.EpisodeEvent)
 	case publish:
-		result.Published = s.publishLevelEvent(ctx, row, a.PreviousLevel, version)
+		result.Published = s.publish(ctx, LevelEvaluatedFromRow(row, version.ThresholdParams, s.clock.Now().UTC()))
 	}
 
+	return result, nil
+}
+
+// forwardNoCalculable reenvía una hora NO_CALCULABLE de 24 h como
+// level_evaluated (status NO_CALCULABLE), SIN crear fila: distingue "sin
+// datos" de "bajo el umbral" y deja la decisión al consumidor. No se reenvía
+// en backfill, si la hora ya tiene fila ni si llega tarde.
+func (s *EvaluationService) forwardNoCalculable(ctx context.Context, notice IndicatorEvaluatedNotice, publish bool) (EvaluationResult, error) {
+	if notice.MeasuringPointID <= 0 {
+		return EvaluationResult{}, domain.ErrInvalidMeasuringPointID
+	}
+	if !publish {
+		return EvaluationResult{Outcome: OutcomeNoCalculable}, nil
+	}
+
+	pointID, eventType, at := notice.MeasuringPointID, entities.EventTypeLeak, notice.EvaluatedAt.UTC()
+
+	unlock := s.lock(pointID)
+	defer unlock()
+
+	exists, hasLater, err := s.evaluations.GetPosition(ctx, pointID, eventType, at)
+	if err != nil {
+		s.log.Error("[EvaluationService] Error consultando las evaluaciones de reglas",
+			"measuring_point_id", pointID, "evaluated_at", at, "error", err)
+		return EvaluationResult{}, domain.ErrConsultingRuleEvaluations
+	}
+	if exists {
+		s.log.Warn("[EvaluationService] Hora NO_CALCULABLE que ya estaba interpretada como CALCULATED: no se reenvía",
+			"measuring_point_id", pointID, "evaluated_at", at)
+		return EvaluationResult{Outcome: OutcomeDuplicate}, nil
+	}
+
+	result := EvaluationResult{Outcome: OutcomeNoCalculable, Late: hasLater}
+	if hasLater {
+		s.log.Warn("[EvaluationService] Hora NO_CALCULABLE fuera de orden (hay horas posteriores): no se reenvía",
+			"measuring_point_id", pointID, "evaluated_at", at)
+		return result, nil
+	}
+
+	s.log.Info("[EvaluationService] Hora NO_CALCULABLE reenviada",
+		"measuring_point_id", pointID, "evaluated_at", at, "no_calc_reason", notice.NoCalcReason)
+	result.Published = s.publish(ctx, contract.LevelEvaluated{
+		MeasuringPointID: pointID,
+		EventType:        string(eventType),
+		EvaluatedAt:      at,
+		Status:           contract.StatusNoCalculable,
+		NoCalcReason:     notice.NoCalcReason,
+		LowConfidence:    notice.LowConfidence,
+		OccurredAt:       s.clock.Now().UTC(),
+		SchemaVersion:    contract.SchemaVersion,
+	})
 	return result, nil
 }
 
@@ -193,9 +252,10 @@ func (s *EvaluationService) logEvaluation(row entities.RuleEvaluation, version *
 		"i", row.IndicatorValue,
 		"raw_level", row.RawLevel,
 		"level", row.Level,
+		"computed_level", row.ComputedLevel,
 		"rule", row.Rule,
 		"threshold_version", version.Version,
-		"emitted", row.Emitted,
+		"episode_event", row.EpisodeEvent,
 	}
 	// El backfill interpreta miles de horas: su progreso lo resume el propio backfill.
 	if !publish {
@@ -205,60 +265,18 @@ func (s *EvaluationService) logEvaluation(row entities.RuleEvaluation, version *
 	s.log.Info("[EvaluationService] Hora interpretada", fields...)
 }
 
-// publishLevelEvent publica, post-commit, el evento que marca emitted y dice
-// si se publicó. Un fallo al publicar nunca falla la evaluación (la fila es la
-// fuente de verdad).
-func (s *EvaluationService) publishLevelEvent(ctx context.Context, row entities.RuleEvaluation, previous entities.Level, version *entities.ThresholdVersion) bool {
-	if s.publisher == nil || row.Emitted == entities.EmittedNone {
+// publish publica, post-commit, el evento y dice si se publicó. Un fallo al
+// publicar nunca falla la evaluación (la fila es la fuente de verdad).
+func (s *EvaluationService) publish(ctx context.Context, event contract.LevelEvaluated) bool {
+	if s.publisher == nil {
 		return false
 	}
-
-	occurredAt := s.clock.Now().UTC()
-	var err error
-
-	switch row.Emitted {
-	case entities.EmittedExceeded:
-		err = s.publisher.PublishLeakThresholdExceeded(ctx, contract.LeakThresholdExceeded{
-			RuleEvaluationID: row.ID,
-			MeasuringPointID: row.MeasuringPointID,
-			EventType:        string(row.EventType),
-			EvaluatedAt:      row.EvaluatedAt,
-			Level:            string(row.Level),
-			PreviousLevel:    string(previous),
-			Rule:             string(row.Rule),
-			IndicatorValue:   row.IndicatorValue,
-			Thresholds: contract.Thresholds{
-				Amarillo: version.Amarillo,
-				Naranja:  version.Naranja,
-				Rojo:     version.Rojo,
-			},
-			ThresholdVersionID: row.ThresholdVersionID,
-			HoursAbove:         row.HoursAbove,
-			HoursInLevel:       row.HoursInLevel,
-			LowConfidence:      row.LowConfidence,
-			OccurredAt:         occurredAt,
-			SchemaVersion:      contract.SchemaVersion,
-		})
-	case entities.EmittedCleared:
-		err = s.publisher.PublishLeakThresholdCleared(ctx, contract.LeakThresholdCleared{
-			RuleEvaluationID:   row.ID,
-			MeasuringPointID:   row.MeasuringPointID,
-			EventType:          string(row.EventType),
-			EvaluatedAt:        row.EvaluatedAt,
-			IndicatorValue:     row.IndicatorValue,
-			LastLevel:          string(previous),
-			HoursAbove:         row.HoursAbove,
-			ThresholdVersionID: row.ThresholdVersionID,
-			OccurredAt:         occurredAt,
-			SchemaVersion:      contract.SchemaVersion,
-		})
+	if err := s.publisher.PublishLevelEvaluated(ctx, event); err != nil {
+		s.log.Warn("[EvaluationService] No se pudo publicar level_evaluated",
+			"measuring_point_id", event.MeasuringPointID, "evaluated_at", event.EvaluatedAt, "status", event.Status, "error", err)
+		return false
 	}
-
-	if err != nil {
-		s.log.Warn("[EvaluationService] No se pudo publicar el evento de nivel",
-			"measuring_point_id", row.MeasuringPointID, "evaluated_at", row.EvaluatedAt, "emitted", row.Emitted, "error", err)
-	}
-	return err == nil
+	return true
 }
 
 func (s *EvaluationService) lock(pointID int64) (unlock func()) {

@@ -2,6 +2,7 @@
 package mappers
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/entities"
@@ -70,6 +71,7 @@ func ToRuleEvaluationModel(e entities.RuleEvaluation) models.RuleEvaluationModel
 		EvaluatedAt:        e.EvaluatedAt.UTC(),
 		IndicatorValue:     e.IndicatorValue,
 		RawLevel:           string(e.RawLevel),
+		ComputedLevel:      string(e.ComputedLevel),
 		Level:              string(e.Level),
 		Rule:               string(e.Rule),
 		InEpisode:          e.InEpisode,
@@ -77,7 +79,8 @@ func ToRuleEvaluationModel(e entities.RuleEvaluation) models.RuleEvaluationModel
 		HoursInLevel:       e.HoursInLevel,
 		ThresholdVersionID: e.ThresholdVersionID,
 		LowConfidence:      e.LowConfidence,
-		Emitted:            string(e.Emitted),
+		EpisodeEvent:       string(e.EpisodeEvent),
+		Reasons:            reasonsJSON(e.Reasons),
 		CreatedAt:          e.CreatedAt.UTC(),
 	}
 }
@@ -90,6 +93,7 @@ func ToRuleEvaluation(m models.RuleEvaluationModel) entities.RuleEvaluation {
 		EvaluatedAt:        m.EvaluatedAt.UTC(),
 		IndicatorValue:     m.IndicatorValue,
 		RawLevel:           entities.Level(m.RawLevel),
+		ComputedLevel:      entities.Level(m.ComputedLevel),
 		Level:              entities.Level(m.Level),
 		Rule:               entities.Rule(m.Rule),
 		InEpisode:          m.InEpisode,
@@ -97,9 +101,47 @@ func ToRuleEvaluation(m models.RuleEvaluationModel) entities.RuleEvaluation {
 		HoursInLevel:       m.HoursInLevel,
 		ThresholdVersionID: m.ThresholdVersionID,
 		LowConfidence:      m.LowConfidence,
-		Emitted:            entities.Emission(m.Emitted),
+		EpisodeEvent:       entities.EpisodeEvent(m.EpisodeEvent),
+		Reasons:            reasonsFromJSON(m.Reasons),
 		CreatedAt:          m.CreatedAt.UTC(),
 	}
+}
+
+// reasonsJSON serializa los motivos (siempre un arreglo, "[]" si no hay).
+func reasonsJSON(reasons []entities.Reason) string {
+	rows := make([]models.ReasonRow, len(reasons))
+	for n, r := range reasons {
+		rows[n] = models.ReasonRow{
+			Code:  string(r.Code),
+			Level: string(r.Level),
+			Data:  models.ReasonDataRow{I: r.I, Threshold: r.Threshold, Hours: r.Hours, From: string(r.From)},
+		}
+	}
+	b, err := json.Marshal(rows)
+	if err != nil { // no ocurre: solo strings y números
+		return "[]"
+	}
+	return string(b)
+}
+
+// reasonsFromJSON lee la columna; vacía o "[]" ⇒ nil (como Assess sin motivos).
+func reasonsFromJSON(raw string) []entities.Reason {
+	var rows []models.ReasonRow
+	if raw == "" || json.Unmarshal([]byte(raw), &rows) != nil || len(rows) == 0 {
+		return nil
+	}
+	out := make([]entities.Reason, len(rows))
+	for n, r := range rows {
+		out[n] = entities.Reason{
+			Code:      entities.ReasonCode(r.Code),
+			Level:     entities.Level(r.Level),
+			I:         r.Data.I,
+			Threshold: r.Data.Threshold,
+			Hours:     r.Data.Hours,
+			From:      entities.Level(r.Data.From),
+		}
+	}
+	return out
 }
 
 func utcPtr(t *time.Time) *time.Time {

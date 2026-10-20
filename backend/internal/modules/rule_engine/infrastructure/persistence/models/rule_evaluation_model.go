@@ -5,7 +5,8 @@ import "time"
 // RuleEvaluationModel es una fila de rule_evaluations: una por (punto, evento,
 // hora calculada). AutoMigrate crea la tabla, los CHECK de los enums, el
 // UNIQUE de idempotencia, el índice de "últimas K horas" y la FK a la versión
-// de umbrales usada.
+// de umbrales usada. La fila tiene todo lo que lleva su level_evaluated (más
+// la versión de umbrales por su FK).
 type RuleEvaluationModel struct {
 	ID               int64     `gorm:"column:id;primaryKey;autoIncrement"`
 	MeasuringPointID int64     `gorm:"column:measuring_point_id;not null;uniqueIndex:ux_rule_evaluations_point_event_hour,priority:1;index:ix_rule_evaluations_point_event_recent,priority:1"`
@@ -14,6 +15,7 @@ type RuleEvaluationModel struct {
 
 	IndicatorValue float64 `gorm:"column:indicator_value;type:numeric;not null"`
 	RawLevel       string  `gorm:"column:raw_level;type:text;not null;check:chk_rule_evaluations_raw_level,raw_level IN ('NORMAL', 'AMARILLO', 'NARANJA', 'ROJO')"`
+	ComputedLevel  string  `gorm:"column:computed_level;type:text;not null;check:chk_rule_evaluations_computed_level,computed_level IN ('NORMAL', 'AMARILLO', 'NARANJA', 'ROJO')"`
 	Level          string  `gorm:"column:level;type:text;not null;check:chk_rule_evaluations_level,level IN ('NORMAL', 'AMARILLO', 'NARANJA', 'ROJO')"`
 	Rule           string  `gorm:"column:rule;type:text;not null;check:chk_rule_evaluations_rule,rule IN ('THRESHOLD', 'PERSISTENCE', 'HOLD', 'NONE')"`
 
@@ -24,9 +26,26 @@ type RuleEvaluationModel struct {
 	ThresholdVersionID int64                     `gorm:"column:threshold_version_id;not null"`
 	ThresholdVersion   RuleThresholdVersionModel `gorm:"foreignKey:ThresholdVersionID;references:ID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT"`
 
-	LowConfidence bool      `gorm:"column:low_confidence;not null"`
-	Emitted       string    `gorm:"column:emitted;type:text;not null;check:chk_rule_evaluations_emitted,emitted IN ('NONE', 'EXCEEDED', 'CLEARED')"`
-	CreatedAt     time.Time `gorm:"column:created_at;type:timestamptz;not null;default:now()"`
+	LowConfidence bool   `gorm:"column:low_confidence;not null"`
+	EpisodeEvent  string `gorm:"column:episode_event;type:text;not null;check:chk_rule_evaluations_episode_event,episode_event IN ('NONE', 'OPENED', 'CLEARED')"`
+	// Reasons es un arreglo JSON de ReasonRow.
+	Reasons   string    `gorm:"column:reasons;type:jsonb;not null;default:'[]'"`
+	CreatedAt time.Time `gorm:"column:created_at;type:timestamptz;not null;default:now()"`
+}
+
+// ReasonRow es un elemento de rule_evaluations.reasons (mismo formato que
+// contract.Reason).
+type ReasonRow struct {
+	Code  string        `json:"code"`
+	Level string        `json:"level"`
+	Data  ReasonDataRow `json:"data"`
+}
+
+type ReasonDataRow struct {
+	I         float64 `json:"i,omitempty"`
+	Threshold float64 `json:"threshold,omitempty"`
+	Hours     int     `json:"hours,omitempty"`
+	From      string  `json:"from,omitempty"`
 }
 
 func (RuleEvaluationModel) TableName() string {

@@ -7,16 +7,20 @@ import "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_en
 // Assessment es la interpretación de una hora calculada.
 type Assessment struct {
 	RawLevel entities.Level
-	Level    entities.Level
+	// ComputedLevel es max(raw, persistencia), sin histéresis ni racha de entrada.
+	ComputedLevel entities.Level
+	// Level es el nivel del episodio.
+	Level entities.Level
 	// PreviousLevel es el Level de la hora calculada anterior (NORMAL si no hay).
 	PreviousLevel entities.Level
 	Rule          entities.Rule
 	InEpisode     bool
 	HoursAbove    int
 	HoursInLevel  int
-	Emitted       entities.Emission
-	// EpisodeOpened indica que esta hora abrió el episodio (para métricas y logs).
-	EpisodeOpened bool
+	// EpisodeEvent: OPENED en la hora que abre el episodio, CLEARED en la que lo cierra.
+	EpisodeEvent entities.EpisodeEvent
+	// Reasons explican ComputedLevel.
+	Reasons []entities.Reason
 }
 
 // RawLevel es el nivel que marca el umbral: ROJO si I >= rojo; NARANJA si
@@ -54,33 +58,33 @@ func Assess(i float64, p entities.ThresholdParams, history []entities.RuleEvalua
 
 	runAmarillo := runAtLeast(raw, history, entities.LevelAmarillo)
 	runNaranja := runAtLeast(raw, history, entities.LevelNaranja)
-	calculated, rule := escalate(raw, runAmarillo, runNaranja, p)
+	calculated, rule, reasons := escalate(i, raw, runAmarillo, runNaranja, p)
+	a.ComputedLevel, a.Reasons = calculated, reasons
 
 	switch {
 	// c) Fuera de episodio: abre con la racha de entrada cumplida.
 	case !inEpisode && raw.AtLeast(entities.LevelAmarillo) && runAmarillo >= p.MinHours:
-		a.Level, a.Rule, a.InEpisode, a.Emitted = calculated, rule, true, entities.EmittedExceeded
+		a.Level, a.Rule, a.InEpisode, a.EpisodeEvent = calculated, rule, true, entities.EpisodeEventOpened
 		// El episodio cuenta desde la primera hora de la racha de entrada.
 		a.HoursAbove = runAmarillo
-		a.EpisodeOpened = true
 
 	case !inEpisode:
-		a.Level, a.Rule, a.InEpisode, a.Emitted = entities.LevelNormal, entities.RuleNone, false, entities.EmittedNone
+		a.Level, a.Rule, a.InEpisode, a.EpisodeEvent = entities.LevelNormal, entities.RuleNone, false, entities.EpisodeEventNone
 
 	// d) Dentro de episodio y sobre el umbral: el nivel sube o baja.
 	case raw.AtLeast(entities.LevelAmarillo):
-		a.Level, a.Rule, a.InEpisode, a.Emitted = calculated, rule, true, entities.EmittedExceeded
+		a.Level, a.Rule, a.InEpisode, a.EpisodeEvent = calculated, rule, true, entities.EpisodeEventNone
 		a.HoursAbove = prev.HoursAbove + 1
 
 	// d) raw NORMAL con la racha de salida cumplida: cierra (la hora de cierre
 	// es la última del episodio).
 	case belowRun(i, history, p) >= p.ExitHours:
-		a.Level, a.Rule, a.InEpisode, a.Emitted = entities.LevelNormal, entities.RuleNone, false, entities.EmittedCleared
+		a.Level, a.Rule, a.InEpisode, a.EpisodeEvent = entities.LevelNormal, entities.RuleNone, false, entities.EpisodeEventCleared
 		a.HoursAbove = prev.HoursAbove + 1
 
 	// d) Histéresis: conserva el nivel anterior sin emitir.
 	default:
-		a.Level, a.Rule, a.InEpisode, a.Emitted = prev.Level, entities.RuleHold, true, entities.EmittedNone
+		a.Level, a.Rule, a.InEpisode, a.EpisodeEvent = prev.Level, entities.RuleHold, true, entities.EpisodeEventNone
 		a.HoursAbove = prev.HoursAbove + 1
 	}
 
@@ -93,21 +97,33 @@ func Assess(i float64, p entities.ThresholdParams, history []entities.RuleEvalua
 }
 
 // escalate aplica la persistencia: como máximo un nivel por regla y nunca
-// por debajo del raw. Devuelve el nivel calculado y la regla que lo fijó.
-func escalate(raw entities.Level, runAmarillo, runNaranja int, p entities.ThresholdParams) (entities.Level, entities.Rule) {
-	candidate := entities.LevelNormal
+// por debajo del raw. Devuelve el nivel calculado, la regla que lo fijó y
+// los motivos (umbral si raw >= AMARILLO; persistencia si subió sobre el raw).
+func escalate(i float64, raw entities.Level, runAmarillo, runNaranja int, p entities.ThresholdParams,
+) (entities.Level, entities.Rule, []entities.Reason) {
+	candidate, run, from := entities.LevelNormal, 0, entities.LevelNormal
 	switch {
 	case p.EscalateNaranjaAfterHours != nil && runNaranja >= *p.EscalateNaranjaAfterHours:
-		candidate = entities.LevelRojo
+		candidate, run, from = entities.LevelRojo, runNaranja, entities.LevelNaranja
 	case p.EscalateAmarilloAfterHours != nil && runAmarillo >= *p.EscalateAmarilloAfterHours:
-		candidate = entities.LevelNaranja
+		candidate, run, from = entities.LevelNaranja, runAmarillo, entities.LevelAmarillo
+	}
+
+	var reasons []entities.Reason
+	if raw.AtLeast(entities.LevelAmarillo) {
+		reasons = append(reasons, entities.Reason{
+			Code: entities.ReasonLeakThreshold, Level: raw, I: i, Threshold: p.CutFor(raw),
+		})
 	}
 
 	calculated := entities.MaxLevel(raw, candidate)
 	if calculated.Rank() > raw.Rank() {
-		return calculated, entities.RulePersistence
+		reasons = append(reasons, entities.Reason{
+			Code: entities.ReasonLeakPersistence, Level: calculated, Hours: run, From: from,
+		})
+		return calculated, entities.RulePersistence, reasons
 	}
-	return calculated, entities.RuleThreshold
+	return calculated, entities.RuleThreshold, reasons
 }
 
 // runAtLeast cuenta las horas consecutivas, terminando en la actual, con

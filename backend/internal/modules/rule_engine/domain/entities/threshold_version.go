@@ -88,7 +88,30 @@ func (p ThresholdParams) HistoryDepth() int {
 
 // ExitCutoff es el valor bajo el cual una hora cuenta para cerrar el episodio.
 // Se redondea a 4 decimales para que 0,18 − 0,02 sea exactamente 0,16.
-func (p ThresholdParams) ExitCutoff() float64 { return round4(p.Amarillo - p.ExitMargin) }
+func (p ThresholdParams) ExitCutoff() float64 { return p.ExitFor(LevelAmarillo) }
+
+// CutFor es el corte de I de un nivel (0 para NORMAL).
+func (p ThresholdParams) CutFor(l Level) float64 {
+	switch l {
+	case LevelAmarillo:
+		return p.Amarillo
+	case LevelNaranja:
+		return p.Naranja
+	case LevelRojo:
+		return p.Rojo
+	default:
+		return 0
+	}
+}
+
+// ExitFor es la salida (histéresis) de un nivel: su corte − exit_margin,
+// redondeado a 4 decimales (0 para NORMAL). Con la plantilla: 0,16 / 0,23 / 0,33.
+func (p ThresholdParams) ExitFor(l Level) float64 {
+	if l.Rank() == 0 {
+		return 0
+	}
+	return round4(p.CutFor(l) - p.ExitMargin)
+}
 
 // Optional es un campo de un parche: Set = false ⇒ se copia de la versión vigente.
 type Optional[T any] struct {

@@ -74,7 +74,8 @@ func TestSubscribeRuleEngine_TranslatesIndicatorEvaluated(t *testing.T) {
 
 // De punta a punta con el bus real: Processing publica una secuencia que cruza
 // el umbral (con ventanas de 6 h y un NO_CALCULABLE intercalados) ⇒ el Rule
-// Engine guarda las filas correctas y publica exceeded/cleared en el bus.
+// Engine guarda las filas correctas y publica una level_evaluated por cada
+// hora de 24 h (la NO_CALCULABLE sin fila) en el bus.
 func TestRuleEngine_EndToEndCrossingTheThreshold(t *testing.T) {
 	const point int64 = 11556
 	start := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
@@ -99,13 +100,10 @@ func TestRuleEngine_EndToEndCrossingTheThreshold(t *testing.T) {
 	}, logger.New("RuleEngineTest", "Error"))
 	module.SubscribeIndicatorEvaluated()
 
-	// Alert Management todavía no existe: el test escucha los tópicos como lo hará él.
-	exceeded := make(chan ruleEngineContract.LeakThresholdExceeded, 16)
-	cleared := make(chan ruleEngineContract.LeakThresholdCleared, 16)
-	eventbus.SubscribeTyped(bus, ruleEngineContract.TopicLeakThresholdExceeded,
-		func(_ context.Context, e ruleEngineContract.LeakThresholdExceeded) { exceeded <- e }, nil)
-	eventbus.SubscribeTyped(bus, ruleEngineContract.TopicLeakThresholdCleared,
-		func(_ context.Context, e ruleEngineContract.LeakThresholdCleared) { cleared <- e }, nil)
+	// Alert Management todavía no existe: el test escucha el tópico como lo hará él.
+	levels := make(chan ruleEngineContract.LevelEvaluated, 32)
+	eventbus.SubscribeTyped(bus, ruleEngineContract.TopicLevelEvaluated,
+		func(_ context.Context, e ruleEngineContract.LevelEvaluated) { levels <- e }, nil)
 
 	publish := func(at time.Time, window int, status string, i *float64) {
 		eventbus.PublishTyped(context.Background(), bus, processingContract.TopicIndicatorEvaluated, processingContract.IndicatorEvaluated{
@@ -127,36 +125,44 @@ func TestRuleEngine_EndToEndCrossingTheThreshold(t *testing.T) {
 		publish(at, 24, "CALCULATED", &i)
 	}
 
-	var gotExceeded []ruleEngineContract.LeakThresholdExceeded
-	var gotCleared []ruleEngineContract.LeakThresholdCleared
+	var got []ruleEngineContract.LevelEvaluated
 	deadline := time.After(5 * time.Second)
-	for len(gotExceeded) < 2 || len(gotCleared) < 1 {
+	for len(got) < len(sequence) {
 		select {
-		case e := <-exceeded:
-			gotExceeded = append(gotExceeded, e)
-		case c := <-cleared:
-			gotCleared = append(gotCleared, c)
+		case e := <-levels:
+			got = append(got, e)
 		case <-deadline:
-			t.Fatalf("eventos recibidos: exceeded=%d cleared=%d; se esperaban 2 y 1", len(gotExceeded), len(gotCleared))
+			t.Fatalf("eventos recibidos: %d; se esperaban %d (uno por hora de 24 h)", len(got), len(sequence))
 		}
 	}
 
 	closeBus(t, bus)
 
-	if len(exceeded)+len(cleared) != 0 {
-		t.Fatalf("eventos de más: exceeded=%d cleared=%d", len(exceeded), len(cleared))
+	if len(levels) != 0 {
+		t.Fatalf("eventos de más: %d", len(levels))
 	}
 
-	if e := gotExceeded[0]; e.Level != "AMARILLO" || e.PreviousLevel != "NORMAL" || e.HoursAbove != 2 ||
-		!e.EvaluatedAt.Equal(start.Add(2*time.Hour)) || e.EventType != "FUGA" || e.SchemaVersion != ruleEngineContract.SchemaVersion {
-		t.Fatalf("primer exceeded = %+v", e)
+	// El bus entrega en orden: un evento por hora de 24 h, en la secuencia publicada.
+	wantStatus := []string{"CALCULATED", "CALCULATED", "CALCULATED", "CALCULATED", "NO_CALCULABLE", "CALCULATED", "CALCULATED", "CALCULATED", "CALCULATED"}
+	wantEvent := []string{"NONE", "NONE", "OPENED", "NONE", "", "NONE", "NONE", "CLEARED", "NONE"}
+	wantEpisode := []string{"NORMAL", "NORMAL", "AMARILLO", "NARANJA", "", "NARANJA", "NARANJA", "NORMAL", "NORMAL"}
+	for n, e := range got {
+		if !e.EvaluatedAt.Equal(start.Add(time.Duration(n)*time.Hour)) || e.Status != wantStatus[n] ||
+			e.EpisodeEvent != wantEvent[n] || e.EpisodeLevel != wantEpisode[n] ||
+			e.EventType != "FUGA" || e.SchemaVersion != ruleEngineContract.SchemaVersion {
+			t.Errorf("evento %d = %+v", n, e)
+		}
 	}
-	if e := gotExceeded[1]; e.Level != "NARANJA" || e.PreviousLevel != "AMARILLO" {
-		t.Fatalf("segundo exceeded = %+v", e)
+	if e := got[4]; e.RuleEvaluationID != 0 || e.IndicatorValue != nil || e.ComputedLevel != "" {
+		t.Fatalf("NO_CALCULABLE = %+v: sin fila, sin I y sin niveles", e)
+	}
+	// HOLD: el episodio sigue en NARANJA pero el computed baja a NORMAL.
+	if e := got[5]; e.ComputedLevel != "NORMAL" || !e.InEpisode || e.Exit.Amarillo != 0.16 {
+		t.Fatalf("histéresis = %+v", e)
 	}
 	// 6 horas CALCULADAS desde la 0,19 (la hora NO_CALCULABLE no cuenta).
-	if c := gotCleared[0]; c.LastLevel != "NARANJA" || !c.EvaluatedAt.Equal(start.Add(7*time.Hour)) || c.HoursAbove != 6 {
-		t.Fatalf("cleared = %+v", c)
+	if c := got[7]; c.HoursAbove != 6 || c.InEpisode {
+		t.Fatalf("cierre = %+v", c)
 	}
 
 	rows := evaluations.Rows(point)

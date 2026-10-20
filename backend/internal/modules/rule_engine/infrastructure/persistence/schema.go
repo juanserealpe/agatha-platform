@@ -19,9 +19,15 @@ const ExcludeConstraint = "ex_rule_threshold_versions_no_overlap"
 // Migrate crea/actualiza el esquema del Rule Engine. Es idempotente: corre en
 // cada arranque, como el AutoMigrate de los demás módulos.
 //
+//  0. upgradeRuleEvaluationsToV2: convierte una rule_evaluations del esquema v1
+//     (columna emitted) antes de que AutoMigrate vea las columnas NOT NULL nuevas.
 //  1. AutoMigrate: tablas, CHECK, UNIQUE, índices y FK (tags de los modelos).
 //  2. SQL idempotente: btree_gist + EXCLUDE USING gist (no expresable con tags).
 func Migrate(db *gorm.DB) error {
+	if err := upgradeRuleEvaluationsToV2(db); err != nil {
+		return err
+	}
+
 	if err := db.AutoMigrate(&models.RuleThresholdVersionModel{}, &models.RuleEvaluationModel{}); err != nil {
 		return fmt.Errorf("automigrate rule_engine: %w", err)
 	}
@@ -47,6 +53,58 @@ END $$;`).Error
 		return fmt.Errorf("crear %s: %w", ExcludeConstraint, err)
 	}
 
+	return nil
+}
+
+// upgradeRuleEvaluationsToV2 pasa rule_evaluations del contrato v1
+// (emitted NONE|EXCEEDED|CLEARED) al v2 (episode_event OPENED|CLEARED|NONE +
+// computed_level + reasons), en UNA transacción y solo si existe la columna
+// emitted (no hace nada en una BD nueva ni en una ya convertida):
+//
+//   - episode_event: CLEARED se conserva; EXCEEDED es OPENED si la hora
+//     calculada anterior del punto no estaba en episodio; el resto, NONE.
+//   - computed_level: el level si la regla fue THRESHOLD/PERSISTENCE (dentro
+//     de episodio level = max(raw, persistencia)); si no, el raw (HOLD y cierre
+//     tienen raw NORMAL; la racha de entrada pendiente es más corta que
+//     cualquier escalamiento con min_hours <= escalate_*).
+//   - reasons: '[]' (las filas viejas no guardaron la racha). Para tenerlas,
+//     -rebuild fuera de producción.
+func upgradeRuleEvaluationsToV2(db *gorm.DB) error {
+	migrator := db.Migrator()
+	if !migrator.HasTable(&models.RuleEvaluationModel{}) || !migrator.HasColumn(&models.RuleEvaluationModel{}, "emitted") {
+		return nil
+	}
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		for _, stmt := range []string{
+			`ALTER TABLE rule_evaluations ADD COLUMN IF NOT EXISTS computed_level text`,
+			`ALTER TABLE rule_evaluations ADD COLUMN IF NOT EXISTS episode_event text`,
+			`ALTER TABLE rule_evaluations ADD COLUMN IF NOT EXISTS reasons jsonb NOT NULL DEFAULT '[]'`,
+			`UPDATE rule_evaluations r SET
+	computed_level = CASE WHEN r.rule IN ('THRESHOLD', 'PERSISTENCE') THEN r.level ELSE r.raw_level END,
+	episode_event = CASE
+		WHEN r.emitted = 'CLEARED' THEN 'CLEARED'
+		WHEN r.emitted = 'EXCEEDED' AND NOT COALESCE(p.prev_in_episode, false) THEN 'OPENED'
+		ELSE 'NONE'
+	END
+FROM (
+	SELECT id, LAG(in_episode) OVER (PARTITION BY measuring_point_id, event_type ORDER BY evaluated_at) AS prev_in_episode
+	FROM rule_evaluations
+) p
+WHERE p.id = r.id`,
+			`ALTER TABLE rule_evaluations ALTER COLUMN computed_level SET NOT NULL, ALTER COLUMN episode_event SET NOT NULL`,
+			`ALTER TABLE rule_evaluations DROP CONSTRAINT IF EXISTS chk_rule_evaluations_emitted`,
+			`ALTER TABLE rule_evaluations DROP COLUMN emitted`,
+		} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("convertir rule_evaluations al esquema v2: %w", err)
+	}
 	return nil
 }
 

@@ -208,10 +208,10 @@ func (p *PointBackfill) record(at time.Time, r EvaluationResult) {
 		if r.Late {
 			p.Late++
 		}
-		if r.EpisodeOpened {
+		switch r.Evaluation.EpisodeEvent {
+		case entities.EpisodeEventOpened:
 			p.EpisodesOpened++
-		}
-		if r.Evaluation.Emitted == entities.EmittedCleared {
+		case entities.EpisodeEventCleared:
 			p.EpisodesClosed++
 		}
 	}

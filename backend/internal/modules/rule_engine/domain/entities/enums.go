@@ -57,11 +57,22 @@ const (
 	RuleNone Rule = "NONE"
 )
 
-// Emission es el evento que corresponde publicar por una hora.
-type Emission string
+// EpisodeEvent es lo que pasó con el episodio en una hora: lo abrió, lo cerró
+// o ninguna de las dos (dentro o fuera de él).
+type EpisodeEvent string
 
 const (
-	EmittedNone     Emission = "NONE"
-	EmittedExceeded Emission = "EXCEEDED"
-	EmittedCleared  Emission = "CLEARED"
+	EpisodeEventNone    EpisodeEvent = "NONE"
+	EpisodeEventOpened  EpisodeEvent = "OPENED"
+	EpisodeEventCleared EpisodeEvent = "CLEARED"
+)
+
+// ReasonCode es el motivo por el que una hora tiene su computed_level.
+type ReasonCode string
+
+const (
+	// ReasonLeakThreshold: I superó el corte de un nivel (el raw).
+	ReasonLeakThreshold ReasonCode = "LEAK_THRESHOLD"
+	// ReasonLeakPersistence: la racha subió un nivel sobre el raw.
+	ReasonLeakPersistence ReasonCode = "LEAK_PERSISTENCE"
 )

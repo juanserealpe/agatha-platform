@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -19,20 +20,23 @@ var hour0 = time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
 func hour(n int) time.Time { return hour0.Add(time.Duration(n) * time.Hour) }
 
 type fakePublisher struct {
-	exceeded []contract.LeakThresholdExceeded
-	cleared  []contract.LeakThresholdCleared
-	err      error
+	events []contract.LevelEvaluated
+	err    error
 }
 
-func (p *fakePublisher) PublishLeakThresholdExceeded(_ context.Context, e contract.LeakThresholdExceeded) error {
-	p.exceeded = append(p.exceeded, e)
+func (p *fakePublisher) PublishLevelEvaluated(_ context.Context, e contract.LevelEvaluated) error {
+	p.events = append(p.events, e)
 	return p.err
 }
 
-func (p *fakePublisher) PublishLeakThresholdCleared(_ context.Context, e contract.LeakThresholdCleared) error {
-	p.cleared = append(p.cleared, e)
-	return p.err
+func noCalculable(pointID int64, at time.Time) services.IndicatorEvaluatedNotice {
+	return services.IndicatorEvaluatedNotice{
+		MeasuringPointID: pointID, WindowHours: 24, EvaluatedAt: at,
+		Status: "NO_CALCULABLE", NoCalcReason: "LOW_COVERAGE", Trigger: "RECONCILER",
+	}
 }
+
+func f64(v float64) *float64 { return &v }
 
 type fixture struct {
 	thresholds  *memory.ThresholdRepository
@@ -86,17 +90,18 @@ func (f *fixture) feed(t *testing.T, values ...float64) []services.EvaluationRes
 	return out
 }
 
-func TestEvaluateIndicator_IgnoresWindow6hAndNoCalculable(t *testing.T) {
+func TestEvaluateIndicator_IgnoresWindow6h(t *testing.T) {
 	f := newFixture()
 	ctx := context.Background()
 
 	w6 := calculated(pointA, hour(0), 0.9)
 	w6.WindowHours = 6
+	w6NoCalc := noCalculable(pointA, hour(0))
+	w6NoCalc.WindowHours = 6
+	withoutI := calculated(pointA, hour(0), 0)
+	withoutI.I = nil
 
-	noCalc := calculated(pointA, hour(0), 0)
-	noCalc.Status, noCalc.NoCalcReason, noCalc.I = "NO_CALCULABLE", "LOW_COVERAGE", nil
-
-	for _, n := range []services.IndicatorEvaluatedNotice{w6, noCalc} {
+	for _, n := range []services.IndicatorEvaluatedNotice{w6, w6NoCalc, withoutI} {
 		r, err := f.svc.EvaluateIndicator(ctx, n)
 		if err != nil || r.Outcome != services.OutcomeIgnored {
 			t.Fatalf("outcome = %s, err = %v; se esperaba IGNORED", r.Outcome, err)
@@ -105,65 +110,158 @@ func TestEvaluateIndicator_IgnoresWindow6hAndNoCalculable(t *testing.T) {
 	if rows := f.evaluations.Rows(pointA); len(rows) != 0 {
 		t.Fatalf("filas = %d, no debía crearse ninguna", len(rows))
 	}
+	if len(f.publisher.events) != 0 {
+		t.Fatal("una ventana ignorada no publica")
+	}
 }
 
-func TestEvaluateIndicator_PublishesExceededAndClearedOnlyWhenDue(t *testing.T) {
+// RE-02: la hora NO_CALCULABLE de 24 h se reenvía sin crear fila.
+func TestEvaluateIndicator_ForwardsNoCalculableWithoutRow(t *testing.T) {
+	f := newFixture()
+
+	r, err := f.svc.EvaluateIndicator(context.Background(), noCalculable(pointA, hour(0)))
+	if err != nil || r.Outcome != services.OutcomeNoCalculable || !r.Published {
+		t.Fatalf("resultado = %+v, err = %v; se esperaba NO_CALCULABLE publicado", r, err)
+	}
+	if rows := f.evaluations.Rows(pointA); len(rows) != 0 {
+		t.Fatalf("filas = %d: NO_CALCULABLE no genera fila", len(rows))
+	}
+
+	want := contract.LevelEvaluated{
+		MeasuringPointID: pointA,
+		EventType:        "FUGA",
+		EvaluatedAt:      hour(0),
+		Status:           "NO_CALCULABLE",
+		NoCalcReason:     "LOW_COVERAGE",
+		OccurredAt:       now,
+		SchemaVersion:    contract.SchemaVersion,
+	}
+	if len(f.publisher.events) != 1 || !reflect.DeepEqual(f.publisher.events[0], want) {
+		t.Fatalf("eventos = %+v\nse esperaba    %+v", f.publisher.events, want)
+	}
+}
+
+func TestEvaluateIndicator_NoCalculableIsNotForwardedWhenLateOrInBackfill(t *testing.T) {
+	f := newFixture()
+	ctx := context.Background()
+	f.feed(t, 0.10, 0.10, 0.10) // horas 0..2
+	published := len(f.publisher.events)
+
+	// La hora ya tiene fila (CALCULATED): no se reenvía.
+	r, err := f.svc.EvaluateIndicator(ctx, noCalculable(pointA, hour(1)))
+	if err != nil || r.Outcome != services.OutcomeDuplicate || r.Published {
+		t.Fatalf("hora ya interpretada: %+v, err = %v", r, err)
+	}
+
+	// Sin fila propia pero con horas posteriores: tardía, no se reenvía.
+	pointID := pointA
+	if _, err := f.evaluations.DeleteRange(ctx, &pointID, leak, hour(1), hour(2)); err != nil {
+		t.Fatal(err)
+	}
+	r, err = f.svc.EvaluateIndicator(ctx, noCalculable(pointA, hour(1)))
+	if err != nil || r.Outcome != services.OutcomeNoCalculable || !r.Late || r.Published {
+		t.Fatalf("tardía: %+v, err = %v; se esperaba NO_CALCULABLE tardía sin publicar", r, err)
+	}
+
+	// El modo sin publicación (backfill) nunca reenvía.
+	r, err = f.svc.EvaluateIndicatorWithoutPublishing(ctx, noCalculable(pointA, hour(3)))
+	if err != nil || r.Published {
+		t.Fatalf("backfill: %+v, err = %v", r, err)
+	}
+	if len(f.publisher.events) != published {
+		t.Fatalf("eventos = %d, se esperaban %d", len(f.publisher.events), published)
+	}
+}
+
+// RE-01/RE-03/RE-04/RE-05: una level_evaluated por CADA hora calculada,
+// incluidas las de nivel NORMAL y las de histéresis.
+func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing.T) {
 	f := newFixture()
 
 	// NORMAL, entrada pendiente, abre, sube, histéresis, salida 1/2, cierra, NORMAL.
 	results := f.feed(t, 0.12, 0.19, 0.20, 0.30, 0.17, 0.15, 0.14, 0.10)
 
 	rows := f.evaluations.Rows(pointA)
-	if len(rows) != 8 {
-		t.Fatalf("filas = %d, se esperaban 8", len(rows))
+	if len(rows) != 8 || len(f.publisher.events) != 8 {
+		t.Fatalf("filas = %d, eventos = %d; se esperaban 8 y 8", len(rows), len(f.publisher.events))
 	}
 
-	wantEmitted := []entities.Emission{"NONE", "NONE", "EXCEEDED", "EXCEEDED", "NONE", "NONE", "CLEARED", "NONE"}
-	for n, row := range rows {
-		if row.Emitted != wantEmitted[n] {
-			t.Errorf("hora %d: emitted = %s, se esperaba %s", n, row.Emitted, wantEmitted[n])
+	type hourWant struct{ raw, computed, episode, event string }
+	wants := []hourWant{
+		{"NORMAL", "NORMAL", "NORMAL", "NONE"},
+		{"AMARILLO", "AMARILLO", "NORMAL", "NONE"}, // racha de entrada pendiente
+		{"AMARILLO", "AMARILLO", "AMARILLO", "OPENED"},
+		{"NARANJA", "NARANJA", "NARANJA", "NONE"},
+		{"NORMAL", "NORMAL", "NARANJA", "NONE"}, // HOLD: computed no arrastra la histéresis
+		{"NORMAL", "NORMAL", "NARANJA", "NONE"},
+		{"NORMAL", "NORMAL", "NORMAL", "CLEARED"},
+		{"NORMAL", "NORMAL", "NORMAL", "NONE"},
+	}
+	for n, e := range f.publisher.events {
+		w := wants[n]
+		if e.RawLevel != w.raw || e.ComputedLevel != w.computed || e.EpisodeLevel != w.episode || e.EpisodeEvent != w.event {
+			t.Errorf("hora %d: raw/computed/episode/event = %s/%s/%s/%s; se esperaba %s/%s/%s/%s",
+				n, e.RawLevel, e.ComputedLevel, e.EpisodeLevel, e.EpisodeEvent, w.raw, w.computed, w.episode, w.event)
 		}
-		if results[n].Published != (wantEmitted[n] != entities.EmittedNone) {
-			t.Errorf("hora %d: published = %v", n, results[n].Published)
+		if !results[n].Published || e.RuleEvaluationID != rows[n].ID || !e.EvaluatedAt.Equal(hour(n)) {
+			t.Errorf("hora %d: published = %v, evento = %+v", n, results[n].Published, e)
+		}
+		if string(rows[n].EpisodeEvent) != w.event || string(rows[n].ComputedLevel) != w.computed {
+			t.Errorf("hora %d: la fila guarda %s/%s", n, rows[n].ComputedLevel, rows[n].EpisodeEvent)
 		}
 	}
-	if !results[2].EpisodeOpened {
-		t.Error("la hora 2 abre el episodio")
-	}
 
-	if len(f.publisher.exceeded) != 2 || len(f.publisher.cleared) != 1 {
-		t.Fatalf("eventos: exceeded=%d cleared=%d; se esperaban 2 y 1", len(f.publisher.exceeded), len(f.publisher.cleared))
-	}
-
-	opened := f.publisher.exceeded[0]
-	want := contract.LeakThresholdExceeded{
-		RuleEvaluationID:   rows[2].ID,
-		MeasuringPointID:   pointA,
-		EventType:          "FUGA",
-		EvaluatedAt:        hour(2),
-		Level:              "AMARILLO",
-		PreviousLevel:      "NORMAL",
-		Rule:               "THRESHOLD",
-		IndicatorValue:     0.20,
-		Thresholds:         contract.Thresholds{Amarillo: 0.18, Naranja: 0.25, Rojo: 0.35},
+	want := contract.LevelEvaluated{
+		RuleEvaluationID: rows[2].ID,
+		MeasuringPointID: pointA,
+		EventType:        "FUGA",
+		EvaluatedAt:      hour(2),
+		Status:           "CALCULATED",
+		IndicatorValue:   f64(0.20),
+		RawLevel:         "AMARILLO",
+		ComputedLevel:    "AMARILLO",
+		EpisodeLevel:     "AMARILLO",
+		InEpisode:        true,
+		EpisodeEvent:     "OPENED",
+		Reasons: []contract.Reason{
+			{Code: "LEAK_THRESHOLD", Level: "AMARILLO", Data: contract.ReasonData{I: 0.20, Threshold: 0.18}},
+		},
+		Thresholds:         contract.LevelCuts{Amarillo: 0.18, Naranja: 0.25, Rojo: 0.35},
+		Exit:               contract.LevelCuts{Amarillo: 0.16, Naranja: 0.23, Rojo: 0.33},
 		ThresholdVersionID: rows[2].ThresholdVersionID,
 		HoursAbove:         2,
-		HoursInLevel:       1,
 		OccurredAt:         now,
 		SchemaVersion:      contract.SchemaVersion,
 	}
-	if opened != want {
-		t.Fatalf("exceeded = %+v\nse esperaba  %+v", opened, want)
-	}
-	if up := f.publisher.exceeded[1]; up.Level != "NARANJA" || up.PreviousLevel != "AMARILLO" || up.HoursAbove != 3 {
-		t.Fatalf("segundo exceeded = %+v", up)
+	if got := f.publisher.events[2]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("apertura = %+v\nse esperaba  %+v", got, want)
 	}
 
-	cleared := f.publisher.cleared[0]
-	if cleared.RuleEvaluationID != rows[6].ID || cleared.LastLevel != "NARANJA" || cleared.HoursAbove != 6 ||
-		!cleared.EvaluatedAt.Equal(hour(6)) || cleared.IndicatorValue != 0.14 || cleared.EventType != "FUGA" ||
-		cleared.SchemaVersion != contract.SchemaVersion || cleared.ThresholdVersionID == 0 {
-		t.Fatalf("cleared = %+v", cleared)
+	// Hora NORMAL fuera de episodio: también se publica, sin motivos.
+	if e := f.publisher.events[0]; e.InEpisode || len(e.Reasons) != 0 || e.HoursAbove != 0 || e.Status != "CALCULATED" {
+		t.Fatalf("hora NORMAL = %+v", e)
+	}
+	if e := f.publisher.events[6]; e.InEpisode || e.HoursAbove != 6 {
+		t.Fatalf("cierre = %+v: hours_above es la duración del episodio, incluida la hora de cierre", e)
+	}
+}
+
+// RE-05: la persistencia llega con su racha y el nivel desde el que se contó.
+func TestEvaluateIndicator_PublishesPersistenceReason(t *testing.T) {
+	f := newFixture()
+	values := make([]float64, 12)
+	for n := range values {
+		values[n] = 0.22
+	}
+	f.feed(t, values...)
+
+	last := f.publisher.events[len(f.publisher.events)-1]
+	want := []contract.Reason{
+		{Code: "LEAK_THRESHOLD", Level: "AMARILLO", Data: contract.ReasonData{I: 0.22, Threshold: 0.18}},
+		{Code: "LEAK_PERSISTENCE", Level: "NARANJA", Data: contract.ReasonData{Hours: 12, From: "AMARILLO"}},
+	}
+	if last.RawLevel != "AMARILLO" || last.ComputedLevel != "NARANJA" || !reflect.DeepEqual(last.Reasons, want) {
+		t.Fatalf("evento = %+v", last)
 	}
 }
 
@@ -185,8 +283,8 @@ func TestEvaluateIndicator_DuplicateDoesNotCreateRowNorRepublish(t *testing.T) {
 	if rows := f.evaluations.Rows(pointA); len(rows) != 2 {
 		t.Fatalf("filas = %d, se esperaban 2", len(rows))
 	}
-	if len(f.publisher.exceeded) != 1 {
-		t.Fatalf("exceeded = %d: el duplicado no se republica", len(f.publisher.exceeded))
+	if len(f.publisher.events) != 2 {
+		t.Fatalf("eventos = %d: el duplicado no se republica", len(f.publisher.events))
 	}
 }
 
@@ -209,11 +307,11 @@ func TestEvaluateIndicator_LateArrivalIsSavedButNotPublished(t *testing.T) {
 	}
 
 	rows := f.evaluations.Rows(pointA)
-	if len(rows) != 3 || rows[1].Emitted != entities.EmittedExceeded {
+	if len(rows) != 3 || rows[1].EpisodeEvent != entities.EpisodeEventOpened {
 		t.Fatalf("filas = %+v: la hora tardía se interpreta igual (la 4 abre el episodio)", rows)
 	}
-	if len(f.publisher.exceeded)+len(f.publisher.cleared) != 0 {
-		t.Fatal("una llegada tardía no publica")
+	if len(f.publisher.events) != 1 || !f.publisher.events[0].EvaluatedAt.Equal(hour(5)) {
+		t.Fatalf("eventos = %+v: solo se publica la hora 5 (las tardías no)", f.publisher.events)
 	}
 }
 
@@ -223,7 +321,7 @@ func TestEvaluateIndicator_NoCalculableGapPausesTheRun(t *testing.T) {
 
 	steps := []services.IndicatorEvaluatedNotice{
 		calculated(pointA, hour(0), 0.19),
-		{MeasuringPointID: pointA, WindowHours: 24, EvaluatedAt: hour(1), Status: "NO_CALCULABLE", NoCalcReason: "LOW_COVERAGE"},
+		noCalculable(pointA, hour(1)),
 		calculated(pointA, hour(2), 0.20),
 	}
 	for _, n := range steps {
@@ -276,8 +374,8 @@ func TestEvaluateIndicator_PointWithoutVersionGetsFirstUseVersion(t *testing.T) 
 	if len(history) != 1 || !history[0].ValidFrom.Equal(now) || history[0].Reason != entities.FirstUseSeedReason {
 		t.Fatalf("versión de primer uso = %+v", history)
 	}
-	if len(f.evaluations.Rows(pointB)) != 0 {
-		t.Fatal("una hora anterior a la primera versión no se interpreta")
+	if len(f.evaluations.Rows(pointB)) != 0 || len(f.publisher.events) != 0 {
+		t.Fatal("una hora anterior a la primera versión no se interpreta ni se publica")
 	}
 }
 
@@ -300,8 +398,8 @@ func TestEvaluateIndicator_SaveFailureReturnsErrorAndDoesNotPublish(t *testing.T
 	if !errors.Is(err, domain.ErrPersistingRuleEvaluations) {
 		t.Fatalf("err = %v, se esperaba ErrPersistingRuleEvaluations", err)
 	}
-	if len(f.publisher.exceeded) != 0 {
-		t.Fatal("sin fila no se publica")
+	if len(f.publisher.events) != 1 {
+		t.Fatalf("eventos = %d: sin fila no se publica", len(f.publisher.events))
 	}
 }
 
@@ -321,11 +419,11 @@ func TestEvaluateIndicatorWithoutPublishing_SameRowsNoEvents(t *testing.T) {
 	a, b := published.evaluations.Rows(pointA), silent.evaluations.Rows(pointA)
 	for n := range a {
 		a[n].CreatedAt, b[n].CreatedAt = time.Time{}, time.Time{}
-		if a[n] != b[n] {
+		if !reflect.DeepEqual(a[n], b[n]) {
 			t.Fatalf("hora %d: %+v != %+v (debe ser exactamente la misma lógica)", n, a[n], b[n])
 		}
 	}
-	if len(silent.publisher.exceeded)+len(silent.publisher.cleared) != 0 {
+	if len(silent.publisher.events) != 0 {
 		t.Fatal("el modo sin publicación nunca publica")
 	}
 }

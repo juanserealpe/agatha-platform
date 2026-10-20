@@ -46,9 +46,8 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 | Tópico | Publicador | Consumidores |
 |---|---|---|
 | `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy (Processing evalúa por scheduler, no por evento) |
-| `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta solo 24 h `CALCULATED`) |
-| `rule_engine.leak_threshold_exceeded` | Rule Engine (post-commit; cada hora calculada de un episodio sobre el umbral; no en backfill ni en llegadas tardías) | Ninguno hoy (Alert Management) |
-| `rule_engine.leak_threshold_cleared` | Rule Engine (post-commit; una vez al cerrar el episodio) | Ninguno hoy (Alert Management) |
+| `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta 24 h `CALCULATED`, reenvía 24 h `NO_CALCULABLE`) |
+| `rule_engine.level_evaluated` (v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Ninguno hoy (Alert Management) |
 
 ## Errors (`shared/errors`)
 
@@ -203,11 +202,11 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Rule Engine
 
-**Responsabilidad**: interpretar cada hora calculada de I(24 h) con **umbrales versionados por punto** (Amarillo/Naranja/Rojo) y reglas de **persistencia** (sube un nivel por racha) e **histéresis** (salida bajo `amarillo − exit_margin` durante `exit_hours`), guardar una fila por hora en `rule_evaluations` y publicar `rule_engine.leak_threshold_exceeded` (cada hora de un episodio sobre el umbral) y `rule_engine.leak_threshold_cleared` (una vez al cerrarlo). Las horas `NO_CALCULABLE` no tienen fila: un hueco pausa las rachas, no las reinicia. Detalle (algoritmo, escenario, contratos) en `modules/rule_engine/README.MD`.
+**Responsabilidad**: interpretar cada hora calculada de I(24 h) con **umbrales versionados por punto** (Amarillo/Naranja/Rojo) y reglas de **persistencia** (sube un nivel por racha) e **histéresis** (salida bajo `amarillo − exit_margin` durante `exit_hours`), guardar una fila por hora en `rule_evaluations` y publicar `rule_engine.level_evaluated` (v2) por **cada** hora de 24 h con `raw_level`, `computed_level` (max(raw, persistencia), sin histéresis), `episode_level`, `episode_event` (`OPENED|CLEARED|NONE`), `reasons[]`, umbrales y salidas por nivel. Las horas `NO_CALCULABLE` no tienen fila (un hueco pausa las rachas, no las reinicia) y se reenvían con `status = NO_CALCULABLE`. El Rule Engine es dueño del **nivel del indicador**; la alerta (estabilización, atención, clasificación) es de Alert Management. Detalle (algoritmo, escenario, contratos) en `modules/rule_engine/RULE_ENGINE_README.MD`.
 
 | Trigger | Accion | Componente |
 |---|---|---|
-| Evento `processing.indicator_evaluated` (suscripción `rule_engine.indicator_evaluated`) | Solo 24 h `CALCULATED`: versión vigente en `evaluated_at` + últimas K filas → lógica pura → `INSERT … ON CONFLICT DO NOTHING` → post-commit publica según `emitted`. Duplicado ⇒ nada; llegada tardía ⇒ guarda sin publicar | `IndicatorEvaluatedSubscriber` → `EvaluationService.EvaluateIndicator` |
+| Evento `processing.indicator_evaluated` (suscripción `rule_engine.indicator_evaluated`) | 24 h `CALCULATED`: versión vigente en `evaluated_at` + últimas K filas → lógica pura → `INSERT … ON CONFLICT DO NOTHING` → post-commit publica `level_evaluated`. 24 h `NO_CALCULABLE`: sin fila, se reenvía. Duplicado ⇒ nada; llegada tardía ⇒ guarda sin publicar | `IndicatorEvaluatedSubscriber` → `EvaluationService.EvaluateIndicator` |
 | `cmd/rule_engine -backfill [-point] [-from] [-to] [-rebuild]` | Histórico desde `feature_evaluations` con el MISMO caso de uso sin publicar; idempotente; `-rebuild` bloqueado con `AGATHA_ENV=production` | `BackfillService.Backfill` |
 | (sin HTTP todavía) | `CreateThresholdVersion`, `CreateThresholdVersionBulk`, `GetCurrentThresholds`, `GetThresholdHistory`, `GetThresholdTimeline` | `ThresholdService` |
 
@@ -342,6 +341,6 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 ### 9. `rule_evaluations` (Rule Engine — interpretación horaria)
 - `id` (PK), `measuring_point_id`, `event_type`, `evaluated_at` — `UNIQUE` (`ux_rule_evaluations_point_event_hour`): idempotencia y clave de los eventos. Índice `(measuring_point_id, event_type, evaluated_at DESC)`.
-- `indicator_value` (numeric), `raw_level`, `level` (`NORMAL`|`AMARILLO`|`NARANJA`|`ROJO`), `rule` (`THRESHOLD`|`PERSISTENCE`|`HOLD`|`NONE`), `in_episode`, `hours_above`, `hours_in_level`, `threshold_version_id` (FK → `rule_threshold_versions`), `low_confidence`, `emitted` (`NONE`|`EXCEEDED`|`CLEARED`), `created_at`. CHECKs en los enums. Una fila por hora **calculada** de 24 h; inmutable (solo `-rebuild` fuera de producción la borra).
+- `indicator_value` (numeric), `raw_level`, `computed_level`, `level` (`NORMAL`|`AMARILLO`|`NARANJA`|`ROJO`), `rule` (`THRESHOLD`|`PERSISTENCE`|`HOLD`|`NONE`), `in_episode`, `hours_above`, `hours_in_level`, `threshold_version_id` (FK → `rule_threshold_versions`), `low_confidence`, `episode_event` (`OPENED`|`CLEARED`|`NONE`), `reasons` (jsonb), `created_at`. CHECKs en los enums. Una fila por hora **calculada** de 24 h; inmutable (solo `-rebuild` fuera de producción la borra).
 
 > Ambas las crea `persistence.Migrate` en `NewRuleEngineModule` (AutoMigrate + SQL idempotente para `btree_gist` y el `EXCLUDE`).

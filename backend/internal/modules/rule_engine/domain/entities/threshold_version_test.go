@@ -114,3 +114,30 @@ func TestThresholdVersion_IsEffectiveAt(t *testing.T) {
 		t.Fatal("una versión vigente aplica desde valid_from en adelante")
 	}
 }
+
+// Histéresis por nivel (RE-04): la salida de cada nivel es su corte − exit_margin,
+// redondeada a 4 decimales para que 0,18 − 0,02 sea exactamente 0,16.
+func TestThresholdParams_CutAndExitPerLevel(t *testing.T) {
+	p := DefaultThresholdParams()
+
+	tests := []struct {
+		level     Level
+		cut, exit float64
+	}{
+		{LevelAmarillo, 0.18, 0.16},
+		{LevelNaranja, 0.25, 0.23},
+		{LevelRojo, 0.35, 0.33},
+		{LevelNormal, 0, 0},
+	}
+	for _, tt := range tests {
+		if got := p.CutFor(tt.level); got != tt.cut {
+			t.Errorf("CutFor(%s) = %v, se esperaba %v", tt.level, got, tt.cut)
+		}
+		if got := p.ExitFor(tt.level); got != tt.exit {
+			t.Errorf("ExitFor(%s) = %v, se esperaba %v", tt.level, got, tt.exit)
+		}
+	}
+	if p.ExitCutoff() != p.ExitFor(LevelAmarillo) {
+		t.Fatal("ExitCutoff es la salida de AMARILLO")
+	}
+}

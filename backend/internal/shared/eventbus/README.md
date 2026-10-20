@@ -185,8 +185,7 @@ Tres detalles que se olvidan seguido:
 |---|---|---|---|---|
 | `ingestion.measurements_ingested` | Ingestion (`IngestService.IngestDataOs`, post-commit, si `Inserted > 0`) | `MeasurementsIngested` | Ninguno cableado hoy | — |
 | `processing.indicator_evaluated` | Processing (`EvaluationService.EvaluatePending`, post-commit, uno por ventana 24 h/6 h, solo si el lote se insertó completo; no en `Backfill`) | `IndicatorEvaluated` | Rule Engine (`EvaluateIndicator`) | `rule_engine.indicator_evaluated` |
-| `rule_engine.leak_threshold_exceeded` | Rule Engine (`EvaluationService`, post-commit, cada hora calculada de un episodio sobre el umbral; no en backfill ni en llegadas tardías) | `LeakThresholdExceeded` | Ninguno hoy (Alert Management) | — |
-| `rule_engine.leak_threshold_cleared` | Rule Engine (`EvaluationService`, post-commit, una vez al cerrar el episodio) | `LeakThresholdCleared` | Ninguno hoy (Alert Management) | — |
+| `rule_engine.level_evaluated` | Rule Engine (`EvaluationService`, post-commit, cada hora de 24 h `CALCULATED` —incluida NORMAL— y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | `LevelEvaluated` (`SchemaVersion = 2`) | Ninguno hoy (Alert Management) | — |
 
 ---
 

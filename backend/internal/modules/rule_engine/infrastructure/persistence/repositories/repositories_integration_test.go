@@ -214,9 +214,10 @@ func TestRuleEvaluationSaveIsIdempotentAndPositionWorks(t *testing.T) {
 
 	row := entities.RuleEvaluation{
 		MeasuringPointID: testPoint, EventType: entities.EventTypeLeak, EvaluatedAt: t0.Add(2 * time.Hour),
-		IndicatorValue: 0.2034, RawLevel: entities.LevelAmarillo, Level: entities.LevelAmarillo,
+		IndicatorValue: 0.2034, RawLevel: entities.LevelAmarillo, ComputedLevel: entities.LevelAmarillo, Level: entities.LevelAmarillo,
 		Rule: entities.RuleThreshold, InEpisode: true, HoursAbove: 2, HoursInLevel: 1,
-		ThresholdVersionID: versionID, Emitted: entities.EmittedExceeded, CreatedAt: time.Now().UTC(),
+		ThresholdVersionID: versionID, EpisodeEvent: entities.EpisodeEventOpened, CreatedAt: time.Now().UTC(),
+		Reasons: []entities.Reason{{Code: entities.ReasonLeakThreshold, Level: entities.LevelAmarillo, I: 0.2034, Threshold: 0.18}},
 	}
 
 	id, inserted, err := evaluations.Save(ctx, row)
@@ -237,7 +238,9 @@ func TestRuleEvaluationSaveIsIdempotentAndPositionWorks(t *testing.T) {
 	}
 
 	previous, err := evaluations.GetPrevious(ctx, testPoint, entities.EventTypeLeak, t0.Add(3*time.Hour), 13)
-	if err != nil || len(previous) != 1 || previous[0].IndicatorValue != 0.2034 || previous[0].Level != entities.LevelAmarillo {
+	if err != nil || len(previous) != 1 || previous[0].IndicatorValue != 0.2034 || previous[0].Level != entities.LevelAmarillo ||
+		previous[0].ComputedLevel != entities.LevelAmarillo || previous[0].EpisodeEvent != entities.EpisodeEventOpened ||
+		len(previous[0].Reasons) != 1 || previous[0].Reasons[0] != row.Reasons[0] {
 		t.Fatalf("previas = %+v, %v", previous, err)
 	}
 
@@ -245,6 +248,11 @@ func TestRuleEvaluationSaveIsIdempotentAndPositionWorks(t *testing.T) {
 	bad.EvaluatedAt, bad.Level = t0.Add(5*time.Hour), "VIOLETA"
 	if _, _, err := evaluations.Save(ctx, bad); err == nil {
 		t.Fatal("el CHECK de level debía rechazar la fila")
+	}
+	bad = row
+	bad.EvaluatedAt, bad.EpisodeEvent = t0.Add(6*time.Hour), "EXCEEDED" // valor del esquema v1
+	if _, _, err := evaluations.Save(ctx, bad); err == nil {
+		t.Fatal("el CHECK de episode_event debía rechazar la fila")
 	}
 
 	deleted, err := evaluations.DeleteRange(ctx, ptr(testPoint), entities.EventTypeLeak, t0, time.Time{})

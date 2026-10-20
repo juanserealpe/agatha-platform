@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -92,12 +93,12 @@ func TestBackfill_InterpretsInOrderInBatchesWithoutPublishing(t *testing.T) {
 	live.feed(t, crossing...)
 	got, want := f.evaluations.Rows(pointA), live.evaluations.Rows(pointA)
 	for n := range want {
-		if got[n].Level != want[n].Level || got[n].Emitted != want[n].Emitted || got[n].HoursAbove != want[n].HoursAbove {
+		if got[n].Level != want[n].Level || got[n].EpisodeEvent != want[n].EpisodeEvent || got[n].ComputedLevel != want[n].ComputedLevel || got[n].HoursAbove != want[n].HoursAbove {
 			t.Fatalf("hora %d: backfill %+v != en vivo %+v", n, got[n], want[n])
 		}
 	}
 
-	if len(f.publisher.exceeded)+len(f.publisher.cleared) != 0 {
+	if len(f.publisher.events) != 0 {
 		t.Fatal("el backfill NUNCA publica")
 	}
 }
@@ -120,7 +121,7 @@ func TestBackfill_IsIdempotent(t *testing.T) {
 	if again.Saved != 0 || again.Duplicates != 8 {
 		t.Fatalf("segunda corrida = %+v; se esperaba 0 guardadas y 8 duplicadas", again)
 	}
-	if after := f.evaluations.Rows(pointA); !slices.Equal(before, after) {
+	if after := f.evaluations.Rows(pointA); !reflect.DeepEqual(before, after) {
 		t.Fatal("repetir el backfill no debe cambiar las filas")
 	}
 }
