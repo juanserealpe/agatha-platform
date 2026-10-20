@@ -30,7 +30,7 @@ Devuelve, para un dispositivo y un rango de fechas, las series de tiempo de las 
 
 ## Variables por sección
 
-El sistema muestra las gráficas en tres secciones. La sección es una agrupación de la pantalla: el endpoint no la devuelve, se arma pidiendo las claves de cada una.
+El sistema muestra las gráficas en cuatro secciones. La sección es una agrupación de la pantalla: el endpoint no la devuelve, se arma pidiendo las claves de cada una.
 
 ### Ambiente
 
@@ -75,6 +75,19 @@ https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28
 
 ```
 https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28T00:00:00Z&endDate=2026-07-31T00:00:00Z&variables=deriva,pitch,roll,aceleracion
+```
+
+### Energía
+
+| Clave | Variable | Unidad | Frecuencia |
+|---|---|---|---|
+| `voltaje` | Voltaje | mV | Una por lectura (~15 min) |
+| `corriente` | Corriente | mA | Una por lectura (~15 min) |
+
+Tienen unidades distintas: si van en la misma gráfica, cada una necesita su propio eje Y.
+
+```
+https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28T00:00:00Z&endDate=2026-07-31T00:00:00Z&variables=voltaje,corriente
 ```
 
 ## Respuesta de `/api/dashboard/series`
