@@ -15,13 +15,13 @@ export const SECTION_STYLES: Record<SectionKey, SectionStyle> = {
     fuga: {
         icon: AudioWaveform,
         label: "Fuga",
-        subtitle: "Análisis acústico espectral y detección por sub-bandas",
+        subtitle: "Indicador de fuga, densidad y bandas acústicas B1 y B2",
         badgeClass: "bg-amber-50 text-amber-600 border-amber-200",
     },
     movimiento: {
         icon: Compass,
         label: "Movimiento",
-        subtitle: "Orientación, deriva y actividad del sensor",
+        subtitle: "Inclinación, deriva y aceleración del sensor",
         badgeClass: "bg-blue-50 text-blue-600 border-blue-200",
     },
     ambiental: {
@@ -33,7 +33,7 @@ export const SECTION_STYLES: Record<SectionKey, SectionStyle> = {
     energia: {
         icon: BatteryCharging,
         label: "Energía del sensor",
-        subtitle: "Batería, voltaje y corriente",
+        subtitle: "Voltaje y corriente (pendiente en backend)",
         badgeClass: "bg-violet-50 text-violet-600 border-violet-200",
     },
 };

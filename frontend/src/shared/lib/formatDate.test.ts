@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAbsolute, formatRelative, formatTimestamp } from "./formatDate";
+import { formatAbsolute, formatClock, formatDayMonth, formatRelative, formatShort, formatTimestamp } from "./formatDate";
 
 // Fechas construidas en hora local para que el resultado no dependa de la zona horaria de quien ejecuta.
 const evening = new Date(2026, 9, 11, 21, 7, 15);
@@ -33,5 +33,19 @@ describe("formatTimestamp", () => {
 
     it("fecha corta en 24 h si es más antigua", () => {
         expect(formatTimestamp(evening, now + 2 * 24 * 60 * MINUTE)).toBe("11/10, 21:07");
+    });
+});
+
+describe("formatos de gráficas", () => {
+    it("formatShort es siempre absoluto aunque la fecha sea reciente", () => {
+        expect(formatShort(evening)).toBe("11/10, 21:07");
+    });
+
+    it("formatClock muestra solo la hora en 24 h", () => {
+        expect(formatClock(new Date(2026, 9, 11, 0, 5))).toBe("00:05");
+    });
+
+    it("formatDayMonth omite el conector y el punto del mes", () => {
+        expect(formatDayMonth(evening)).toBe("11 oct");
     });
 });

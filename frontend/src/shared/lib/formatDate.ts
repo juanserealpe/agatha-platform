@@ -27,7 +27,11 @@ const shortFormatter = new Intl.DateTimeFormat(LOCALE, {
     hourCycle: "h23",
 });
 
-const relativeFormatter = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto", style: "short" });
+const clockFormatter = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+const dayMonthFormatter = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" });
+
+const relativeFormatter =new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto", style: "short" });
 
 function toDate(value: DateInput): Date | null {
     const date = value instanceof Date ? value : new Date(value);
@@ -43,6 +47,28 @@ export function toIsoString(value: DateInput): string | undefined {
 export function formatAbsolute(value: DateInput): string {
     const date = toDate(value);
     return date ? fullFormatter.format(date) : EMPTY_VALUE;
+}
+
+/** Fecha y hora cortas en 24 h, siempre absolutas, p. ej. "11/10 21:07". */
+export function formatShort(value: DateInput): string {
+    const date = toDate(value);
+    return date ? shortFormatter.format(date) : EMPTY_VALUE;
+}
+
+/** Solo la hora en 24 h, p. ej. "21:07". Pensada para ejes de gráficas. */
+export function formatClock(value: DateInput): string {
+    const date = toDate(value);
+    return date ? clockFormatter.format(date) : EMPTY_VALUE;
+}
+
+/** Día y mes abreviado, p. ej. "11 oct". Pensada para ejes de gráficas. */
+export function formatDayMonth(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    // es-CO formatea "11 de oct."; en un eje sobra el conector, así que se arma con las partes.
+    const parts = dayMonthFormatter.formatToParts(date);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+    return `${part("day")} ${part("month").replace(".", "")}`;
 }
 
 /** Tiempo transcurrido, p. ej. "hace 5 min" o "hace 3 h". */
