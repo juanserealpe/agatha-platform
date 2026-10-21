@@ -55,6 +55,10 @@ function defineSection(charts: SeriesChartConfig[], unavailableReason?: string):
 // Rangos mínimos del eje: propuesta inicial del frontend, a validar con quien conoce el sensor.
 const MIN_SPAN = { driftDeg: 0.1, accelG: 0.1, temperatureC: 2, humidityPct: 5, voltageMv: 100, currentMa: 10 };
 
+const TILT_HOW_TO_READ = [
+    "En un sensor bien fijado la línea es prácticamente plana.",
+    "Un escalón (cambio brusco que se mantiene) indica que el sensor o el tramo de tubería se movió.",
+];
 export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
     fuga: defineSection([
         {
@@ -102,6 +106,20 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
         },
     ]),
     movimiento: defineSection([
+        {
+            title: "Pitch",
+            seriesKeys: ["pitch"],
+            description: "Cabeceo: inclinación del sensor hacia adelante o atrás (°).",
+            howToRead: TILT_HOW_TO_READ,
+            yScale: { minSpan: MIN_SPAN.driftDeg },
+        },
+        {
+            title: "Roll",
+            seriesKeys: ["roll"],
+            description: "Alabeo: inclinación lateral del sensor (°).",
+            howToRead: TILT_HOW_TO_READ,
+            yScale: { minSpan: MIN_SPAN.driftDeg },
+        },
         {
             title: "Deriva",
             seriesKeys: ["deriva"],
