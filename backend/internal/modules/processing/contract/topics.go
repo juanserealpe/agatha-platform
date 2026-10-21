@@ -9,4 +9,5 @@ const (
 
 	// SchemaVersion es la versión del esquema de los eventos de este contrato.
 	SchemaVersion = 1
+	//
 )
