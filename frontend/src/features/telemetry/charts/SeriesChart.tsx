@@ -8,7 +8,7 @@ import type { LeakThresholds, Series } from "@/services/dashboard/series.types";
 import { formatClock, formatDayMonth } from "@/shared/lib/formatDate";
 import type { ReferenceMark, ThresholdBand, YScale } from "../config/seriesSections";
 import { CHART_INK, MULTI_SERIES_COLORS, SOURCE_COLORS } from "../config/chartPalette";
-import { buildChartRows, computeTimeTicks, computeYDomain, computeYTicks, isDayTick, nearestIndex, summarize } from "../lib/chartData";
+import { buildChartRows, type ChartRow, computeTimeTicks, computeYDomain, computeYTicks, isDayTick, nearestIndex, summarize } from "../lib/chartData";
 import { makeTickFormatter } from "../lib/formatValue";
 import { ChartHeader } from "./ChartHeader";
 import { ChartTooltip } from "./ChartTooltip";
@@ -19,6 +19,8 @@ const MAX_POINTS_WITH_DOTS = 48;
 // Con muchas lecturas (una semana de B1 son ~650) un trazo fino deja ver la forma en vez de un bloque.
 const DENSE_POINTS = 300;
 const AXIS_TICK = { fontSize: 12, fill: CHART_INK.axis };
+// Fracción de la ventana (≈ 9 px en una gráfica de 600 px) dentro de la cual el cursor "imanta" al punto más cercano.
+const SNAP_RATIO = 0.015;
 const NO_BANDS: ThresholdBand[] = [];
 const NO_REFERENCES: ReferenceMark[] = [];
 
@@ -40,6 +42,17 @@ interface SeriesChartProps {
     leakThresholds?: LeakThresholds;
     references?: ReferenceMark[];
     yScale?: YScale;
+}
+
+/** Un punto con huecos a ambos lados no forma línea: sin marca no se vería. */
+function isolatedDot(rows: ChartRow[], key: string, color: string) {
+    return ({ cx, cy, index }: { cx?: number; cy?: number; index?: number }) => {
+        const i = index ?? -1;
+        const isolated = typeof rows[i]?.[key] === "number" && typeof rows[i - 1]?.[key] !== "number" && typeof rows[i + 1]?.[key] !== "number";
+        return isolated && cx !== undefined && cy !== undefined
+            ? <circle key={`dot-${i}`} cx={cx} cy={cy} r={3} fill={color} />
+            : <g key={`dot-${i}`} />;
+    };
 }
 
 export const SeriesChart = memo(function SeriesChart({
@@ -65,6 +78,8 @@ export const SeriesChart = memo(function SeriesChart({
         };
     }, [series, yScale, thresholds, references, range]);
 
+    // Con muchas lecturas, un punto aislado ocupa menos de 1 px y el cursor casi nunca cae justo sobre él.
+    const snapMs = (range.end - range.start) * SNAP_RATIO;
     const unit = series[0]?.unit ?? "";
     const hasData = summary !== null;
     const formatXTick = (ts: number) => (isDayTick(ts, ticks.stepMs) ? formatDayMonth(ts) : formatClock(ts));
@@ -149,7 +164,7 @@ export const SeriesChart = memo(function SeriesChart({
                             cursor={{ stroke: CHART_INK.reference, strokeDasharray: "3 3" }}
                             isAnimationActive={false}
                             content={(props) => (
-                                <ChartTooltip {...props} series={series} colors={colors} leakThresholds={leakThresholds} />
+                                <ChartTooltip {...props} series={series} colors={colors} leakThresholds={leakThresholds} rows={rows} snapMs={snapMs} />
                             )}
                         />
                         {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
@@ -160,7 +175,9 @@ export const SeriesChart = memo(function SeriesChart({
                                 name: s.name,
                                 stroke: colors[i % colors.length],
                                 strokeWidth: rows.length > DENSE_POINTS ? 1.25 : 2,
-                                dot: rows.length <= MAX_POINTS_WITH_DOTS ? { r: 2.5, strokeWidth: 0, fill: colors[i % colors.length] } : false,
+                                dot: rows.length <= MAX_POINTS_WITH_DOTS
+                                    ? { r: 2.5, strokeWidth: 0, fill: colors[i % colors.length] }
+                                    : isolatedDot(rows, s.key, colors[i % colors.length]),
                                 activeDot: { r: 4, strokeWidth: 2, stroke: "#fff" },
                                 isAnimationActive: false,
                             };

@@ -20,6 +20,8 @@ export interface YScale {
     max?: number;    // techo fijo de la escala (p. ej. 1 para el indicador, 100 para un %)
     /** Rango mínimo visible, en unidades de la variable: por debajo de esto un cambio es ruido del sensor. */
     minSpan?: number;
+    /** Deja que el eje baje de 0 aunque los datos sean positivos: evita que valores cercanos a 0 queden pegados al borde inferior. */
+    allowBelowZero?: boolean;
 }
 
 export interface SeriesChartConfig {
@@ -51,24 +53,18 @@ function defineSection(charts: SeriesChartConfig[], unavailableReason?: string):
 }
 
 // Rangos mínimos del eje: propuesta inicial del frontend, a validar con quien conoce el sensor.
-const MIN_SPAN = { tiltDeg: 2, driftDeg: 1, accelG: 0.1, temperatureC: 2, humidityPct: 5 };
-
-const TILT_HOW_TO_READ = [
-    "En un sensor bien fijado la línea es prácticamente plana.",
-    "Un escalón (cambio brusco que se mantiene) indica que el sensor o el tramo de tubería se movió.",
-];
+const MIN_SPAN = { driftDeg: 0.1, accelG: 0.1, temperatureC: 2, humidityPct: 5, voltageMv: 100, currentMa: 10 };
 
 export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
     fuga: defineSection([
         {
             title: "Indicador de fuga I",
             seriesKeys: ["indicador"],
-            description: "Probabilidad combinada de fuga (0 a 1). Se calcula cada hora con las últimas 24 h.",
+            description: "Probabilidad de que ocurra una fuga, según cómo ha evolucionado el sonido captado por el sensor.",
             howToRead: [
-                "Bajo 0,18 el comportamiento es normal. Las franjas marcan desde qué valor el indicador entra en amarillo, naranja o rojo.",
-                "Una sola hora sobre la franja no basta: la alerta se abre con 2 horas seguidas en amarillo o más. Si se mantiene 12 h en amarillo sube a naranja, y 6 h en naranja sube a roja.",
-                "Para cerrarse, el indicador debe bajar de 0,16 durante 2 horas seguidas.",
-                "Combina cuatro señales de B2 frente a la línea base del punto: cuánto dura la racha elevada, la densidad, el exceso sobre lo normal y la coherencia entre B1, B2 y planitud. Sin una racha sostenida el indicador se mantiene bajo aunque haya picos aislados.",
+                "Cerca de 0 todo está normal; mientras más alto, más probable es una fuga.",
+                "Las franjas amarilla, naranja y roja indican el nivel de alerta: mientras más arriba, mayor la urgencia.",
+                "La alerta solo se activa si el valor se mantiene alto varias horas, no por un pico aislado.",
             ],
             leakThresholds: true,
             yScale: { min: 0, minTop: 0.4, max: 1 },
@@ -76,69 +72,51 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
         {
             title: "Densidad D",
             seriesKeys: ["densidad"],
-            description: "% de lecturas de las últimas 24 h en que B2 superó su percentil 90 habitual (P90).",
+            description: "Porcentaje del último día en que el sonido agudo estuvo más fuerte de lo normal.",
             howToRead: [
-                "El P90 sale de la línea base del punto: el valor de B2 que solo se supera el 10 % del tiempo en condiciones normales.",
-                `Por eso, sin anomalías, la densidad ronda el ${EXPECTED_DENSITY_PCT} % (línea punteada).`,
-                "Si se mantiene muy por encima, la banda alta está elevada más seguido de lo habitual: es una de las señales que empujan el indicador.",
+                `En condiciones normales ronda el ${EXPECTED_DENSITY_PCT} % (línea punteada).`,
+                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso empuja el indicador de fuga.",
             ],
-            references: [{ label: `Esperado ≈ ${EXPECTED_DENSITY_PCT} %`, value: EXPECTED_DENSITY_PCT }],
+            references: [{ label: `Normal ≈ ${EXPECTED_DENSITY_PCT} %`, value: EXPECTED_DENSITY_PCT }],
             yScale: { min: 0, minTop: 25, max: 100 },
         },
         {
-            title: "Banda B2 · 1200–2000 Hz",
+            title: "Sonido agudo (B2)",
             seriesKeys: ["b2"],
-            description: "Nivel de la señal acústica en la banda alta. Es la que alimenta el indicador y la densidad.",
+            description: "Intensidad del sonido agudo (1200–2000 Hz) que capta el sensor. Es la señal principal para detectar fugas.",
             howToRead: [
-                "Los picos aislados son normales (vehículos, maquinaria cercana).",
-                "Lo que preocupa es una elevación sostenida durante horas, sobre todo si B1 sube al mismo tiempo.",
-                "Pasa el cursor: la línea vertical se sincroniza con las demás gráficas para comparar el mismo instante.",
+                "Los picos cortos son normales (vehículos, maquinaria cercana).",
+                "Preocupa cuando se mantiene alto durante horas.",
             ],
             wide: true,
         },
         {
-            title: "Banda B1 · 500–1200 Hz",
+            title: "Sonido grave (B1)",
             seriesKeys: ["b1"],
-            description: "Nivel de la señal acústica en la banda baja. Se compara con B2 para medir coherencia.",
+            description: "Intensidad del sonido grave (500–1200 Hz). Se compara con el agudo para confirmar una fuga.",
             howToRead: [
-                "En una fuga real B1 y B2 tienden a moverse juntas; si solo una de las dos sube, el indicador pesa menos ese evento.",
-                "Su escala es distinta a la de B2, por eso va en una gráfica aparte.",
+                "En una fuga real el sonido grave y el agudo suben juntos.",
+                "Si solo sube uno de los dos, probablemente no es una fuga.",
             ],
             wide: true,
         },
     ]),
     movimiento: defineSection([
         {
-            title: "Pitch",
-            seriesKeys: ["pitch"],
-            description: "Cabeceo: inclinación del sensor hacia adelante o atrás (°).",
-            howToRead: TILT_HOW_TO_READ,
-            yScale: { minSpan: MIN_SPAN.tiltDeg },
-        },
-        {
-            title: "Roll",
-            seriesKeys: ["roll"],
-            description: "Alabeo: inclinación lateral del sensor (°).",
-            howToRead: TILT_HOW_TO_READ,
-            yScale: { minSpan: MIN_SPAN.tiltDeg },
-        },
-        {
             title: "Deriva",
             seriesKeys: ["deriva"],
-            description: "Desviación de la orientación del sensor (°). Cerca de 0 = sin movimiento.",
+            description: "Cuánto se ha girado el sensor respecto a su posición original (°). Cerca de 0 = no se ha movido.",
             howToRead: [
-                "Valores que crecen poco a poco indican un desplazamiento lento del terreno o del soporte.",
-                "Un salto aislado suele ser un golpe o una intervención en sitio.",
+                "Si sube poco a poco, el sensor o el terreno se está desplazando lentamente.",
+                "Un salto repentino suele ser un golpe o alguien trabajando en el sitio.",
             ],
-            yScale: { min: 0, minSpan: MIN_SPAN.driftDeg },
+            yScale: { minSpan: MIN_SPAN.driftDeg, allowBelowZero: true },
         },
         {
             title: "Aceleración",
             seriesKeys: ["aceleracion"],
-            description: "Magnitud promedio de la aceleración medida (g). En reposo ronda 1 g por la gravedad.",
-            howToRead: [
-                "Desviaciones respecto a ~1 g indican vibración o impactos sobre el sensor.",
-            ],
+            description: "Vibración que siente el sensor (g). En reposo marca cerca de 1 por la gravedad.",
+            howToRead: ["Si se aleja de 1, el sensor recibió vibraciones o golpes."],
             yScale: { minSpan: MIN_SPAN.accelG },
         },
     ]),
@@ -146,24 +124,32 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
         {
             title: "Temperatura",
             seriesKeys: ["temperatura"],
-            description: "Temperatura medida en el sensor (°C).",
-            howToRead: ["Sigue el ciclo día/noche. Cambios bruscos fuera de ese patrón pueden afectar las lecturas acústicas."],
+            description: "Qué tan caliente está el sensor (°C).",
+            howToRead: ["Sube de día y baja de noche. Un cambio brusco fuera de ese patrón es poco habitual."],
             yScale: { minSpan: MIN_SPAN.temperatureC },
         },
         {
             title: "Humedad",
             seriesKeys: ["humedad"],
-            description: "Humedad relativa en el sensor (%).",
-            howToRead: ["Útil para descartar lluvia o condensación como causa de cambios en la señal."],
+            description: "Cantidad de humedad en el aire alrededor del sensor (%).",
+            howToRead: ["Sube con lluvia o condensación; ayuda a explicar cambios en el sonido."],
             yScale: { max: 100, minSpan: MIN_SPAN.humidityPct },
         },
     ]),
-    energia: defineSection(
-        [
-            { title: "Voltaje", seriesKeys: ["voltaje"], description: "Voltaje de alimentación del sensor.", howToRead: [] },
-            { title: "Corriente", seriesKeys: ["corriente"], description: "Corriente consumida por el sensor.", howToRead: [] },
-        ],
-        // El catálogo de /api/dashboard/series no incluye estas variables: pedirlas responde 400.
-        "Las gráficas de energía aún no están disponibles: el servidor todavía no entrega voltaje ni corriente."
-    ),
+    energia: defineSection([
+        {
+            title: "Voltaje",
+            seriesKeys: ["voltaje"],
+            description: "Nivel de carga de la batería del sensor.",
+            howToRead: ["Si baja de forma sostenida, la batería se está agotando y conviene revisarla."],
+            yScale: { minSpan: MIN_SPAN.voltageMv },
+        },
+        {
+            title: "Corriente",
+            seriesKeys: ["corriente"],
+            description: "Cuánta energía está gastando el sensor en este momento.",
+            howToRead: ["Los picos cortos son normales cuando el sensor transmite. Un consumo alto constante gasta la batería más rápido."],
+            yScale: { minSpan: MIN_SPAN.currentMa },
+        },
+    ]),
 };

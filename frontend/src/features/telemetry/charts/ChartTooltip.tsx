@@ -3,6 +3,7 @@ import type { LeakThresholds, Series } from "@/services/dashboard/series.types";
 import { formatAbsolute, formatShort } from "@/shared/lib/formatDate";
 import { LEAK_LEVEL_STYLES } from "../config/leakThresholds";
 import { leakLevelOf } from "../lib/leakLevel";
+import type { ChartRow } from "../lib/chartData";
 import { formatWithUnit } from "../lib/formatValue";
 
 const EVALUATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -11,14 +12,43 @@ interface ChartTooltipProps extends Pick<TooltipContentProps, "active" | "payloa
     series: Series[];
     colors: string[];
     leakThresholds?: LeakThresholds;
+    rows: ChartRow[];
+    /** Distancia máxima (ms) para tomar el punto real más cercano si el cursor cae en un hueco. */
+    snapMs: number;
 }
 
-export function ChartTooltip({ active, payload, label, series, colors, leakThresholds }: ChartTooltipProps) {
-    if (!active || !payload) return null;
-    const entries = payload.filter((p) => typeof p.value === "number");
-    if (entries.length === 0) return null;
+interface Entry {
+    dataKey: string;
+    name: string;
+    value: number;
+}
 
-    const ts = Number(label);
+/** Punto real más cercano a `target` con valor en alguna serie, o null si ninguno está dentro de `maxMs`. */
+function nearestRealRow(rows: ChartRow[], keys: string[], target: number, maxMs: number): ChartRow | null {
+    let best: ChartRow | null = null;
+    let bestDist = maxMs;
+    for (const row of rows) {
+        const dist = Math.abs(row.timestamp - target);
+        if (dist <= bestDist && keys.some((k) => typeof row[k] === "number")) {
+            best = row;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+export function ChartTooltip({ active, payload, label, series, colors, leakThresholds, rows, snapMs }: ChartTooltipProps) {
+    if (!active || !payload) return null;
+    let ts = Number(label);
+    let entries: Entry[] = payload
+        .filter((p) => typeof p.value === "number")
+        .map((p) => ({ dataKey: String(p.dataKey), name: String(p.name), value: p.value as number }));
+    if (entries.length === 0) {
+        const near = nearestRealRow(rows, series.map((s) => s.key), ts, snapMs);
+        if (!near) return null;
+        ts = near.timestamp;
+        entries = series.flatMap((s) => (typeof near[s.key] === "number" ? [{ dataKey: s.key, name: s.name, value: near[s.key] as number }] : []));
+    }
     const isEvaluation = series.some((s) => s.source === "evaluation");
 
     return (
@@ -32,9 +62,9 @@ export function ChartTooltip({ active, payload, label, series, colors, leakThres
                 {entries.map((entry) => {
                     const index = series.findIndex((s) => s.key === entry.dataKey);
                     const s = series[index];
-                    const value = entry.value as number;
+                    const value = entry.value;
                     return (
-                        <li key={String(entry.dataKey)} className="flex items-center justify-between gap-3">
+                        <li key={entry.dataKey} className="flex items-center justify-between gap-3">
                             <span className="flex items-center gap-1.5 text-slate-600">
                                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors[index] }} />
                                 {s?.name ?? entry.name}
@@ -45,7 +75,7 @@ export function ChartTooltip({ active, payload, label, series, colors, leakThres
                 })}
             </ul>
             {leakThresholds && (
-                <TooltipLevel value={entries[0].value as number} thresholds={leakThresholds} />
+                <TooltipLevel value={entries[0].value} thresholds={leakThresholds} />
             )}
         </div>
     );

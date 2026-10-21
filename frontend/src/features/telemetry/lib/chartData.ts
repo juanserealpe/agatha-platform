@@ -94,12 +94,12 @@ export function computeYDomain({ min, max, scale = {}, thresholds = [], referenc
         const center = (hi + lo) / 2;
         lo = center - scale.minSpan / 2;
         hi = center + scale.minSpan / 2;
-        if (min >= 0 && lo < 0) [lo, hi] = [0, scale.minSpan];
+        if (min >= 0 && lo < 0 && !scale.allowBelowZero) [lo, hi] = [0, scale.minSpan];
     }
 
     const range = hi - lo;
     const padding = range === 0 ? Math.abs(hi) * Y_PADDING_RATIO || 1 : range * Y_PADDING_RATIO;
-    let lower = lo >= 0 ? Math.max(0, lo - padding) : lo - padding;
+    let lower = lo >= 0 && !scale.allowBelowZero ? Math.max(0, lo - padding) : lo - padding;
     let upper = hi + padding;
 
     if (scale.min !== undefined) lower = scale.min;

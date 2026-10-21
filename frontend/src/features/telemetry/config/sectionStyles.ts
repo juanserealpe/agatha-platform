@@ -21,7 +21,7 @@ export const SECTION_STYLES: Record<SectionKey, SectionStyle> = {
     movimiento: {
         icon: Compass,
         label: "Movimiento",
-        subtitle: "Inclinación, deriva y aceleración del sensor",
+        subtitle: "Deriva y aceleración del sensor",
         badgeClass: "bg-blue-50 text-blue-600 border-blue-200",
     },
     ambiental: {
@@ -33,7 +33,7 @@ export const SECTION_STYLES: Record<SectionKey, SectionStyle> = {
     energia: {
         icon: BatteryCharging,
         label: "Energía del sensor",
-        subtitle: "Voltaje y corriente (pendiente en backend)",
+        subtitle: "Voltaje y corriente del sensor",
         badgeClass: "bg-violet-50 text-violet-600 border-violet-200",
     },
 };
