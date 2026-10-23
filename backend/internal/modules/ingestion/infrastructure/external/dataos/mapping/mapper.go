@@ -111,7 +111,7 @@ func (m *Mapper) MapSeries(
 			MeasuringPointID: device.MeasuringPointID,
 			MetricID:         metricID,
 			Timestamp:        timestamp,
-			Value:            point.Value,
+			Value:            entities.NormalizeMeasurementValue(metricID, point.Value),
 			Source:           "dataos",
 		}
 

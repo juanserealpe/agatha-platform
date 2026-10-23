@@ -88,6 +88,18 @@ func TestCallbackMapper_BuildsRawMeasurementFromReading(t *testing.T) {
 	}
 }
 
+func TestCallbackMapper_HalvesVoltageBeforePersisting(t *testing.T) {
+	ts := time.Date(2026, 10, 8, 16, 15, 41, 0, time.UTC)
+
+	measurements, _, err := NewCallbackMapper().Map(callbackRecord(reading("power_vbat_mv", "3700", ts)))
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if len(measurements) != 1 || measurements[0].Value != 1850 {
+		t.Fatalf("voltaje debía llegar dividido entre 2: %+v", measurements)
+	}
+}
+
 func TestCallbackMapper_ReportsUnmappedVariablesWithoutFailing(t *testing.T) {
 	ts := time.Date(2026, 10, 8, 16, 15, 41, 0, time.UTC)
 

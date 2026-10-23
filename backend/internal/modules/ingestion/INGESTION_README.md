@@ -105,6 +105,10 @@ Criterio RMS/Actividad: en el análisis acústico del analista "RMS acústico" r
 
 Todo lo que está fuera de las 21 métricas se **omite** (no se guarda): `accel_activity_avg`, `accel_movement`, `accel_shock`, `accel_{x,y,z}_{avg,min,max,std}`, `accel_vibration`, `accel_event`, `accel_drift_deg`, `accel_drift_alarm[_cloud]`, `accel_drift_run[_cloud]`, `accel_settle[_cloud]`, `accel_baseline_valid[_cloud]`, `piezo_peak`, `piezo_leak_{suspected,confirmed}`, `power_energy_mwh`, `power_modem_{ma_avg,duty_pct}`, `power_p_{in,out}`, `samples`, `pspec_centroid`, `pspec_leak_suspect`. Se informan en un único `WARN` por registro: `[Callback] variables sin mapeo; no se guardan` (`names`, `cantidad`); el registro igual se acepta. Cada variable recibida sigue registrándose en `[Callback] variable recibida`.
 
+### Normalización de valores (callback y DataOS)
+
+Antes de persistir, ambos mappers pasan el valor por `entities.NormalizeMeasurementValue(metricID, value)` (`domain/entities/raw_measurement.go`). Regla vigente: **Voltaje (`metric_id = 3`) se divide entre 2** (la fuente lo entrega al doble). El resto de métricas se guarda tal cual. El payload crudo del callback no se toca; solo `raw_measurements.value`. Datos anteriores al cambio (2026-10-22) se corrigieron con un `UPDATE` manual sobre `raw_measurements`.
+
 ## Flujo de ingesta DataOS (contingencia)
 
 `Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `ProcessingService.Process` → `UnitOfWork.Execute` (guardar el lote y el estado en una TX) → **post-commit**: `EventPublisher.PublishMeasurementsIngested` (solo si `Inserted > 0`; un error se registra como `Warn` y no hace fallar la ingesta).

@@ -70,7 +70,7 @@ func (m *CallbackMapper) Map(record *entities.CallbackRecord) ([]entities.RawMea
 			Timestamp:        reading.Timestamp,
 			MeasuringPointID: record.MeasuringPointID,
 			MetricID:         metricID,
-			Value:            value,
+			Value:            entities.NormalizeMeasurementValue(metricID, value),
 			Source:           CallbackSource,
 		})
 	}
