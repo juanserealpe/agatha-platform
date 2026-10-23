@@ -10,7 +10,7 @@ import (
 var metricIDMap = map[string]uint64{
 	"Pitch":          1,
 	"Roll":           2,
-	"Voltaje (mV)":   3,
+	"Voltaje (V)":    3,
 	"Corriente (mA)": 4,
 	"Batería (%)":    5,
 	"RMS (ADC)":      6,
