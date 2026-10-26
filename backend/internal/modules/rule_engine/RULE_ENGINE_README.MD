@@ -1,6 +1,6 @@
 # Modulo: Rule Engine
 
-**Responsabilidad**: interpretar cada hora calculada del índice I(24 h) de Processing con **umbrales versionados por punto** (Amarillo, Naranja, Rojo) y **reglas de persistencia e histéresis**, guardar el resultado en `rule_evaluations` y publicar **cada hora** de 24 h a Alert Management (`rule_engine.level_evaluated`, v3), incluidas las de nivel NORMAL y las `NO_CALCULABLE`. Processing **mide**; el Rule Engine **interpreta** (es dueño del **nivel del indicador**: umbral + persistencia + episodio); Alert Management (todavía no existe) **decide** (alerta única, estabilización, atención, silencio, clasificación). El `CLEARED` del episodio **no cierra la alerta**: para Alert Management es una evaluación más.
+**Responsabilidad**: interpretar cada hora calculada del índice I(24 h) de Processing con **umbrales versionados por punto** (Amarillo, Naranja, Rojo) y **reglas de persistencia e histéresis**, guardar el resultado en `rule_evaluations` y publicar **cada hora** de 24 h a Alert Management (`rule_engine.level_evaluated`, v3), incluidas las de nivel NORMAL y las `NO_CALCULABLE`. Processing **mide**; el Rule Engine **interpreta** (es dueño del **nivel del indicador**: umbral + persistencia + episodio); Alert Management (`modules/alert_management`) **decide** (alerta única, estabilización, atención, silencio, clasificación). El `CLEARED` del episodio **no cierra la alerta**: para Alert Management es una evaluación más.
 
 Todo en **UTC** (`America/Bogota` solo en logs). Hoy hay un solo tipo de evento: `FUGA`. Especificación vigente: `backend/AGATHA_Modulo_Rule_Engine_v2.docx` (umbrales por API, simulación, planitud, persistencia por ventana, evento v3).
 
@@ -229,7 +229,7 @@ Best-effort: pueden perderse (overflow, reinicio) o duplicarse. `feature_evaluat
 
 **v3 es aditiva**: los campos v2 no cambian; un consumidor v2 sigue funcionando. Con `NO_CALCULABLE`: `runs` en 0, `escalation` y `d_pl` null, `persistence_mode` vacío.
 
-No se publica en el **backfill**, en **duplicados** ni en **llegadas tardías** (RE-06). **Clave de idempotencia para consumidores: `(measuring_point_id, event_type, evaluated_at)`.** Se publica por el puerto `LevelEventPublisher`; el adaptador al bus (`busLevelEventPublisher`) vive en `internal/bootstrap`. Hoy no hay suscriptores (Alert Management no existe): el bus los descarta.
+No se publica en el **backfill**, en **duplicados** ni en **llegadas tardías** (RE-06). **Clave de idempotencia para consumidores: `(measuring_point_id, event_type, evaluated_at)`.** Se publica por el puerto `LevelEventPublisher`; el adaptador al bus (`busLevelEventPublisher`) vive en `internal/bootstrap`. Lo consume Alert Management (suscripción `alert_management.level_evaluated`); su catch-up del minuto 55 relee `rule_evaluations` para las horas cuyo evento se perdió.
 
 ### Pendiente (fase 2, RE-07)
 

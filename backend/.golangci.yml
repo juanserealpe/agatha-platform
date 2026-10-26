@@ -91,6 +91,23 @@ linters:
             - "**/internal/modules/rule_engine/contract/**"
           allow:
             - $gostd
+        # Alert Management consume eventos del Rule Engine sin importarlo y no conoce el bus.
+        # No entrega avisos: publica su contract por un port (adaptador en bootstrap).
+        alert-management-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/alert_management/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine
+              desc: "alert_management no importa rule_engine (ni su contract); usa su propio LevelNotice traducido en bootstrap"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
+              desc: "alert_management no importa processing"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "alert_management no importa ingestion; lee devices con su propio modelo"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline
+              desc: "alert_management no conoce a baseline (baseline lee alerts por su cuenta)"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "alert_management no conoce el bus; la suscripción vive en bootstrap"
         # Baseline es autosuficiente: solo lee tablas. Nunca conoce a Processing.
         baseline-isolation:
           list-mode: lax
@@ -103,6 +120,8 @@ linters:
               desc: "baseline no importa processing; processing lee sus tablas por su cuenta"
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
               desc: "baseline no publica ni consume eventos en el MVP"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management
+              desc: "baseline no importa alert_management; lee alerts con su propio modelo (AlertEventsReader)"
         # Kernel de cálculo (lo comparten Baseline y Processing): solo stdlib, sin IO ni estado.
         features-stdlib-only:
           list-mode: strict

@@ -181,8 +181,8 @@ func toIndicatorEvaluatedNotice(e processingContract.IndicatorEvaluated) ruleEng
 
 // busLevelEventPublisher es el adaptador del puerto LevelEventPublisher hacia
 // el bus. Vive acá porque el Rule Engine no puede importar shared/eventbus
-// (depguard rule-engine-isolation). Hoy no hay suscriptores (Alert Management
-// no existe): publicar sin suscriptores es un no-op del bus.
+// (depguard rule-engine-isolation). Lo consume Alert Management
+// (subscribeLevelEvaluated); sin ese módulo habilitado, publicar es un no-op del bus.
 type busLevelEventPublisher struct {
 	bus eventbus.Bus
 }

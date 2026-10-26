@@ -7,7 +7,6 @@ import (
 
 	baselineServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/application/services"
 	baselineDomain "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/domain/services"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/knownevents"
 	baselineMappers "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/mappers"
 	baselineModels "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/models"
 	baselineRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/repositories"
@@ -35,7 +34,8 @@ type BaselineModule struct {
 }
 
 // NewBaselineModule migra el esquema de Baseline y cablea sus servicios.
-// Solo lee raw_measurements y devices (de Ingestion); no usa el bus.
+// Solo lee raw_measurements y devices (de Ingestion) y, para los eventos
+// conocidos, alerts (de Alert Management) con su propio modelo; no usa el bus.
 func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
 	logBaseline := logger.New("Baseline", "Info")
@@ -56,8 +56,8 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 
 	historyReader := baselineRepositories.NewHistoryReader(platform.DB, metricIDs)
 	baselineRepository := baselineRepositories.NewBaselineRepository(platform.DB)
-	// Lista estática provisional: la reemplazará el adapter del módulo de alertas.
-	knownEvents := knownevents.NewStaticProvider()
+	// Lista estática + alertas confirmadas (si la tabla alerts existe).
+	knownEvents := knownEventsProvider(platform.DB, logBaseline)
 
 	recalculator := baselineServices.NewRecalculationService(historyReader, baselineRepository, knownEvents, cfg, logBaseline, time.Now)
 	replayService := baselineServices.NewReplayService(historyReader, knownEvents, cfg, logBaseline)

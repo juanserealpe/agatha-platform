@@ -21,7 +21,7 @@ baseline/
 │                                     # ReplayService (simulación)
 └── infrastructure/
     ├── persistence/                  # models (GORM), mappers, repositories
-    ├── knownevents/static_provider.go # Eventos conocidos: lista ESTÁTICA en código (provisional)
+    ├── knownevents/                  # StaticProvider (lista en código) + CompositeProvider (une fuentes)
     └── scheduling/recalc_scheduler.go
 ```
 
@@ -56,8 +56,9 @@ UC-B4: valida punto → (salvo `DryRun`) `GetLatest` y, si el punto **ya tiene v
 
 Además de lo que marca el barrido de I, hay intervalos que **nunca** deben entrar a la línea base porque corresponden a un evento conocido (fuga, intervención, reparación). Los entrega el port `KnownEventsProvider.GetKnownEvents(point, from, to)`.
 
-- **Hoy**: `infrastructure/knownevents.StaticProvider`, una lista en código por punto (`staticEvents`), con fechas en hora de Bogotá. Para el 11556 son los eventos de la tabla `PERIODOS` del notebook del analista: el periodo ambiguo, E1 (y extendido), E2, E3, E4 y E5. **No** incluye R1–R7 ni "Nuevo": son comportamiento normal.
-- **Después**: el módulo de alertas implementará el mismo port con un adapter en `internal/bootstrap`; el cálculo no cambia.
+- **Lista estática**: `infrastructure/knownevents.StaticProvider`, una lista en código por punto (`staticEvents`), con fechas en hora de Bogotá. Para el 11556 son los eventos de la tabla `PERIODOS` del notebook del analista: el periodo ambiguo, E1 (y extendido), E2, E3, E4 y E5. **No** incluye R1–R7 ni "Nuevo": son comportamiento normal.
+- **Alertas**: `infrastructure/persistence/repositories.AlertEventsReader` lee `alerts` (tabla de Alert Management) con su propio modelo, solo lectura. Excluye **todas** las alertas del punto, cualquiera sea su clasificación (Confirmada, Falsa alerta o Sin clasificar), en `[started_at, ended_at)`; una alerta ACTIVA se excluye hasta el fin del rango consultado. Etiqueta del intervalo: `ALR-000123 (FUGA_CONFIRMADA_CAMPO)` (etiqueta, o clasificación, o `SIN_CLASIFICAR`). En cada recálculo (semanal, o diario con confianza `LOW`) se consulta de nuevo, así que las alertas nuevas entran solas.
+- **Composición**: `internal/bootstrap/known_events.go` une ambas con `knownevents.CompositeProvider` (si una falla, falla todo). Si la tabla `alerts` no existe al arrancar, solo la lista estática. Alert Management no sabe que Baseline existe.
 
 Reglas del cálculo (`RobustBaselineEstimator.EstimateExcluding`, `ExclusionPolicy.ApplyWithKnown`):
 
@@ -128,7 +129,7 @@ Un valor inválido se ignora con `Warn` y se usa el default.
 
 ## Aislamiento
 
-`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing` ni `shared/eventbus`. Solo `shared/{logger, errors, features}`. Hoy **no expone contrato público** a otros módulos: la fachada y el replayer se retiraron.
+`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing`, `modules/alert_management` ni `shared/eventbus`. Lee `raw_measurements`, `devices` y `alerts` con modelos propios. Solo `shared/{logger, errors, features}`. Hoy **no expone contrato público** a otros módulos: la fachada y el replayer se retiraron.
 
 ## Simulación de versiones (`ReplayService`)
 

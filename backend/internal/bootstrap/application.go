@@ -20,10 +20,21 @@ type Application struct {
 }
 
 // NewApplication cablea los módulos habilitados en orden de arranque: Baseline,
-// Processing, Rule Engine (suscripción + HTTP de umbrales + catch-up horario), DataOS, Callback y Dashboard. Cada constructor migra su propio
+// Processing, Rule Engine (suscripción + HTTP de umbrales + catch-up horario),
+// Alert Management (migración antes de Baseline; suscripción, /api/alerts, catch-up y publicación de avisos), DataOS, Callback y Dashboard. Cada constructor migra su propio
 // esquema (Baseline antes que Processing, que lee sus tablas).
 func NewApplication(platform *Platform, modules ModuleSet) (*Application, error) {
 	app := &Application{Modules: modules}
+
+	// Alert Management migra primero: crea alerts, que Baseline lee (con su
+	// propio modelo) para excluir las alertas confirmadas de la línea base.
+	var alerts *AlertManagementModule
+	if modules.Has(ModuleAlertManagement) {
+		var err error
+		if alerts, err = NewAlertManagementModule(platform); err != nil {
+			return nil, fmt.Errorf("módulo %s: %w", ModuleAlertManagement, err)
+		}
+	}
 
 	if modules.Has(ModuleBaseline) {
 		m, err := NewBaselineModule(platform)
@@ -51,6 +62,12 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 		m.SubscribeIndicatorEvaluated()
 		app.routes = append(app.routes, m.RegisterRoutes)
 		app.runners = append(app.runners, Runner{Name: "catch-up del rule engine", Start: m.NewScheduler().Start})
+	}
+
+	if alerts != nil {
+		alerts.SubscribeLevelEvaluated()
+		app.routes = append(app.routes, alerts.RegisterRoutes)
+		app.runners = append(app.runners, alerts.Runners()...)
 	}
 
 	if modules.Has(ModuleDataOS) {

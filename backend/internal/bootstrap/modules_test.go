@@ -52,6 +52,16 @@ func TestParseModules(t *testing.T) {
 		}
 	})
 
+	t.Run("alert_management arranca después de rule_engine", func(t *testing.T) {
+		set, err := ParseModules("alert_management,rule_engine,processing,baseline")
+		if err != nil {
+			t.Fatalf("error inesperado: %v", err)
+		}
+		if got, want := set.String(), "baseline,processing,rule_engine,alert_management"; got != want {
+			t.Fatalf("set = %q, se esperaba %q", got, want)
+		}
+	})
+
 	errorCases := []struct {
 		name string
 		raw  string
@@ -59,6 +69,7 @@ func TestParseModules(t *testing.T) {
 		{"módulo desconocido", "callback,reports"},
 		{"callback y dataos a la vez", "callback,dataos,dashboard"},
 		{"rule_engine sin processing", "baseline,rule_engine"},
+		{"alert_management sin rule_engine", "baseline,processing,alert_management"},
 		{"solo separadores", ",,"},
 	}
 
@@ -81,6 +92,9 @@ func TestModuleSetHasHTTP(t *testing.T) {
 		{"dashboard", true},
 		{"baseline", false},
 		{"dataos,baseline", false},
+		// rule_engine y alert_management exponen /api/rule-engine y /api/alerts.
+		{"baseline,processing,rule_engine", true},
+		{"baseline,processing,rule_engine,alert_management", true},
 	}
 
 	for _, tt := range tests {

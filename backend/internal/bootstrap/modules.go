@@ -17,12 +17,16 @@ const (
 	ModuleBaseline   Module = "baseline"    // scheduler de recálculo de líneas base
 	ModuleProcessing Module = "processing"  // evaluación horaria del índice I; requiere baseline
 	ModuleRuleEngine Module = "rule_engine" // interpreta processing.indicator_evaluated con umbrales; requiere processing
-	ModuleDataOS     Module = "dataos"      // ingesta de contingencia: consulta programada a DataOS
-	ModuleCallback   Module = "callback"    // ingesta principal: POST /ingestion/callback
-	ModuleDashboard  Module = "dashboard"   // API HTTP de solo lectura: GET /api/dashboard/*
+	// ModuleAlertManagement convierte rule_engine.level_evaluated en alertas
+	// (/api/alerts, catch-up) y publica alert_management.alert_notification;
+	// requiere rule_engine.
+	ModuleAlertManagement Module = "alert_management"
+	ModuleDataOS          Module = "dataos"    // ingesta de contingencia: consulta programada a DataOS
+	ModuleCallback        Module = "callback"  // ingesta principal: POST /ingestion/callback
+	ModuleDashboard       Module = "dashboard" // API HTTP de solo lectura: GET /api/dashboard/*
 )
 
-var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleRuleEngine, ModuleDataOS, ModuleCallback, ModuleDashboard}
+var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleRuleEngine, ModuleAlertManagement, ModuleDataOS, ModuleCallback, ModuleDashboard}
 
 // DefaultModules se usa cuando AGATHA_MODULES está vacía. processing no entra:
 // se habilita a mano, después de cargar el histórico de Baseline.
@@ -38,6 +42,7 @@ type ModuleSet map[Module]bool
 // mayúsculas, ignorando espacios y repetidos) y valida sus dependencias:
 //   - processing requiere baseline (lee sus tablas, que migra Baseline);
 //   - rule_engine requiere processing (sin él no le llega ningún evento);
+//   - alert_management requiere rule_engine (consume rule_engine.level_evaluated);
 //   - callback y dataos son excluyentes (duplicarían raw_measurements).
 //
 // Una lista vacía equivale a DefaultModules.
@@ -67,6 +72,9 @@ func ParseModules(raw string) (ModuleSet, error) {
 	if set.Has(ModuleRuleEngine) && !set.Has(ModuleProcessing) {
 		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleRuleEngine, ModuleProcessing)
 	}
+	if set.Has(ModuleAlertManagement) && !set.Has(ModuleRuleEngine) {
+		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleAlertManagement, ModuleRuleEngine)
+	}
 	if set.Has(ModuleCallback) && set.Has(ModuleDataOS) {
 		return nil, fmt.Errorf("%w: %s y %s no pueden correr a la vez (duplicarían raw_measurements)",
 			ErrInvalidModules, ModuleCallback, ModuleDataOS)
@@ -79,7 +87,9 @@ func ParseModules(raw string) (ModuleSet, error) {
 func (s ModuleSet) Has(m Module) bool { return s[m] }
 
 // HasHTTP indica si algún módulo habilitado expone rutas HTTP.
-func (s ModuleSet) HasHTTP() bool { return s.Has(ModuleCallback) || s.Has(ModuleDashboard) }
+func (s ModuleSet) HasHTTP() bool {
+	return s.Has(ModuleCallback) || s.Has(ModuleDashboard) || s.Has(ModuleRuleEngine) || s.Has(ModuleAlertManagement)
+}
 
 // String devuelve los módulos habilitados en orden de arranque.
 func (s ModuleSet) String() string {

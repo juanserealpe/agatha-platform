@@ -11,10 +11,10 @@ import (
 // intervenciones, reparaciones) cuyos intervalos no deben usarse para calcular
 // la línea base.
 //
-// Hoy lo implementa una lista estática en código
-// (infrastructure/knownevents). Cuando exista el módulo de alertas, su
-// adapter en internal/bootstrap reemplaza esa implementación sin tocar el
-// cálculo.
+// Lo implementan la lista estática en código (infrastructure/knownevents) y
+// AlertEventsReader (todas las alertas del punto, leídas de alerts con modelo
+// propio). Bootstrap
+// las une con knownevents.CompositeProvider.
 type KnownEventsProvider interface {
 	// GetKnownEvents devuelve los eventos del punto que se solapan con
 	// [from, to), en UTC y ordenados por From. Sin eventos ⇒ lista vacía.

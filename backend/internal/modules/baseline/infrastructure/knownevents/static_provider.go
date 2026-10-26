@@ -1,6 +1,6 @@
 // Package knownevents implementa repositories.KnownEventsProvider con una
-// lista estática en código. Es provisional: la reemplazará el adapter del
-// módulo de alertas.
+// lista estática en código (eventos del estudio del analista, anteriores a las
+// alertas) y con CompositeProvider, que la une a las alertas.
 package knownevents
 
 import (

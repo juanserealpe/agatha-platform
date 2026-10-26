@@ -22,4 +22,6 @@ const (
 	CodePersistingThresholds      ErrorCode = "PERSISTING_THRESHOLDS"
 	CodeConsultingRuleEvaluations ErrorCode = "CONSULTING_RULE_EVALUATIONS"
 	CodePersistingRuleEvaluations ErrorCode = "PERSISTING_RULE_EVALUATIONS"
+	CodeConsultingAlerts          ErrorCode = "CONSULTING_ALERTS"
+	CodePersistingAlerts          ErrorCode = "PERSISTING_ALERTS"
 )

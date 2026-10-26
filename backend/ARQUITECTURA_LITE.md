@@ -47,7 +47,8 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 |---|---|---|
 | `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy (Processing evalúa por scheduler, no por evento) |
 | `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta 24 h `CALCULATED`, reenvía 24 h `NO_CALCULABLE`) |
-| `rule_engine.level_evaluated` (v3, aditiva sobre v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Ninguno hoy (Alert Management) |
+| `rule_engine.level_evaluated` (v3, aditiva sobre v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Alert Management (suscripción `alert_management.level_evaluated` → `ProcessingService.Process`; duplicados por `(punto, evento, evaluated_at)` se ignoran) |
+| `alert_management.alert_notification` (v1) | Alert Management (post-commit; **cada** mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`; no en backfill ni reprocesos; `late` marca horas con más de `late_notification_max_hours` de atraso) | Ninguno todavía: lo consumirá el módulo de notificaciones (web, push), idempotente por `message_id`. Sin suscriptores es un no-op |
 
 ## Errors (`shared/errors`)
 
@@ -160,7 +161,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 **Responsabilidad**: mantener por dispositivo, versionada en el tiempo, la línea base estadística (señal: `mediana_B2`, `θ_D = P90_B2`, `P90_Planitud`; componentes: mediana y MAD de D, P, Ex en 6 h/24 h y C en 24 h) con estimación iterativa que excluye periodos anómalos (`I(24 h) ≥ 0,18`, tope 40 %, máx. 5 pasadas). Detalle en `modules/baseline/BASELINE_README.md`.
 
-**Eventos conocidos**: los intervalos de fugas/intervenciones conocidas se excluyen siempre del cálculo (además de lo que marca el barrido) y la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`. Los entrega el port `KnownEventsProvider`; hoy es una lista **estática en código** (`infrastructure/knownevents`, solo punto 11556), a reemplazar por un adapter del módulo de alertas en `internal/bootstrap`.
+**Eventos conocidos**: los intervalos de fugas/intervenciones conocidas se excluyen siempre del cálculo (además de lo que marca el barrido) y la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`. Los entrega el port `KnownEventsProvider`, que `internal/bootstrap/known_events.go` arma con `knownevents.CompositeProvider`: la lista **estática** de `infrastructure/knownevents` (eventos del estudio del analista, solo 11556) y, si la tabla `alerts` existe, `AlertEventsReader` (modelo de lectura propio de `alerts`: **todas** las alertas del punto, cualquiera sea su clasificación; las activas hasta el fin del rango). Alert Management no sabe que Baseline existe.
 
 **Contrato público**: ninguno por ahora. La fachada (`Facade.GetEffectiveBaseline`) y el `Replayer` se retiraron en el refactor de octubre de 2026; el módulo solo se usa desde su scheduler y `cmd/baseline`.
 
@@ -170,7 +171,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `cmd/baseline -point -asof [-dry-run] [-json]` | Recálculo manual / validación con el analista | `RecalculationService.Recalculate` |
 | `cmd/baseline -point -backfill [-from] [-asof] [-dry-run] [-json]` | Histórico retroactivo: persiste, en una TX, las versiones que habrían existido desde el primer registro (política real, `created_at = valid_from`). Solo en un punto sin versiones | `BackfillService.Backfill` → `ReplayService.SimulateVersions` + `SaveHistory` |
 
-**Aislamiento**: solo LEE `raw_measurements` y `devices` (modelo de lectura propio, sin FK a tablas de Ingestion) y ESCRIBE `baseline_versions` / `baseline_component_stats`. No importa `ingestion`, `processing` ni `shared/eventbus` (`depguard` `baseline-isolation`). No publica ni consume eventos.
+**Aislamiento**: solo LEE `raw_measurements` y `devices` (de Ingestion) y `alerts` (de Alert Management), con modelos de lectura propios y sin FK, y ESCRIBE `baseline_versions` / `baseline_component_stats`. No importa `ingestion`, `processing`, `alert_management` ni `shared/eventbus` (`depguard` `baseline-isolation`). No publica ni consume eventos.
 
 **Errores**: `ErrInvalidMeasuringPointID`, `ErrConsultingHistory` (`CONSULTING_MEASUREMENTS`), `ErrConsultingBaseline`, `ErrPersistingBaseline`, `ErrBaselineConcurrentUpdate` (no-op), `ErrConsultingKnownEvents` (`CONSULTING_BASELINE`: sin la lista de eventos no se calcula), `ErrBaselineHistoryExists` (`INVALID_INPUT`: backfill sobre un punto con versiones). `INSUFFICIENT_HISTORY` y los flags no son errores.
 
@@ -222,6 +223,25 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 ---
 
+# Modulo: Alert Management
+
+**Responsabilidad**: convertir cada hora de `rule_engine.level_evaluated` (v3) en el ciclo de la alerta para el operador (web) y el usuario de campo (app): una alerta ACTIVA por (punto, evento) con ID `ALR-000123`, nivel actual y máximo, colores (tramos) con sus mensajes, reactivación dentro de 24 h si está Sin clasificar, bajada de un nivel tras 6 h (el rojo sin clasificar no baja), qué mensajes son notificaciones (los publica como `alert_management.alert_notification` para el módulo de notificaciones: **no entrega avisos**, sin push ni FCM), y la gestión del operador (clasificar → etiquetar, observaciones; inmutable, idempotente por `client_record_id`, conflictos RN-18). **No recalcula niveles ni cambia umbrales** (son del Rule Engine). Especificación: `backend/AGATHA_Modulo_Alert_Management_v3.3.docx` (sin fotos). Detalle en `modules/alert_management/README.MD`.
+
+| Trigger | Accion | Componente |
+|---|---|---|
+| Evento `rule_engine.level_evaluated` (suscripción `alert_management.level_evaluated`) | Bajo lock por punto: política vigente + estado + alerta activa → `Decide` (puro: transiciones + reglas de mensaje en orden) → UNA TX (alerta, colores, mensajes, estado) → después del commit publica cada mensaje `NOTIFICACION` nuevo (`alert_management.alert_notification`). Hora ≤ última procesada ⇒ nada. Un salto de `evaluated_at` se procesa como horas `NO_CALCULABLE` | `LevelEvaluatedSubscriber` → `ProcessingService.Process` (`LIVE`) |
+| Catch-up (al arrancar + minuto `ALERT_MANAGEMENT_CATCHUP_MINUTE`, 55) | Horas de `rule_evaluations` posteriores a la última procesada, publicando avisos (`CATCH_UP`; con más de `late_notification_max_hours` de atraso salen con `late = true`). Punto sin estado ⇒ se saltea (espera a `-backfill`) | `CatchUpScheduler` → `ReplayService.CatchUp` |
+| `cmd/alert_management -backfill [-point] [-from] [-to] [-rebuild]` | Histórico desde `rule_evaluations` con el MISMO caso de uso, sin publicar avisos (`BACKFILL`); idempotente; `-rebuild` borra todo lo del punto (bloqueado en production) | `ReplayService.Backfill` |
+| `/api/alerts/*` | Historial (filtros, 10 por página), `export.xlsx` (≤ 10.000), `pending`, `active`, `{id}` (o `ALR-…`), `devices/{id}/alerts`, `POST {id}/classification|label|observations`, `policies` (+ `history`). **Sin auth todavía**: `origin` (+ `device_identifier` desde la app) y `created_by` en el cuerpo | `AlertHandler` → `QueryService`, `ManagementService`, `PolicyService` |
+
+**Inmutabilidad**: clasificación y etiqueta se escriben con `UPDATE … WHERE classification IS NULL` (o `label IS NULL`); el trigger `trg_alerts_management_immutable` rechaza cualquier cambio posterior y todo `DELETE` (salvo `SET LOCAL agatha.alerts_rebuild = 'on'` del `-rebuild`). El procesamiento horario solo escribe sus columnas (`ProcessingColumns`).
+
+**Aislamiento**: define su propio `LevelNotice`; no importa `rule_engine` (ni su `contract/`), `processing`, `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `alert-management-isolation`). Lee `rule_evaluations` + `rule_threshold_versions` y `devices` con modelos propios. La traducción del evento, la suscripción y el adaptador `NotificationPublisher` → bus viven en `internal/bootstrap/alert_management.go`. No expone fachada; no conoce a Baseline (Baseline lee `alerts` por su cuenta).
+
+**Inicialización**: `rule_engine -backfill` → `alert_management -backfill` → habilitar `alert_management` en `AGATHA_MODULES` (requiere `rule_engine`).
+
+---
+
 # Composition Root y Despliegue
 
 `internal/bootstrap` arma cada módulo sobre una `Platform` compartida (`NewPlatform`: `.env` + `DATABASE_URL` + bus en memoria). Cada módulo tiene su constructor y ninguno conoce a los demás:
@@ -234,6 +254,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
 | `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + `BusEventPublisher`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
 | `NewRuleEngineModule(platform)` | Rule Engine | `persistence.Migrate` (AutoMigrate + `btree_gist` + `EXCLUDE` idempotente) + seed de la v1 + repos + `busLevelEventPublisher`. Expone `Thresholds`, `Simulator`, `Evaluator`, `Backfiller`, `CatchUp` y `NewScheduler` (catch-up horario, Runner de `NewApplication`); `.SubscribeIndicatorEvaluated()` suscribe a `processing.indicator_evaluated` (traduce contrato → Notice); `.RegisterRoutes(mux)` registra `/api/rule-engine/*` (la simulación usa repos en memoria vía `memorySandbox`). Lee `AGATHA_ENV`, `RULE_ENGINE_BACKFILL_BATCH_SIZE` y `RULE_ENGINE_CATCHUP_MINUTE`. |
+| `NewAlertManagementModule(platform)` | Alert Management | `MigrateAlertManagement` (AutoMigrate + `code` GENERATED + índice único parcial + CHECK de gestión + `EXCLUDE` de políticas + trigger) + seed (política global desde 2000-01-01) + repos GORM + `busAlertNotificationPublisher` (port `NotificationPublisher` → bus). Expone `Processor`, `Replay`; `.SubscribeLevelEvaluated()`, `.RegisterRoutes(mux)` (`/api/alerts/*`) y `.Runners()` (catch-up). `NewApplication` lo construye ANTES de Baseline (crea `alerts`, que Baseline lee). Lee `AGATHA_ENV`, `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE`, `ALERT_MANAGEMENT_CATCHUP_MINUTE`. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
@@ -241,12 +262,13 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing` y `rule_engine` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Baseline → Processing → Rule Engine → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`/`dashboard`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `alert_management`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing`, `rule_engine` y `alert_management` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing`, que `alert_management` requiera `rule_engine` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Alert Management migra primero → Baseline → Processing → Rule Engine → Alert Management (suscripción) → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`, `dashboard`, `rule_engine`, `alert_management`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
 | `cmd/processing` | Evaluación a demanda de un punto (`-point`) o carga del histórico de evaluaciones (`-backfill`, `-from`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/rule_engine` | Histórico de interpretaciones (`-backfill`, `-point`, `-from`, `-to`, `-rebuild`); nunca publica; sale al terminar. |
+| `cmd/alert_management` | Histórico de alertas (`-backfill`, `-point`, `-from`, `-to`, `-rebuild`); nunca publica avisos; sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo); sale al terminar. |
 
 **Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
@@ -347,3 +369,10 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `indicator_value` (numeric), `raw_level`, `computed_level`, `level` (`NORMAL`|`AMARILLO`|`NARANJA`|`ROJO`), `rule` (`THRESHOLD`|`PERSISTENCE`|`HOLD`|`NONE`), `in_episode`, `hours_above`, `hours_in_level`, `threshold_version_id` (FK → `rule_threshold_versions`), `low_confidence`, `episode_event` (`OPENED`|`CLEARED`|`NONE`), `reasons` (jsonb), `run_amarillo`, `run_naranja`, `below_run` (int, default 0), `d_pl` (double precision NULL), `created_at`. CHECKs en los enums. Una fila por hora **calculada** de 24 h; inmutable (solo `-rebuild` fuera de producción la borra).
 
 > Ambas las crea `persistence.Migrate` en `NewRuleEngineModule` (AutoMigrate + SQL idempotente para `btree_gist` y el `EXCLUDE`).
+
+### 10. Alert Management (`alerts`, `alert_level_segments`, `alert_messages`, `alert_observations`, `alert_processing_state`, `alert_policy_versions`)
+
+- `alerts`: `code` GENERATED (`ALR-` + id con 6 dígitos), `state` `ACTIVA|FINALIZADA` (índice único parcial `ux_alerts_one_active` por punto y evento), `started_at`/`opened_at`/`ended_at`, `current_level`/`max_level`, contadores (`hours_calculated`, `hours_no_data`, `below_level_hours`), `runtime` (jsonb, memoria de las reglas de mensaje), trazabilidad (`policy_version_id`, `threshold_version_id_at_open`, `opened_by_rule_evaluation_id`), gestión (`management_status`, `classification*`, `label*`, con `*_client_record_id`) con CHECK de coherencia y trigger de inmutabilidad, `source` `LIVE|CATCH_UP|BACKFILL`.
+- `alert_level_segments` (colores: `seq`, `opened_by` `OPEN|UP|DOWN|REACTIVATION`, `level`, vigencia), `alert_messages` (solo se agrega; `UNIQUE (alert_id, evaluated_at, code)`; `kind`, texto renderizado, `params`, `catalog_version`; índice `ix_alert_messages_kind`: las `NOTIFICACION` son la fuente de verdad de `alert_management.alert_notification`), `alert_observations` (solo se agrega; `client_record_id` uuid único). FK con `ON DELETE CASCADE` (solo la usa `-rebuild`).
+- `alert_processing_state` (PK punto + evento: `last_evaluated_at`, `pending_run_started_at`, `last_alert_id`, `last_status`), `alert_policy_versions` (patrón de `rule_threshold_versions`: global con `measuring_point_id` NULL, `EXCLUDE` por `COALESCE(punto, 0)`). Sin FK a tablas de otros módulos.
+
