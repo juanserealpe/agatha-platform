@@ -86,7 +86,7 @@ func TestRuleEngine_EndToEndCrossingTheThreshold(t *testing.T) {
 		MeasuringPointID: point,
 		EventType:        entities.EventTypeLeak,
 		Version:          1,
-		ThresholdParams:  entities.DefaultThresholdParams(),
+		ThresholdParams:  referenceParams(),
 		ValidFrom:        start.Add(-30 * 24 * time.Hour),
 		Reason:           entities.SeedReason,
 		CreatedBy:        entities.SystemCreatedBy,
@@ -185,4 +185,14 @@ func closeBus(t *testing.T, bus *eventbus.InMemoryBus) {
 	if err := bus.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// referenceParams son los parámetros del escenario de referencia de la
+// especificación (amarillo 0,18, salida 0,16): los escenarios del test de punta a punta
+// está escrito sobre esos cortes. La plantilla de producción
+// (entities.DefaultThresholdParams) ya usa amarillo 0,16.
+func referenceParams() entities.ThresholdParams {
+	p := entities.DefaultThresholdParams()
+	p.Amarillo = 0.18
+	return p
 }

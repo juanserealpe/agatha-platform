@@ -20,7 +20,7 @@ type Application struct {
 }
 
 // NewApplication cablea los módulos habilitados en orden de arranque: Baseline,
-// Processing, Rule Engine, DataOS, Callback y Dashboard. Cada constructor migra su propio
+// Processing, Rule Engine (suscripción + HTTP de umbrales + catch-up horario), DataOS, Callback y Dashboard. Cada constructor migra su propio
 // esquema (Baseline antes que Processing, que lee sus tablas).
 func NewApplication(platform *Platform, modules ModuleSet) (*Application, error) {
 	app := &Application{Modules: modules}
@@ -49,6 +49,8 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 			return nil, fmt.Errorf("módulo %s: %w", ModuleRuleEngine, err)
 		}
 		m.SubscribeIndicatorEvaluated()
+		app.routes = append(app.routes, m.RegisterRoutes)
+		app.runners = append(app.runners, Runner{Name: "catch-up del rule engine", Start: m.NewScheduler().Start})
 	}
 
 	if modules.Has(ModuleDataOS) {

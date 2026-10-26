@@ -124,7 +124,7 @@ func TestThresholdParams_CutAndExitPerLevel(t *testing.T) {
 		level     Level
 		cut, exit float64
 	}{
-		{LevelAmarillo, 0.18, 0.16},
+		{LevelAmarillo, 0.16, 0.14},
 		{LevelNaranja, 0.25, 0.23},
 		{LevelRojo, 0.35, 0.33},
 		{LevelNormal, 0, 0},
@@ -139,5 +139,97 @@ func TestThresholdParams_CutAndExitPerLevel(t *testing.T) {
 	}
 	if p.ExitCutoff() != p.ExitFor(LevelAmarillo) {
 		t.Fatal("ExitCutoff es la salida de AMARILLO")
+	}
+}
+
+func TestThresholdParams_ValidatePlanitudAndWindow(t *testing.T) {
+	ok := DefaultThresholdParams()
+	f := func(v float64) *float64 { return &v }
+
+	tests := []struct {
+		name   string
+		mutate func(p *ThresholdParams)
+		want   error
+	}{
+		{"plantilla", func(*ThresholdParams) {}, nil},
+		{"planitud sin d_pl_min", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud = true }, domain.ErrPlanitudConfig},
+		{"d_pl_min > 100", func(p *ThresholdParams) { p.DPlMin = f(101) }, domain.ErrPlanitudConfig},
+		{"planitud válida", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, f(12) }, nil},
+		{"modo desconocido", func(p *ThresholdParams) { p.PersistenceMode = "ROLLING" }, domain.ErrPersistenceConfig},
+		{"WINDOW sin horas", func(p *ThresholdParams) { p.PersistenceMode = PersistenceWindow }, domain.ErrPersistenceConfig},
+		{"WINDOW min > ventana", func(p *ThresholdParams) {
+			p.PersistenceMode, p.PersistenceWindowHours, p.PersistenceMinHours = PersistenceWindow, intPtr(6), intPtr(7)
+		}, domain.ErrPersistenceConfig},
+		{"WINDOW válida", func(p *ThresholdParams) {
+			p.PersistenceMode, p.PersistenceWindowHours, p.PersistenceMinHours = PersistenceWindow, intPtr(24), intPtr(18)
+		}, nil},
+		{"ventana 0 en STRICT", func(p *ThresholdParams) { p.PersistenceWindowHours = intPtr(0) }, domain.ErrPersistenceConfig},
+	}
+	for _, tt := range tests {
+		p := ok
+		tt.mutate(&p)
+		if got := p.Normalize().Validate(); got != tt.want {
+			t.Errorf("%s: Validate() = %v, se esperaba %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestThresholdParams_NormalizeModeAndDPlMin(t *testing.T) {
+	p := DefaultThresholdParams()
+	p.PersistenceMode = " window "
+	v := 12.345
+	p.DPlMin = &v
+	n := p.Normalize()
+	if n.PersistenceMode != PersistenceWindow || *n.DPlMin != 12.35 {
+		t.Fatalf("mode=%q d_pl_min=%v; se esperaba WINDOW y 12.35", n.PersistenceMode, *n.DPlMin)
+	}
+	if v != 12.345 {
+		t.Fatal("Normalize no debe modificar el puntero original")
+	}
+
+	p.PersistenceMode = ""
+	if p.Normalize().PersistenceMode != PersistenceStrict {
+		t.Fatal("modo vacío ⇒ STRICT (versiones previas a la columna)")
+	}
+}
+
+func TestThresholdParams_EscalationHoursByMode(t *testing.T) {
+	p := DefaultThresholdParams()
+	if *p.EscalationHours(LevelAmarillo) != 12 || *p.EscalationHours(LevelNaranja) != 6 {
+		t.Fatal("STRICT usa escalate_*_after_hours")
+	}
+
+	p.PersistenceMode, p.PersistenceWindowHours, p.PersistenceMinHours = PersistenceWindow, intPtr(24), intPtr(18)
+	p.EscalateNaranjaAfterHours = nil
+	if *p.EscalationHours(LevelAmarillo) != 18 || p.EscalationHours(LevelNaranja) != nil {
+		t.Fatal("WINDOW usa persistence_min_hours y respeta el escalamiento desactivado")
+	}
+	if p.HistoryDepth() != 25 {
+		t.Fatalf("K = %d, se esperaba 25 (ventana 24 + 1)", p.HistoryDepth())
+	}
+}
+
+func TestThresholdPatch_NewFields(t *testing.T) {
+	base := DefaultThresholdParams()
+	min := 12.0
+	got := ThresholdPatch{
+		ConfirmNaranjaWithPlanitud: Some(true),
+		DPlMin:                     Some(&min),
+		PersistenceMode:            Some(PersistenceWindow),
+		PersistenceWindowHours:     Some(intPtr(24)),
+		PersistenceMinHours:        Some(intPtr(18)),
+	}.ApplyTo(base)
+
+	if !got.ConfirmNaranjaWithPlanitud || *got.DPlMin != 12 || got.PersistenceMode != PersistenceWindow ||
+		*got.PersistenceWindowHours != 24 || *got.PersistenceMinHours != 18 {
+		t.Fatalf("parche no aplicado: %+v", got)
+	}
+	min = 99
+	if *got.DPlMin != 12 {
+		t.Fatal("ApplyTo comparte el puntero de d_pl_min con el parche")
+	}
+
+	if again := (ThresholdPatch{}).ApplyTo(got); !again.ConfirmNaranjaWithPlanitud || again.PersistenceMode != PersistenceWindow {
+		t.Fatal("un parche vacío copia los campos nuevos de la base")
 	}
 }

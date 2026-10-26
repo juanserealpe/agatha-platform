@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/application/services"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/entities"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/repositories"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/persistence/memory"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
@@ -173,6 +175,40 @@ func TestCreateThresholdVersion_FutureValidFromKeepsCurrentUntilThen(t *testing.
 	}
 }
 
+// Caso 4: el segundo POST concurrente (lock NOWAIT ocupado, UNIQUE o EXCLUDE) es 409.
+func TestCreateThresholdVersion_ConcurrentWriteIsConflict(t *testing.T) {
+	repo := memory.NewThresholdRepository(seedVersion(pointA, 1, day1, nil, entities.DefaultThresholdParams()))
+	repo.FailNextTransaction = fmt.Errorf("lock ocupado: %w", repositories.ErrConflict)
+
+	_, err := newThresholdService(repo).CreateThresholdVersion(context.Background(), services.CreateThresholdVersionCommand{
+		PointID: pointA, Patch: entities.ThresholdPatch{Amarillo: entities.Some(0.16)}, Reason: "r", CreatedBy: "c",
+	})
+	if !errors.Is(err, domain.ErrThresholdConflict) {
+		t.Fatalf("err = %v, se esperaba ErrThresholdConflict", err)
+	}
+	if got := repo.All(); len(got) != 1 || got[0].ValidTo != nil {
+		t.Fatal("un conflicto no escribe nada")
+	}
+}
+
+// Caso 1 + columnas v2: el parche de amarillo copia los campos nuevos de la vigente.
+func TestCreateThresholdVersion_AmarilloV2KeepsNewColumns(t *testing.T) {
+	base := entities.DefaultThresholdParams()
+	base.PersistenceMode = entities.PersistenceWindow
+	base.PersistenceWindowHours, base.PersistenceMinHours = intPtr(24), intPtr(18)
+	repo := memory.NewThresholdRepository(seedVersion(pointA, 1, day1, nil, base))
+
+	v, err := newThresholdService(repo).CreateThresholdVersion(context.Background(), services.CreateThresholdVersionCommand{
+		PointID: pointA, Patch: entities.ThresholdPatch{Amarillo: entities.Some(0.16)}, Reason: "amarillo a 0,16", CreatedBy: "c",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Amarillo != 0.16 || v.ExitCutoff() != 0.14 || !v.IsWindow() || *v.PersistenceMinHours != 18 {
+		t.Fatalf("versión = %+v", v.ThresholdParams)
+	}
+}
+
 func TestCreateThresholdVersion_StorageFailureIsPersistingError(t *testing.T) {
 	repo := memory.NewThresholdRepository(seedVersion(pointA, 1, day1, nil, entities.DefaultThresholdParams()))
 	repo.FailNextTransaction = errors.New("db caída")
@@ -295,4 +331,14 @@ func TestEnsureInitialVersion_CreatesV1FromNowOnlyOnce(t *testing.T) {
 		all[0].ThresholdParams.Amarillo != entities.DefaultThresholdParams().Amarillo {
 		t.Fatalf("versión inicial = %+v", all)
 	}
+}
+
+// referenceParams son los parámetros del escenario de referencia de la
+// especificación (amarillo 0,18, salida 0,16): los escenarios de este archivo
+// están escritos sobre esos cortes. La plantilla de producción
+// (entities.DefaultThresholdParams) ya usa amarillo 0,16.
+func referenceParams() entities.ThresholdParams {
+	p := entities.DefaultThresholdParams()
+	p.Amarillo = 0.18
+	return p
 }

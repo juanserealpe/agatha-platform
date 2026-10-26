@@ -5,6 +5,7 @@ type ErrorCode string
 const (
 	CodeNotFound                  ErrorCode = "NOT_FOUND"
 	CodeInvalidInput              ErrorCode = "INVALID_INPUT"
+	CodeConflict                  ErrorCode = "CONFLICT"
 	CodeFutureDate                ErrorCode = "FUTURE_DATE"
 	CodeAlreadyIngested           ErrorCode = "ALREADY_INGESTED"
 	CodeBeforeInitialDate         ErrorCode = "BEFORE_INITIAL_DATE"

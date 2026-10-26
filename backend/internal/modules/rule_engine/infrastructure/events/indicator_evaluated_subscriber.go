@@ -29,7 +29,7 @@ func NewIndicatorEvaluatedSubscriber(evaluator IndicatorEvaluator, logger *logge
 
 // Handle interpreta el indicador recibido. Un error se registra y no se
 // reintenta: el evento es una pista y feature_evaluations la fuente de verdad
-// (el backfill puede completar la hora perdida).
+// (el catch-up horario completa la hora perdida).
 func (s *IndicatorEvaluatedSubscriber) Handle(ctx context.Context, notice services.IndicatorEvaluatedNotice) {
 	fields := []interface{}{
 		"measuring_point_id", notice.MeasuringPointID,

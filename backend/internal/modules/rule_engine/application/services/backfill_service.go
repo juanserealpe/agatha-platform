@@ -165,6 +165,8 @@ func (s *BackfillService) backfillPoint(ctx context.Context, pointID int64, from
 				EvaluatedAt:      h.EvaluatedAt,
 				Status:           StatusCalculated,
 				I:                &i,
+				DPl:              h.DPl,
+				DPlLoaded:        true,
 				LowConfidence:    h.LowConfidence,
 				Trigger:          TriggerBackfill,
 			})

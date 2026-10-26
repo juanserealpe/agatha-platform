@@ -38,26 +38,31 @@ func noCalculable(pointID int64, at time.Time) services.IndicatorEvaluatedNotice
 
 func f64(v float64) *float64 { return &v }
 
+func intPtr(v int) *int { return &v }
+
 type fixture struct {
 	thresholds  *memory.ThresholdRepository
 	evaluations *memory.RuleEvaluationRepository
 	publisher   *fakePublisher
+	source      *fakeSource
 	svc         *services.EvaluationService
 }
 
 func newFixture(versions ...entities.ThresholdVersion) *fixture {
 	if len(versions) == 0 {
-		versions = []entities.ThresholdVersion{seedVersion(pointA, 1, day1, nil, entities.DefaultThresholdParams())}
+		versions = []entities.ThresholdVersion{seedVersion(pointA, 1, day1, nil, referenceParams())}
 	}
 	f := &fixture{
 		thresholds:  memory.NewThresholdRepository(versions...),
 		evaluations: memory.NewRuleEvaluationRepository(),
 		publisher:   &fakePublisher{},
+		source:      newSource(),
 	}
 	f.svc = services.NewEvaluationService(
 		f.thresholds,
 		f.evaluations,
 		services.NewThresholdService(f.thresholds, fixedClock(), testLogger()),
+		f.source,
 		f.publisher,
 		fixedClock(),
 		testLogger(),
@@ -177,6 +182,8 @@ func TestEvaluateIndicator_NoCalculableIsNotForwardedWhenLateOrInBackfill(t *tes
 // incluidas las de nivel NORMAL y las de histéresis.
 func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing.T) {
 	f := newFixture()
+	// En vivo el d_pl no viene en el evento: se lee de feature_evaluations.
+	f.source.setDPl(pointA, hour(2), 15)
 
 	// NORMAL, entrada pendiente, abre, sube, histéresis, salida 1/2, cierra, NORMAL.
 	results := f.feed(t, 0.12, 0.19, 0.20, 0.30, 0.17, 0.15, 0.14, 0.10)
@@ -230,6 +237,10 @@ func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing
 		Exit:               contract.LevelCuts{Amarillo: 0.16, Naranja: 0.23, Rojo: 0.33},
 		ThresholdVersionID: rows[2].ThresholdVersionID,
 		HoursAbove:         2,
+		Runs:               contract.LevelRuns{Amarillo: 2},
+		Escalation:         contract.Escalation{AmarilloAfterHours: intPtr(12), NaranjaAfterHours: intPtr(6)},
+		DPl:                f64(15),
+		PersistenceMode:    "STRICT",
 		OccurredAt:         now,
 		SchemaVersion:      contract.SchemaVersion,
 	}
@@ -243,6 +254,39 @@ func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing
 	}
 	if e := f.publisher.events[6]; e.InEpisode || e.HoursAbove != 6 {
 		t.Fatalf("cierre = %+v: hours_above es la duración del episodio, incluida la hora de cierre", e)
+	}
+	// v3: la racha de salida viaja para el aviso "se cerrará si sigue así".
+	if e := f.publisher.events[5]; e.BelowRun != 1 || f.publisher.events[6].BelowRun != 2 {
+		t.Fatalf("below_run = %d/%d; se esperaba 1/2", e.BelowRun, f.publisher.events[6].BelowRun)
+	}
+	if rows[2].DPl == nil || *rows[2].DPl != 15 || rows[0].DPl != nil {
+		t.Fatal("la fila guarda el d_pl leído de feature_evaluations (nil si no hay)")
+	}
+}
+
+func TestEvaluateIndicator_DPlLookupFailureFailsTheHour(t *testing.T) {
+	f := newFixture()
+	f.source.dPlErr = errors.New("caída de la BD")
+
+	_, err := f.svc.EvaluateIndicator(context.Background(), calculated(pointA, hour(0), 0.20))
+	if !errors.Is(err, domain.ErrConsultingIndicators) {
+		t.Fatalf("err = %v; se esperaba ErrConsultingIndicators", err)
+	}
+	if rows := f.evaluations.Rows(pointA); len(rows) != 0 {
+		t.Fatal("sin d_pl no se guarda la hora: el reintento la evalúa completa")
+	}
+}
+
+// Con d_pl ya cargado (backfill, simulación) no se consulta feature_evaluations.
+func TestEvaluateIndicator_UsesLoadedDPl(t *testing.T) {
+	f := newFixture()
+	f.source.dPlErr = errors.New("no debía consultarse")
+
+	n := calculated(pointA, hour(0), 0.20)
+	n.DPl, n.DPlLoaded = f64(9), true
+	r, err := f.svc.EvaluateIndicatorWithoutPublishing(context.Background(), n)
+	if err != nil || r.Evaluation.DPl == nil || *r.Evaluation.DPl != 9 {
+		t.Fatalf("err = %v, d_pl = %v; se esperaba 9", err, r.Evaluation.DPl)
 	}
 }
 
@@ -338,10 +382,10 @@ func TestEvaluateIndicator_NoCalculableGapPausesTheRun(t *testing.T) {
 
 func TestEvaluateIndicator_UsesTheVersionEffectiveAtEvaluatedAt(t *testing.T) {
 	change := hour(2)
-	strict := entities.DefaultThresholdParams()
+	strict := referenceParams()
 	strict.Amarillo, strict.Naranja, strict.Rojo = 0.30, 0.40, 0.50
 	f := newFixture(
-		seedVersion(pointA, 1, day1, &change, entities.DefaultThresholdParams()),
+		seedVersion(pointA, 1, day1, &change, referenceParams()),
 		seedVersion(pointA, 2, change, nil, strict),
 	)
 

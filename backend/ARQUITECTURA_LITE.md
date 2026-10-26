@@ -47,7 +47,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 |---|---|---|
 | `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy (Processing evalúa por scheduler, no por evento) |
 | `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta 24 h `CALCULATED`, reenvía 24 h `NO_CALCULABLE`) |
-| `rule_engine.level_evaluated` (v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Ninguno hoy (Alert Management) |
+| `rule_engine.level_evaluated` (v3, aditiva sobre v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Ninguno hoy (Alert Management) |
 
 ## Errors (`shared/errors`)
 
@@ -57,7 +57,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.
 var ErrCustom = &errors.AppError{Code: errors.CodeNotFound, Message: "recurso no encontrado"}
 ```
 
-**Códigos disponibles**: `NOT_FOUND`, `INVALID_INPUT`, `FUTURE_DATE`, `ALREADY_INGESTED`, `BEFORE_INITIAL_DATE`, `INVALID_MEASURING_POINT_ID`, `CONSULTING_LAST_STATE`, `GETTING_INGESTED_DATA`, `CONSULTING_DEVICES`, `CONSULTING_MEASUREMENTS`, `CONSULTING_BASELINE`, `PERSISTING_BASELINE`, `CONSULTING_EVALUATIONS`, `PERSISTING_EVALUATIONS`, `CONSULTING_THRESHOLDS`, `PERSISTING_THRESHOLDS`, `CONSULTING_RULE_EVALUATIONS`, `PERSISTING_RULE_EVALUATIONS`.
+**Códigos disponibles**: `NOT_FOUND`, `INVALID_INPUT`, `CONFLICT` (409: escritura concurrente, el cliente reintenta), `FUTURE_DATE`, `ALREADY_INGESTED`, `BEFORE_INITIAL_DATE`, `INVALID_MEASURING_POINT_ID`, `CONSULTING_LAST_STATE`, `GETTING_INGESTED_DATA`, `CONSULTING_DEVICES`, `CONSULTING_MEASUREMENTS`, `CONSULTING_BASELINE`, `PERSISTING_BASELINE`, `CONSULTING_EVALUATIONS`, `PERSISTING_EVALUATIONS`, `CONSULTING_THRESHOLDS`, `PERSISTING_THRESHOLDS`, `CONSULTING_RULE_EVALUATIONS`, `PERSISTING_RULE_EVALUATIONS`.
 
 ## Kernel de cálculo (`shared/features`)
 
@@ -202,21 +202,23 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Rule Engine
 
-**Responsabilidad**: interpretar cada hora calculada de I(24 h) con **umbrales versionados por punto** (Amarillo/Naranja/Rojo) y reglas de **persistencia** (sube un nivel por racha) e **histéresis** (salida bajo `amarillo − exit_margin` durante `exit_hours`), guardar una fila por hora en `rule_evaluations` y publicar `rule_engine.level_evaluated` (v2) por **cada** hora de 24 h con `raw_level`, `computed_level` (max(raw, persistencia), sin histéresis), `episode_level`, `episode_event` (`OPENED|CLEARED|NONE`), `reasons[]`, umbrales y salidas por nivel. Las horas `NO_CALCULABLE` no tienen fila (un hueco pausa las rachas, no las reinicia) y se reenvían con `status = NO_CALCULABLE`. El Rule Engine es dueño del **nivel del indicador**; la alerta (estabilización, atención, clasificación) es de Alert Management. Detalle (algoritmo, escenario, contratos) en `modules/rule_engine/RULE_ENGINE_README.MD`.
+**Responsabilidad**: interpretar cada hora calculada de I(24 h) con **umbrales versionados por punto** (Amarillo/Naranja/Rojo) y reglas de **persistencia** (sube un nivel por racha) e **histéresis** (salida bajo `amarillo − exit_margin` durante `exit_hours`), guardar una fila por hora en `rule_evaluations` y publicar `rule_engine.level_evaluated` (v3) por **cada** hora de 24 h con `raw_level`, `computed_level` (max(raw, persistencia), sin histéresis; NARANJA sin confirmar por planitud baja a AMARILLO), `episode_level`, `episode_event` (`OPENED|CLEARED|NONE`), `reasons[]`, umbrales y salidas por nivel, y (v3) `runs`, `escalation`, `below_run`, `d_pl` y `persistence_mode`. Persistencia `STRICT` (racha seguida) o `WINDOW` (horas en ventana móvil) por versión; confirmación opcional de NARANJA con `d_pl` (leído de `feature_evaluations`). Las horas `NO_CALCULABLE` no tienen fila (un hueco pausa las rachas, no las reinicia) y se reenvían con `status = NO_CALCULABLE`. El Rule Engine es dueño del **nivel del indicador**; la alerta (estabilización, atención, clasificación) es de Alert Management. Detalle (algoritmo, escenario, contratos) en `modules/rule_engine/RULE_ENGINE_README.MD`.
 
 | Trigger | Accion | Componente |
 |---|---|---|
 | Evento `processing.indicator_evaluated` (suscripción `rule_engine.indicator_evaluated`) | 24 h `CALCULATED`: versión vigente en `evaluated_at` + últimas K filas → lógica pura → `INSERT … ON CONFLICT DO NOTHING` → post-commit publica `level_evaluated`. 24 h `NO_CALCULABLE`: sin fila, se reenvía. Duplicado ⇒ nada; llegada tardía ⇒ guarda sin publicar | `IndicatorEvaluatedSubscriber` → `EvaluationService.EvaluateIndicator` |
+| Catch-up horario (al arrancar + minuto `RULE_ENGINE_CATCHUP_MINUTE`, 50) | Red de seguridad de la suscripción: interpreta **publicando**, con el MISMO caso de uso, las horas `CALCULATED` de 24 h de `feature_evaluations` posteriores a la última fila de cada punto (lote de Processing insertado en parte, evento perdido, error al consumir). Punto sin filas ⇒ se saltea (espera a `-backfill`) | `CatchUpScheduler` → `CatchUpService.CatchUp` |
 | `cmd/rule_engine -backfill [-point] [-from] [-to] [-rebuild]` | Histórico desde `feature_evaluations` con el MISMO caso de uso sin publicar; idempotente; `-rebuild` bloqueado con `AGATHA_ENV=production` | `BackfillService.Backfill` |
-| (sin HTTP todavía) | `CreateThresholdVersion`, `CreateThresholdVersionBulk`, `GetCurrentThresholds`, `GetThresholdHistory`, `GetThresholdTimeline` | `ThresholdService` |
+| `GET/POST /api/rule-engine/points/{id}/thresholds`, `GET …/history`, `GET …/timeline?from=&to=`, `POST /api/rule-engine/thresholds/bulk` | Consulta y creación de versiones (patch; 400 validación, 409 concurrencia). **Sin auth todavía**: `created_by` en el cuerpo (temporal) | `ThresholdHandler` → `ThresholdService` |
+| `POST /api/rule-engine/points/{id}/thresholds/simulate` | Histórico con parámetros propuestos sobre un sandbox en memoria; no escribe ni publica | `ThresholdHandler` → `SimulationService` |
 
 **Versionado**: solo se agregan versiones; la única modificación es cerrar la abierta (`valid_to`) en la misma TX que crea la nueva (`valid_from >= now`). `EXCLUDE USING gist` impide solapamientos. Excepción documentada: el seed de la v1 (`valid_from` = primera medición del punto), que corre una sola vez con la tabla vacía. Punto nuevo ⇒ v1 con `valid_from = now` en el primer uso.
 
 **Aislamiento**: define su propio `IndicatorEvaluatedNotice`; no importa `processing` (ni su `contract/`), `ingestion`, `baseline` ni `shared/eventbus` (`depguard` `rule-engine-isolation`); `contract/` solo stdlib (`rule-engine-contract-stdlib-only`). Lee `feature_evaluations` con un modelo propio (port `IndicatorSource`). Publica por el port `LevelEventPublisher`; la traducción, la suscripción y el adaptador al bus viven en `internal/bootstrap/rule_engine.go`.
 
-**Errores**: validación `INVALID_INPUT` (orden, rangos, autoría, fecha pasada, rebuild en production), `ErrThresholdsNotFound`, `CONSULTING_THRESHOLDS`, `PERSISTING_THRESHOLDS`, `CONSULTING_RULE_EVALUATIONS`, `PERSISTING_RULE_EVALUATIONS`. Hora ignorada/duplicada/tardía/sin umbrales no es error.
+**Errores**: validación `INVALID_INPUT` (orden, rangos, planitud, ventana, cuerpo/patch, autoría, fecha pasada, rango de simulación, rebuild en production), `ErrThresholdConflict` (`CONFLICT`), `ErrThresholdsNotFound`, `CONSULTING_THRESHOLDS`, `PERSISTING_THRESHOLDS`, `CONSULTING_RULE_EVALUATIONS`, `PERSISTING_RULE_EVALUATIONS`. Hora ignorada/duplicada/tardía/sin umbrales no es error.
 
-**Inicialización**: `baseline -backfill` → `processing -backfill` → `rule_engine -backfill` → habilitar `rule_engine` en `AGATHA_MODULES`.
+**Inicialización**: `baseline -backfill` → `processing -backfill` → `rule_engine -backfill` (con `rule_threshold_versions` vacía, el seed crea la v1 de cada punto con la plantilla —amarillo 0,16, salida 0,14— desde su primera medición) → habilitar `rule_engine` en `AGATHA_MODULES` (el catch-up completa, publicando, las horas entre el backfill y el arranque).
 
 ---
 
@@ -231,7 +233,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | `NewIngestionModule(platform)` | Ingestion (DataOS) | AutoMigrate + DataOS + publisher. `.NewScheduler()` crea el scheduler (punto 11556, cada 15 min, +50 s). |
 | `NewCallbackModule(platform)` | Ingestion (callback) | AutoMigrate (helper compartido `migrateIngestionSchema`) + `CallbackService` + handler. Lee `AGATHA_CALLBACK_TOKEN` (vacía ⇒ arranca y responde 401 a todo). No requiere credenciales de DataOS. `.RegisterRoutes(mux)` registra `/ingestion/callback`. |
 | `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + `BusEventPublisher`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
-| `NewRuleEngineModule(platform)` | Rule Engine | `persistence.Migrate` (AutoMigrate + `btree_gist` + `EXCLUDE` idempotente) + seed de la v1 + repos + `busLevelEventPublisher`. Expone `Thresholds`, `Evaluator`, `Backfiller`; `.SubscribeIndicatorEvaluated()` suscribe a `processing.indicator_evaluated` (traduce contrato → Notice). Lee `AGATHA_ENV` y `RULE_ENGINE_BACKFILL_BATCH_SIZE`. Sin rutas. |
+| `NewRuleEngineModule(platform)` | Rule Engine | `persistence.Migrate` (AutoMigrate + `btree_gist` + `EXCLUDE` idempotente) + seed de la v1 + repos + `busLevelEventPublisher`. Expone `Thresholds`, `Simulator`, `Evaluator`, `Backfiller`, `CatchUp` y `NewScheduler` (catch-up horario, Runner de `NewApplication`); `.SubscribeIndicatorEvaluated()` suscribe a `processing.indicator_evaluated` (traduce contrato → Notice); `.RegisterRoutes(mux)` registra `/api/rule-engine/*` (la simulación usa repos en memoria vía `memorySandbox`). Lee `AGATHA_ENV`, `RULE_ENGINE_BACKFILL_BATCH_SIZE` y `RULE_ENGINE_CATCHUP_MINUTE`. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
@@ -336,11 +338,12 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 ### 8. `rule_threshold_versions` (Rule Engine — umbrales versionados, solo se agrega)
 - `id` (PK, bigserial), `measuring_point_id` (bigint, **sin FK**), `event_type` (text, default `'FUGA'`), `version` (int). `UNIQUE (measuring_point_id, event_type, version)`.
 - Umbrales `amarillo`, `naranja`, `rojo` (numeric(5,4), `CHECK 0 < amarillo < naranja < rojo <= 1`); `min_hours`, `exit_hours` (int ≥ 1); `escalate_amarillo_after_hours`, `escalate_naranja_after_hours` (int NULL = sin escalamiento, si no ≥ 1); `exit_margin` (numeric(5,4), `0 <= exit_margin < amarillo`).
-- Vigencia `valid_from`, `valid_to` (NULL = vigente; `valid_to > valid_from`). `EXCLUDE USING gist (measuring_point_id WITH =, event_type WITH =, tstzrange(valid_from, valid_to) WITH &&)` (`btree_gist`). Índice `ix_rule_threshold_versions_effective (measuring_point_id, event_type, valid_from DESC)`.
+- v2: `confirm_naranja_with_planitud` (bool, default false; `true` exige `d_pl_min`), `d_pl_min` (numeric(5,2) NULL, 0–100), `persistence_mode` (`STRICT`|`WINDOW`, default `STRICT`; `WINDOW` exige `persistence_window_hours` y `persistence_min_hours` ≥ 1 con min ≤ ventana). Los defaults reproducen el comportamiento previo.
+- Vigencia `valid_from`, `valid_to` (NULL = vigente; `valid_to > valid_from`). Creación con `SELECT … FOR UPDATE NOWAIT` de la abierta (concurrente ⇒ 409). `EXCLUDE USING gist (measuring_point_id WITH =, event_type WITH =, tstzrange(valid_from, valid_to) WITH &&)` (`btree_gist`). Índice `ix_rule_threshold_versions_effective (measuring_point_id, event_type, valid_from DESC)`.
 - Auditoría: `reason`, `created_by`, `created_at`.
 
 ### 9. `rule_evaluations` (Rule Engine — interpretación horaria)
 - `id` (PK), `measuring_point_id`, `event_type`, `evaluated_at` — `UNIQUE` (`ux_rule_evaluations_point_event_hour`): idempotencia y clave de los eventos. Índice `(measuring_point_id, event_type, evaluated_at DESC)`.
-- `indicator_value` (numeric), `raw_level`, `computed_level`, `level` (`NORMAL`|`AMARILLO`|`NARANJA`|`ROJO`), `rule` (`THRESHOLD`|`PERSISTENCE`|`HOLD`|`NONE`), `in_episode`, `hours_above`, `hours_in_level`, `threshold_version_id` (FK → `rule_threshold_versions`), `low_confidence`, `episode_event` (`OPENED`|`CLEARED`|`NONE`), `reasons` (jsonb), `created_at`. CHECKs en los enums. Una fila por hora **calculada** de 24 h; inmutable (solo `-rebuild` fuera de producción la borra).
+- `indicator_value` (numeric), `raw_level`, `computed_level`, `level` (`NORMAL`|`AMARILLO`|`NARANJA`|`ROJO`), `rule` (`THRESHOLD`|`PERSISTENCE`|`HOLD`|`NONE`), `in_episode`, `hours_above`, `hours_in_level`, `threshold_version_id` (FK → `rule_threshold_versions`), `low_confidence`, `episode_event` (`OPENED`|`CLEARED`|`NONE`), `reasons` (jsonb), `run_amarillo`, `run_naranja`, `below_run` (int, default 0), `d_pl` (double precision NULL), `created_at`. CHECKs en los enums. Una fila por hora **calculada** de 24 h; inmutable (solo `-rebuild` fuera de producción la borra).
 
 > Ambas las crea `persistence.Migrate` en `NewRuleEngineModule` (AutoMigrate + SQL idempotente para `btree_gist` y el `EXCLUDE`).

@@ -20,10 +20,13 @@ func LevelEvaluatedFromRow(row entities.RuleEvaluation, p entities.ThresholdPara
 			Code:  string(r.Code),
 			Level: string(r.Level),
 			Data: contract.ReasonData{
-				I:         r.I,
-				Threshold: r.Threshold,
-				Hours:     r.Hours,
-				From:      string(r.From),
+				I:           r.I,
+				Threshold:   r.Threshold,
+				Hours:       r.Hours,
+				From:        string(r.From),
+				WindowHours: r.WindowHours,
+				DPl:         copyFloat(r.DPl),
+				DPlMin:      r.DPlMin,
 			},
 		}
 	}
@@ -53,8 +56,24 @@ func LevelEvaluatedFromRow(row entities.RuleEvaluation, p entities.ThresholdPara
 		},
 		ThresholdVersionID: row.ThresholdVersionID,
 		HoursAbove:         row.HoursAbove,
-		LowConfidence:      row.LowConfidence,
-		OccurredAt:         occurredAt,
-		SchemaVersion:      contract.SchemaVersion,
+		Runs:               contract.LevelRuns{Amarillo: row.RunAmarillo, Naranja: row.RunNaranja},
+		Escalation: contract.Escalation{
+			AmarilloAfterHours: p.EscalationHours(entities.LevelAmarillo),
+			NaranjaAfterHours:  p.EscalationHours(entities.LevelNaranja),
+		},
+		BelowRun:        row.BelowRun,
+		DPl:             copyFloat(row.DPl),
+		PersistenceMode: string(p.Normalize().PersistenceMode),
+		LowConfidence:   row.LowConfidence,
+		OccurredAt:      occurredAt,
+		SchemaVersion:   contract.SchemaVersion,
 	}
+}
+
+func copyFloat(p *float64) *float64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }

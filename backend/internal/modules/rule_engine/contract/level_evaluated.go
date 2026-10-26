@@ -12,12 +12,33 @@ type LevelCuts struct {
 
 // ReasonData son los datos de un motivo. Solo vienen los del código:
 //   - LEAK_THRESHOLD: I y Threshold (corte del nivel del motivo).
-//   - LEAK_PERSISTENCE: Hours (racha) y From (nivel sobre el que se contó la racha).
+//   - LEAK_PERSISTENCE: Hours (racha o conteo), From (nivel sobre el que se
+//     contó) y WindowHours (solo con persistencia WINDOW).
+//   - NARANJA_NOT_CONFIRMED: From (nivel que no se confirmó), DPl (null si no
+//     se calculó) y DPlMin.
 type ReasonData struct {
-	I         float64 `json:"i,omitempty"`
-	Threshold float64 `json:"threshold,omitempty"`
-	Hours     int     `json:"hours,omitempty"`
-	From      string  `json:"from,omitempty"`
+	I           float64  `json:"i,omitempty"`
+	Threshold   float64  `json:"threshold,omitempty"`
+	Hours       int      `json:"hours,omitempty"`
+	From        string   `json:"from,omitempty"`
+	WindowHours int      `json:"window_hours,omitempty"`
+	DPl         *float64 `json:"d_pl,omitempty"`
+	DPlMin      float64  `json:"d_pl_min,omitempty"`
+}
+
+// LevelRuns son las horas sobre cada corte con las que se evaluó la
+// persistencia: racha seguida (STRICT) o conteo en la ventana (WINDOW).
+type LevelRuns struct {
+	Amarillo int `json:"amarillo"`
+	Naranja  int `json:"naranja"`
+}
+
+// Escalation son las horas de Runs que escalan un nivel con el modo vigente
+// (escalate_*_after_hours en STRICT, persistence_min_hours en WINDOW); null =
+// escalamiento desactivado. Faltan para subir: Escalation − Runs.
+type Escalation struct {
+	AmarilloAfterHours *int `json:"amarillo_after_hours"`
+	NaranjaAfterHours  *int `json:"naranja_after_hours"`
 }
 
 // Reason explica el ComputedLevel de la hora (umbral y, si aplica, persistencia).
@@ -31,7 +52,8 @@ type Reason struct {
 // Todos los time.Time están en UTC.
 //
 // Con Status = NO_CALCULABLE no hay fila: RuleEvaluationID = 0, IndicatorValue
-// = nil, niveles y EpisodeEvent vacíos, sin Reasons ni umbrales. Distingue
+// = nil, niveles y EpisodeEvent vacíos, sin Reasons ni umbrales; Runs y
+// BelowRun en 0, Escalation y DPl null, PersistenceMode vacío. Distingue
 // "sin datos" de "bajo el umbral"; qué hacer con la hora lo decide el consumidor.
 type LevelEvaluated struct {
 	// RuleEvaluationID es el id de la fila de rule_evaluations (0 si NO_CALCULABLE).
@@ -64,7 +86,18 @@ type LevelEvaluated struct {
 	Exit               LevelCuts `json:"exit"`
 	ThresholdVersionID int64     `json:"threshold_version_id"`
 	// HoursAbove son las horas calculadas del episodio, incluida esta (0 fuera de él).
-	HoursAbove    int       `json:"hours_above"`
+	HoursAbove int `json:"hours_above"`
+
+	// v3 (aditivo): datos para los avisos de Alert Management.
+	Runs       LevelRuns  `json:"runs"`
+	Escalation Escalation `json:"escalation"`
+	// BelowRun son las horas seguidas bajo la salida de AMARILLO, incluida esta.
+	BelowRun int `json:"below_run"`
+	// DPl es el % de registros con planitud alta de la hora (null si no se calculó).
+	DPl *float64 `json:"d_pl"`
+	// PersistenceMode es STRICT o WINDOW (vacío con NO_CALCULABLE).
+	PersistenceMode string `json:"persistence_mode"`
+
 	LowConfidence bool      `json:"low_confidence"`
 	OccurredAt    time.Time `json:"occurred_at"`
 	SchemaVersion int       `json:"schema_version"`

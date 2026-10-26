@@ -16,8 +16,8 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// ThresholdService implementa los casos de uso de umbrales versionados. Aún
-// no se exponen por HTTP: mañana se agregan los handlers sobre estos métodos.
+// ThresholdService implementa los casos de uso de umbrales versionados (los
+// expone infrastructure/http bajo /api/rule-engine).
 //
 // Reglas: nunca UPDATE ni DELETE de una versión, salvo cerrar la abierta
 // (valid_to = valid_from de la nueva) en la MISMA transacción que crea la
@@ -93,6 +93,10 @@ func (s *ThresholdService) CreateThresholdVersionBulk(ctx context.Context, cmd C
 		if errors.As(err, &appErr) {
 			return nil, err
 		}
+		if errors.Is(err, repositories.ErrConflict) {
+			s.log.Warn("[ThresholdService] Versión de umbrales concurrente: se rechaza para reintentar", "points", points, "error", err)
+			return nil, domain.ErrThresholdConflict
+		}
 		s.log.Error("[ThresholdService] Error guardando la versión de umbrales", "points", points, "error", err)
 		return nil, domain.ErrPersistingThresholds
 	}
@@ -101,6 +105,7 @@ func (s *ThresholdService) CreateThresholdVersionBulk(ctx context.Context, cmd C
 		s.log.Info("[ThresholdService] Versión de umbrales creada",
 			"measuring_point_id", v.MeasuringPointID, "event_type", v.EventType, "version", v.Version,
 			"amarillo", v.Amarillo, "naranja", v.Naranja, "rojo", v.Rojo,
+			"confirm_naranja_with_planitud", v.ConfirmNaranjaWithPlanitud, "persistence_mode", v.PersistenceMode,
 			"valid_from", v.ValidFrom, "reason", v.Reason, "created_by", v.CreatedBy)
 	}
 
@@ -159,6 +164,18 @@ func (s *ThresholdService) GetCurrentThresholds(ctx context.Context, pointID int
 	if v == nil {
 		return entities.ThresholdVersion{}, domain.ErrThresholdsNotFound
 	}
+	if v.Version > 1 {
+		history, err := s.thresholds.GetHistory(ctx, pointID, normalizeEventType(eventType))
+		if err != nil {
+			s.log.Error("[ThresholdService] Error consultando el historial de umbrales", "measuring_point_id", pointID, "error", err)
+			return entities.ThresholdVersion{}, domain.ErrConsultingThresholds
+		}
+		for _, h := range withPreviousIDs(history) {
+			if h.ID == v.ID {
+				v.PreviousVersionID = h.PreviousVersionID
+			}
+		}
+	}
 	return *v, nil
 }
 
@@ -173,7 +190,7 @@ func (s *ThresholdService) GetThresholdHistory(ctx context.Context, pointID int6
 		s.log.Error("[ThresholdService] Error consultando el historial de umbrales", "measuring_point_id", pointID, "error", err)
 		return nil, domain.ErrConsultingThresholds
 	}
-	return history, nil
+	return withPreviousIDs(history), nil
 }
 
 // GetThresholdTimeline devuelve los tramos de umbrales que se solapan con
@@ -266,7 +283,20 @@ func supersede(
 	if v.ID, err = tx.Insert(ctx, v); err != nil {
 		return entities.ThresholdVersion{}, err
 	}
+	if open != nil {
+		previous := open.ID
+		v.PreviousVersionID = &previous
+	}
 	return v, nil
+}
+
+// withPreviousIDs completa PreviousVersionID en un historial ascendente por versión.
+func withPreviousIDs(history []entities.ThresholdVersion) []entities.ThresholdVersion {
+	for n := 1; n < len(history); n++ {
+		previous := history[n-1].ID
+		history[n].PreviousVersionID = &previous
+	}
+	return history
 }
 
 func normalizeEventType(t entities.EventType) entities.EventType {

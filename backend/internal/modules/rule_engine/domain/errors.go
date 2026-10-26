@@ -23,6 +23,14 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "min_hours y exit_hours deben ser >= 1 y los escalamientos NULL o >= 1",
 	}
+	ErrPlanitudConfig = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "d_pl_min debe estar entre 0 y 100 y es obligatorio con confirm_naranja_with_planitud",
+	}
+	ErrPersistenceConfig = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "persistence_mode debe ser STRICT o WINDOW; con WINDOW, persistence_window_hours y persistence_min_hours son obligatorios, >= 1 y min <= ventana",
+	}
 	ErrInvalidEventType = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
 		Message: "tipo de evento no soportado",
@@ -43,6 +51,18 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "el rango de tiempo no es válido (from debe ser anterior a to)",
 	}
+	ErrSimulationRangeTooLong = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el rango de la simulación no puede superar 366 días",
+	}
+	ErrInvalidBody = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el cuerpo no es un JSON válido o tiene campos desconocidos",
+	}
+	ErrInvalidPatch = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el patch tiene un campo desconocido, un tipo inválido o un null no permitido",
+	}
 	ErrNoPoints = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
 		Message: "no hay puntos de medición a los que aplicar la versión",
@@ -55,6 +75,12 @@ var (
 	ErrConsultingThresholds = &errors.AppError{
 		Code:    errors.CodeConsultingThresholds,
 		Message: "no fue posible consultar los umbrales del punto de medición",
+	}
+	// ErrThresholdConflict: otra versión se creó a la vez (lock ocupado, UNIQUE
+	// o EXCLUDE). El cliente debe reintentar.
+	ErrThresholdConflict = &errors.AppError{
+		Code:    errors.CodeConflict,
+		Message: "otra versión de umbrales se está creando para el mismo punto; reintente",
 	}
 	ErrPersistingThresholds = &errors.AppError{
 		Code:    errors.CodePersistingThresholds,

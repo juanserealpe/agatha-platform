@@ -7,6 +7,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -15,10 +16,11 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/repositories"
 )
 
-// Errores equivalentes a las restricciones de la tabla.
+// Errores equivalentes a las restricciones de la tabla (envuelven
+// repositories.ErrConflict, como el repositorio de PostgreSQL).
 var (
-	ErrDuplicateVersion = errors.New("memory: violación de UNIQUE (measuring_point_id, event_type, version)")
-	ErrOverlap          = errors.New("memory: violación de EXCLUDE (vigencias solapadas)")
+	ErrDuplicateVersion = fmt.Errorf("memory: violación de UNIQUE (measuring_point_id, event_type, version): %w", repositories.ErrConflict)
+	ErrOverlap          = fmt.Errorf("memory: violación de EXCLUDE (vigencias solapadas): %w", repositories.ErrConflict)
 	ErrNotFound         = errors.New("memory: versión inexistente")
 )
 

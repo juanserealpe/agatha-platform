@@ -15,7 +15,9 @@ const (
 
 	// SchemaVersion es la versión del esquema de los eventos de este contrato.
 	// v2 reemplaza a leak_threshold_exceeded / leak_threshold_cleared (v1).
-	SchemaVersion = 2
+	// v3 agrega runs, escalation, below_run, d_pl y persistence_mode (aditivo:
+	// los campos v2 no cambian).
+	SchemaVersion = 3
 )
 
 // Status de la hora evaluada (los mismos valores que Processing).
@@ -43,4 +45,12 @@ const (
 const (
 	ReasonLeakThreshold   = "LEAK_THRESHOLD"
 	ReasonLeakPersistence = "LEAK_PERSISTENCE"
+	// ReasonNaranjaNotConfirmed: NARANJA no confirmado por planitud (la hora queda en AMARILLO).
+	ReasonNaranjaNotConfirmed = "NARANJA_NOT_CONFIRMED"
+)
+
+// Modos de persistencia.
+const (
+	PersistenceStrict = "STRICT"
+	PersistenceWindow = "WINDOW"
 )

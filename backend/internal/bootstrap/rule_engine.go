@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -9,10 +10,14 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/application/ports"
 	ruleEngineServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/application/services"
 	ruleEngineContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/contract"
+	ruleEngineEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/entities"
 	ruleEngineRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/repositories"
 	ruleEngineEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/events"
+	ruleEngineHTTP "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/http"
 	ruleEnginePersistence "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/persistence"
+	ruleEngineMemory "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/persistence/memory"
 	ruleEngineRepositoriesImpl "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/persistence/repositories"
+	ruleEngineScheduling "github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/infrastructure/scheduling"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
@@ -26,12 +31,19 @@ const indicatorEvaluatedSubscription = "rule_engine.indicator_evaluated"
 
 // RuleEngineModule expone el Rule Engine ya cableado.
 type RuleEngineModule struct {
-	// Thresholds son los casos de uso de umbrales (sin HTTP todavía).
+	// Thresholds son los casos de uso de umbrales (los expone RegisterRoutes).
 	Thresholds *ruleEngineServices.ThresholdService
+	// Simulator corre el histórico con umbrales propuestos sin guardar ni publicar.
+	Simulator *ruleEngineServices.SimulationService
 	// Evaluator interpreta cada hora (lo invoca la suscripción al bus).
 	Evaluator *ruleEngineServices.EvaluationService
 	// Backfiller lo usa cmd/rule_engine -backfill.
 	Backfiller *ruleEngineServices.BackfillService
+	// CatchUp interpreta, publicando, las horas posteriores a la última fila
+	// que no llegaron por evento (red de seguridad de la suscripción).
+	CatchUp *ruleEngineServices.CatchUpService
+	// NewScheduler crea el catch-up horario (al arrancar + minuto RULE_ENGINE_CATCHUP_MINUTE).
+	NewScheduler func() *ruleEngineScheduling.CatchUpScheduler
 
 	bus eventbus.Bus
 	log *logger.Logger
@@ -45,13 +57,16 @@ type ruleEngineDeps struct {
 	source      ports.IndicatorSource
 	clock       ports.Clock
 	backfill    ruleEngineServices.BackfillConfig
+	// catchUpMinute es el minuto (UTC) del catch-up horario.
+	catchUpMinute int
 }
 
 // NewRuleEngineModule migra rule_threshold_versions y rule_evaluations (y
 // siembra la versión 1 la primera vez) y cablea el Rule Engine. Lee
 // feature_evaluations con su propio modelo y publica sus eventos en el bus de
 // la Platform a través de busLevelEventPublisher. No suscribe: lo hace
-// SubscribeIndicatorEvaluated (cmd/rule_engine no lo necesita).
+// SubscribeIndicatorEvaluated (cmd/rule_engine no lo necesita), y el catch-up
+// horario lo arranca NewApplication como Runner.
 func NewRuleEngineModule(platform *Platform) (*RuleEngineModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
 	logRuleEngine := logger.New("RuleEngine", "Info")
@@ -79,6 +94,7 @@ func NewRuleEngineModule(platform *Platform) (*RuleEngineModule, error) {
 			Environment: os.Getenv(EnvironmentEnv),
 			BatchSize:   envInt(logRuleEngine, "RULE_ENGINE_BACKFILL_BATCH_SIZE", 500),
 		},
+		catchUpMinute: envMinute(logRuleEngine, "RULE_ENGINE_CATCHUP_MINUTE", ruleEngineScheduling.DefaultCatchUpMinute),
 	}, logRuleEngine), nil
 }
 
@@ -88,18 +104,38 @@ func wireRuleEngine(bus eventbus.Bus, deps ruleEngineDeps, log *logger.Logger) *
 		deps.thresholds,
 		deps.evaluations,
 		thresholds,
+		deps.source,
 		busLevelEventPublisher{bus: bus},
 		deps.clock,
 		log,
 	)
 
+	catchUp := ruleEngineServices.NewCatchUpService(evaluator, deps.source, deps.evaluations, deps.backfill.BatchSize, log)
+
 	return &RuleEngineModule{
 		Thresholds: thresholds,
+		Simulator:  ruleEngineServices.NewSimulationService(deps.thresholds, deps.source, memorySandbox, deps.clock, log),
 		Evaluator:  evaluator,
 		Backfiller: ruleEngineServices.NewBackfillService(evaluator, deps.source, deps.evaluations, deps.backfill, log),
-		bus:        bus,
-		log:        log,
+		CatchUp:    catchUp,
+		NewScheduler: func() *ruleEngineScheduling.CatchUpScheduler {
+			return ruleEngineScheduling.NewCatchUpScheduler(catchUp, log, deps.catchUpMinute)
+		},
+		bus: bus,
+		log: log,
 	}
+}
+
+// memorySandbox es el sandbox de la simulación: repositorios en memoria nuevos
+// en cada corrida (nunca toca la BD).
+func memorySandbox(seed ruleEngineEntities.ThresholdVersion) (ruleEngineRepositories.ThresholdRepository, ruleEngineRepositories.RuleEvaluationRepository) {
+	return ruleEngineMemory.NewThresholdRepository(seed), ruleEngineMemory.NewRuleEvaluationRepository()
+}
+
+// RegisterRoutes registra los endpoints de umbrales (/api/rule-engine). Sin
+// autenticación de usuarios todavía: created_by viaja en el cuerpo.
+func (m *RuleEngineModule) RegisterRoutes(mux *http.ServeMux) {
+	ruleEngineHTTP.NewThresholdHandler(m.Thresholds, m.Simulator, m.log).RegisterRoutes(mux)
 }
 
 // SubscribeIndicatorEvaluated suscribe el Rule Engine a processing.indicator_evaluated.

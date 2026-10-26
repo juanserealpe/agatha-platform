@@ -42,3 +42,42 @@ func TestRuleEvaluation_NoReasonsIsAnEmptyArray(t *testing.T) {
 		t.Fatalf("reasons = %+v, se esperaba nil", got.Reasons)
 	}
 }
+
+func TestRuleEvaluation_RoundTripKeepsV3Fields(t *testing.T) {
+	dPl := 8.0
+	row := entities.RuleEvaluation{
+		RawLevel: entities.LevelNaranja, ComputedLevel: entities.LevelAmarillo, Level: entities.LevelAmarillo,
+		RunAmarillo: 18, RunNaranja: 1, BelowRun: 0, DPl: &dPl,
+		Reasons: []entities.Reason{
+			{Code: entities.ReasonNaranjaNotConfirmed, Level: entities.LevelAmarillo, From: entities.LevelNaranja, DPl: &dPl, DPlMin: 12},
+			{Code: entities.ReasonLeakPersistence, Level: entities.LevelNaranja, Hours: 18, From: entities.LevelAmarillo, WindowHours: 24},
+		},
+		EvaluatedAt: time.Date(2026, 9, 19, 5, 0, 0, 0, time.UTC),
+		CreatedAt:   time.Date(2026, 9, 19, 5, 35, 0, 0, time.UTC),
+	}
+	if got := ToRuleEvaluation(ToRuleEvaluationModel(row)); !reflect.DeepEqual(got, row) {
+		t.Fatalf("ida y vuelta = %+v\nse esperaba  %+v", got, row)
+	}
+}
+
+func TestThresholdVersion_RoundTripKeepsV2Columns(t *testing.T) {
+	p := entities.DefaultThresholdParams()
+	min, window, minHours := 12.0, 24, 18
+	p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, &min
+	p.PersistenceMode, p.PersistenceWindowHours, p.PersistenceMinHours = entities.PersistenceWindow, &window, &minHours
+	v := entities.ThresholdVersion{
+		ID: 2, MeasuringPointID: 11556, EventType: entities.EventTypeLeak, Version: 2, ThresholdParams: p,
+		ValidFrom: time.Date(2026, 10, 24, 2, 40, 0, 0, time.UTC), Reason: "r", CreatedBy: "c",
+		CreatedAt: time.Date(2026, 10, 24, 2, 40, 0, 0, time.UTC),
+	}
+	if got := ToThresholdVersion(ToThresholdVersionModel(v)); !reflect.DeepEqual(got, v) {
+		t.Fatalf("ida y vuelta = %+v\nse esperaba  %+v", got, v)
+	}
+
+	// Una fila previa a la columna (modo vacío) se lee como STRICT.
+	legacy := ToThresholdVersionModel(entities.ThresholdVersion{ThresholdParams: entities.DefaultThresholdParams()})
+	legacy.PersistenceMode = ""
+	if got := ToThresholdVersion(legacy); got.PersistenceMode != entities.PersistenceStrict {
+		t.Fatalf("modo = %q, se esperaba STRICT", got.PersistenceMode)
+	}
+}

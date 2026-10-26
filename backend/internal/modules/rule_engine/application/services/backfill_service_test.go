@@ -18,9 +18,31 @@ import (
 type fakeSource struct {
 	rows  map[int64][]ports.CalculatedIndicator
 	calls int
+	// dPl es el d_pl por punto y hora que devuelve GetDPl (evaluación en vivo).
+	dPl    map[int64]map[time.Time]float64
+	dPlErr error
 }
 
-func newSource() *fakeSource { return &fakeSource{rows: map[int64][]ports.CalculatedIndicator{}} }
+func newSource() *fakeSource {
+	return &fakeSource{rows: map[int64][]ports.CalculatedIndicator{}, dPl: map[int64]map[time.Time]float64{}}
+}
+
+func (s *fakeSource) setDPl(pointID int64, at time.Time, v float64) {
+	if s.dPl[pointID] == nil {
+		s.dPl[pointID] = map[time.Time]float64{}
+	}
+	s.dPl[pointID][at] = v
+}
+
+func (s *fakeSource) GetDPl(_ context.Context, pointID int64, at time.Time) (*float64, error) {
+	if s.dPlErr != nil {
+		return nil, s.dPlErr
+	}
+	if v, ok := s.dPl[pointID][at]; ok {
+		return &v, nil
+	}
+	return nil, nil
+}
 
 func (s *fakeSource) add(pointID int64, values ...float64) {
 	for n, i := range values {
@@ -128,10 +150,10 @@ func TestBackfill_IsIdempotent(t *testing.T) {
 
 func TestBackfill_UsesEachVersionInTheRange(t *testing.T) {
 	change := hour(4)
-	strict := entities.DefaultThresholdParams()
+	strict := referenceParams()
 	strict.Amarillo, strict.Naranja, strict.Rojo = 0.40, 0.50, 0.60
 	f := newFixture(
-		seedVersion(pointA, 1, day1, &change, entities.DefaultThresholdParams()),
+		seedVersion(pointA, 1, day1, &change, referenceParams()),
 		seedVersion(pointA, 2, change, nil, strict),
 	)
 	source := newSource()
@@ -155,8 +177,8 @@ func TestBackfill_UsesEachVersionInTheRange(t *testing.T) {
 
 func TestBackfill_AllPointsAndRange(t *testing.T) {
 	f := newFixture(
-		seedVersion(pointA, 1, day1, nil, entities.DefaultThresholdParams()),
-		seedVersion(pointB, 1, day1, nil, entities.DefaultThresholdParams()),
+		seedVersion(pointA, 1, day1, nil, referenceParams()),
+		seedVersion(pointB, 1, day1, nil, referenceParams()),
 	)
 	source := newSource()
 	source.add(pointA, crossing...)

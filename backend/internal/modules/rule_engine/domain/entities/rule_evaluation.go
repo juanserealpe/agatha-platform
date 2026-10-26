@@ -28,6 +28,16 @@ type RuleEvaluation struct {
 	// HoursInLevel son las horas calculadas consecutivas con el mismo Level.
 	HoursInLevel int
 
+	// RunAmarillo y RunNaranja son las horas sobre cada corte con las que se
+	// evaluó la persistencia: racha seguida (STRICT) o conteo en la ventana (WINDOW).
+	RunAmarillo int
+	RunNaranja  int
+	// BelowRun son las horas calculadas seguidas bajo la salida de AMARILLO,
+	// incluida esta (0 si esta no está bajo la salida).
+	BelowRun int
+	// DPl es el % de registros con planitud alta de la hora (nil si Processing no lo calculó).
+	DPl *float64
+
 	ThresholdVersionID int64
 	LowConfidence      bool
 	EpisodeEvent       EpisodeEvent
@@ -39,14 +49,20 @@ type RuleEvaluation struct {
 // Reason es un motivo del ComputedLevel de una hora. Los campos que no aplican
 // al código quedan en cero:
 //   - LEAK_THRESHOLD: Level = raw, I y Threshold (corte de ese nivel).
-//   - LEAK_PERSISTENCE: Level = nivel ganado, Hours (racha) y From (nivel de la racha).
+//   - LEAK_PERSISTENCE: Level = nivel ganado, Hours (racha o conteo), From
+//     (nivel de la racha) y WindowHours (solo WINDOW).
+//   - NARANJA_NOT_CONFIRMED: Level = AMARILLO (el asignado), From (nivel que
+//     no se confirmó), DPl (nil si no se calculó) y DPlMin.
 type Reason struct {
-	Code      ReasonCode
-	Level     Level
-	I         float64
-	Threshold float64
-	Hours     int
-	From      Level
+	Code        ReasonCode
+	Level       Level
+	I           float64
+	Threshold   float64
+	Hours       int
+	From        Level
+	WindowHours int
+	DPl         *float64
+	DPlMin      float64
 }
 
 // ThresholdSegment es un tramo de la línea de tiempo de umbrales recortado a

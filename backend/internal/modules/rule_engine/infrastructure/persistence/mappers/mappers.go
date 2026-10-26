@@ -23,6 +23,11 @@ func ToThresholdVersionModel(v entities.ThresholdVersion) models.RuleThresholdVe
 		EscalateNaranjaAfterHours:  v.EscalateNaranjaAfterHours,
 		ExitMargin:                 v.ExitMargin,
 		ExitHours:                  v.ExitHours,
+		ConfirmNaranjaWithPlanitud: v.ConfirmNaranjaWithPlanitud,
+		DPlMin:                     v.DPlMin,
+		PersistenceMode:            string(v.PersistenceMode),
+		PersistenceWindowHours:     v.PersistenceWindowHours,
+		PersistenceMinHours:        v.PersistenceMinHours,
 		ValidFrom:                  v.ValidFrom.UTC(),
 		ValidTo:                    utcPtr(v.ValidTo),
 		Reason:                     v.Reason,
@@ -46,7 +51,12 @@ func ToThresholdVersion(m models.RuleThresholdVersionModel) entities.ThresholdVe
 			EscalateNaranjaAfterHours:  m.EscalateNaranjaAfterHours,
 			ExitMargin:                 m.ExitMargin,
 			ExitHours:                  m.ExitHours,
-		},
+			ConfirmNaranjaWithPlanitud: m.ConfirmNaranjaWithPlanitud,
+			DPlMin:                     m.DPlMin,
+			PersistenceMode:            entities.PersistenceMode(m.PersistenceMode),
+			PersistenceWindowHours:     m.PersistenceWindowHours,
+			PersistenceMinHours:        m.PersistenceMinHours,
+		}.Normalize(),
 		ValidFrom: m.ValidFrom.UTC(),
 		ValidTo:   utcPtr(m.ValidTo),
 		Reason:    m.Reason,
@@ -77,6 +87,10 @@ func ToRuleEvaluationModel(e entities.RuleEvaluation) models.RuleEvaluationModel
 		InEpisode:          e.InEpisode,
 		HoursAbove:         e.HoursAbove,
 		HoursInLevel:       e.HoursInLevel,
+		RunAmarillo:        e.RunAmarillo,
+		RunNaranja:         e.RunNaranja,
+		BelowRun:           e.BelowRun,
+		DPl:                e.DPl,
 		ThresholdVersionID: e.ThresholdVersionID,
 		LowConfidence:      e.LowConfidence,
 		EpisodeEvent:       string(e.EpisodeEvent),
@@ -99,6 +113,10 @@ func ToRuleEvaluation(m models.RuleEvaluationModel) entities.RuleEvaluation {
 		InEpisode:          m.InEpisode,
 		HoursAbove:         m.HoursAbove,
 		HoursInLevel:       m.HoursInLevel,
+		RunAmarillo:        m.RunAmarillo,
+		RunNaranja:         m.RunNaranja,
+		BelowRun:           m.BelowRun,
+		DPl:                m.DPl,
 		ThresholdVersionID: m.ThresholdVersionID,
 		LowConfidence:      m.LowConfidence,
 		EpisodeEvent:       entities.EpisodeEvent(m.EpisodeEvent),
@@ -114,7 +132,10 @@ func reasonsJSON(reasons []entities.Reason) string {
 		rows[n] = models.ReasonRow{
 			Code:  string(r.Code),
 			Level: string(r.Level),
-			Data:  models.ReasonDataRow{I: r.I, Threshold: r.Threshold, Hours: r.Hours, From: string(r.From)},
+			Data: models.ReasonDataRow{
+				I: r.I, Threshold: r.Threshold, Hours: r.Hours, From: string(r.From),
+				WindowHours: r.WindowHours, DPl: r.DPl, DPlMin: r.DPlMin,
+			},
 		}
 	}
 	b, err := json.Marshal(rows)
@@ -133,12 +154,15 @@ func reasonsFromJSON(raw string) []entities.Reason {
 	out := make([]entities.Reason, len(rows))
 	for n, r := range rows {
 		out[n] = entities.Reason{
-			Code:      entities.ReasonCode(r.Code),
-			Level:     entities.Level(r.Level),
-			I:         r.Data.I,
-			Threshold: r.Data.Threshold,
-			Hours:     r.Data.Hours,
-			From:      entities.Level(r.Data.From),
+			Code:        entities.ReasonCode(r.Code),
+			Level:       entities.Level(r.Level),
+			I:           r.Data.I,
+			Threshold:   r.Data.Threshold,
+			Hours:       r.Data.Hours,
+			From:        entities.Level(r.Data.From),
+			WindowHours: r.Data.WindowHours,
+			DPl:         r.Data.DPl,
+			DPlMin:      r.Data.DPlMin,
 		}
 	}
 	return out

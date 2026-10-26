@@ -4,9 +4,11 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -80,22 +82,48 @@ func (r *ThresholdRepository) ListPoints(ctx context.Context, eventType entities
 }
 
 // Transaction abre una TX de BD: cerrar la vigente e insertar la nueva se
-// confirman juntas o no se confirma ninguna.
+// confirman juntas o no se confirma ninguna. Los errores de concurrencia de
+// PostgreSQL se devuelven envolviendo domainRepositories.ErrConflict.
 func (r *ThresholdRepository) Transaction(ctx context.Context, fn func(tx domainRepositories.ThresholdWriter) error) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return fn(&thresholdWriter{tx: tx})
 	})
+	if isConflict(err) {
+		return fmt.Errorf("%w: %w", domainRepositories.ErrConflict, err)
+	}
+	return err
+}
+
+// SQLSTATE de concurrencia: lock ocupado (NOWAIT), UNIQUE de versión y EXCLUDE de vigencias.
+const (
+	pgLockNotAvailable    = "55P03"
+	pgUniqueViolation     = "23505"
+	pgExclusionViolation  = "23P01"
+	pgSerializationFailed = "40001"
+)
+
+func isConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case pgLockNotAvailable, pgUniqueViolation, pgExclusionViolation, pgSerializationFailed:
+		return true
+	}
+	return false
 }
 
 type thresholdWriter struct {
 	tx *gorm.DB
 }
 
-// LockOpen: SELECT ... FOR UPDATE de la versión abierta.
+// LockOpen: SELECT ... FOR UPDATE NOWAIT de la versión abierta. Un POST
+// concurrente no espera: falla con 55P03 y Transaction lo traduce a ErrConflict.
 func (w *thresholdWriter) LockOpen(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.ThresholdVersion, error) {
 	var rows []models.RuleThresholdVersionModel
 	err := w.tx.WithContext(ctx).
-		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"}).
 		Where("measuring_point_id = ? AND event_type = ? AND valid_to IS NULL", pointID, string(eventType)).
 		Order("valid_from DESC").
 		Limit(1).

@@ -11,6 +11,7 @@ type FeatureEvaluationReadModel struct {
 	EvaluatedAt      time.Time `gorm:"column:evaluated_at"`
 	Status           string    `gorm:"column:status"`
 	I                *float64  `gorm:"column:i"`
+	DPl              *float64  `gorm:"column:d_pl"`
 	LowConfidence    bool      `gorm:"column:low_confidence"`
 }
 

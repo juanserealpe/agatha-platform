@@ -43,6 +43,8 @@ type step struct {
 	inEpisode bool
 	// hoursAbove < 0 ⇒ no se verifica.
 	hoursAbove int
+	// dPl es el d_pl de la hora (nil = no calculado).
+	dPl *float64
 }
 
 // runSequence evalúa las horas en orden como lo hace el caso de uso: cada hora
@@ -59,7 +61,7 @@ func runSequence(t *testing.T, p entities.ThresholdParams, steps []step) []Asses
 			window = window[:k]
 		}
 
-		got := Assess(s.i, p, window)
+		got := Assess(s.i, s.dPl, p, window)
 		out = append(out, got)
 
 		label := s.name
@@ -83,6 +85,10 @@ func runSequence(t *testing.T, p entities.ThresholdParams, steps []step) []Asses
 			InEpisode:      got.InEpisode,
 			HoursAbove:     got.HoursAbove,
 			HoursInLevel:   got.HoursInLevel,
+			RunAmarillo:    got.RunAmarillo,
+			RunNaranja:     got.RunNaranja,
+			BelowRun:       got.BelowRun,
+			DPl:            s.dPl,
 			EpisodeEvent:   got.EpisodeEvent,
 			Reasons:        got.Reasons,
 		}
@@ -93,7 +99,7 @@ func runSequence(t *testing.T, p entities.ThresholdParams, steps []step) []Asses
 }
 
 func TestRawLevel(t *testing.T) {
-	p := entities.DefaultThresholdParams()
+	p := referenceParams()
 
 	tests := []struct {
 		i    float64
@@ -149,7 +155,7 @@ func TestAssess_FullScenario(t *testing.T) {
 		step{name: "episodio nuevo", i: 0.21, level: amarillo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2},
 	)
 
-	got := runSequence(t, entities.DefaultThresholdParams(), steps)
+	got := runSequence(t, referenceParams(), steps)
 
 	// La hora 12 del bloque: NARANJA por persistencia.
 	if h12 := got[7+11]; h12.Level != naranja || h12.Rule != persistence || h12.EpisodeEvent != evNone {
@@ -181,12 +187,12 @@ func TestAssess_PersistenceAmarilloToNaranjaAtHour12(t *testing.T) {
 	}
 	steps = append(steps, step{i: 0.20, level: naranja, rule: persistence, event: evNone, inEpisode: true, hoursAbove: 12})
 
-	runSequence(t, entities.DefaultThresholdParams(), steps)
+	runSequence(t, referenceParams(), steps)
 }
 
 func TestAssess_DirectJumpToRojo(t *testing.T) {
 	t.Run("desde NORMAL respeta la racha de entrada", func(t *testing.T) {
-		runSequence(t, entities.DefaultThresholdParams(), []step{
+		runSequence(t, referenceParams(), []step{
 			{i: 0.10, level: normal, rule: none, event: evNone, hoursAbove: 0},
 			{i: 0.40, level: normal, rule: none, event: evNone, hoursAbove: 0},
 			{i: 0.41, level: rojo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2},
@@ -194,7 +200,7 @@ func TestAssess_DirectJumpToRojo(t *testing.T) {
 	})
 
 	t.Run("dentro de un episodio sube de inmediato", func(t *testing.T) {
-		runSequence(t, entities.DefaultThresholdParams(), []step{
+		runSequence(t, referenceParams(), []step{
 			{i: 0.19, level: normal, rule: none, event: evNone, hoursAbove: 0},
 			{i: 0.19, level: amarillo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2},
 			{i: 0.50, level: rojo, rule: threshold, event: evNone, inEpisode: true, hoursAbove: 3},
@@ -210,11 +216,11 @@ func TestAssess_PersistenceNaranjaToRojo(t *testing.T) {
 	// 6.ª hora con raw >= NARANJA ⇒ ROJO por persistencia.
 	steps = append(steps, step{i: 0.30, level: rojo, rule: persistence, event: evNone, inEpisode: true, hoursAbove: 6})
 
-	runSequence(t, entities.DefaultThresholdParams(), steps)
+	runSequence(t, referenceParams(), steps)
 }
 
 func TestAssess_PersistenceNeverRaisesTwoLevels(t *testing.T) {
-	p := entities.DefaultThresholdParams()
+	p := referenceParams()
 	p.EscalateAmarilloAfterHours = intPtr(2)
 	p.EscalateNaranjaAfterHours = intPtr(1)
 
@@ -229,7 +235,7 @@ func TestAssess_PersistenceNeverRaisesTwoLevels(t *testing.T) {
 }
 
 func TestAssess_NullEscalationNeverPersists(t *testing.T) {
-	p := entities.DefaultThresholdParams()
+	p := referenceParams()
 	p.EscalateAmarilloAfterHours = nil
 	p.EscalateNaranjaAfterHours = nil
 
@@ -251,12 +257,12 @@ func TestAssess_HysteresisBandHoldsForever(t *testing.T) {
 		steps = append(steps, step{i: 0.165, level: amarillo, rule: hold, event: evNone, inEpisode: true, hoursAbove: h})
 	}
 
-	runSequence(t, entities.DefaultThresholdParams(), steps)
+	runSequence(t, referenceParams(), steps)
 }
 
 // Una hora de vuelta en la banda reinicia la racha de salida.
 func TestAssess_ExitRunMustBeConsecutive(t *testing.T) {
-	runSequence(t, entities.DefaultThresholdParams(), []step{
+	runSequence(t, referenceParams(), []step{
 		{i: 0.20, level: normal, rule: none, event: evNone, hoursAbove: 0},
 		{i: 0.20, level: amarillo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2},
 		{i: 0.10, level: amarillo, rule: hold, event: evNone, inEpisode: true, hoursAbove: 3},
@@ -270,7 +276,7 @@ func TestAssess_ExitRunMustBeConsecutive(t *testing.T) {
 // su versión no cuenta para la racha de salida aunque su I quede bajo la banda
 // de la versión nueva.
 func TestAssess_ExitRunUsesStoredRawLevel(t *testing.T) {
-	strict := entities.DefaultThresholdParams()
+	strict := referenceParams()
 	strict.Amarillo, strict.Naranja, strict.Rojo = 0.30, 0.40, 0.50
 
 	history := []entities.RuleEvaluation{ // más reciente primero
@@ -278,7 +284,7 @@ func TestAssess_ExitRunUsesStoredRawLevel(t *testing.T) {
 		{IndicatorValue: 0.20, RawLevel: amarillo, Level: normal},
 	}
 
-	got := Assess(0.20, strict, history)
+	got := Assess(0.20, nil, strict, history)
 	if got.Level != amarillo || got.Rule != hold || got.EpisodeEvent != evNone || !got.InEpisode {
 		t.Fatalf("got = %+v; se esperaba HOLD en AMARILLO (la racha de salida es 1 < 2)", got)
 	}
@@ -287,7 +293,7 @@ func TestAssess_ExitRunUsesStoredRawLevel(t *testing.T) {
 // computed_level es max(raw, persistencia), SIN la histéresis ni la racha de
 // entrada: es lo que Alert Management usa para subir y estabilizar.
 func TestAssess_ComputedLevelIgnoresHoldAndPendingEntry(t *testing.T) {
-	got := runSequence(t, entities.DefaultThresholdParams(), []step{
+	got := runSequence(t, referenceParams(), []step{
 		{name: "racha de entrada pendiente", i: 0.20, level: normal, rule: none, event: evNone, hoursAbove: 0},
 		{name: "abre", i: 0.27, level: naranja, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2},
 		{name: "histéresis", i: 0.17, level: naranja, rule: hold, event: evNone, inEpisode: true, hoursAbove: 3},
@@ -304,16 +310,16 @@ func TestAssess_ComputedLevelIgnoresHoldAndPendingEntry(t *testing.T) {
 }
 
 func TestAssess_Reasons(t *testing.T) {
-	p := entities.DefaultThresholdParams()
+	p := referenceParams()
 
 	t.Run("NORMAL no tiene motivos", func(t *testing.T) {
-		if got := Assess(0.10, p, nil); len(got.Reasons) != 0 {
+		if got := Assess(0.10, nil, p, nil); len(got.Reasons) != 0 {
 			t.Fatalf("reasons = %+v", got.Reasons)
 		}
 	})
 
 	t.Run("umbral: nivel raw con I y el corte de ese nivel", func(t *testing.T) {
-		got := Assess(0.27, p, nil)
+		got := Assess(0.27, nil, p, nil)
 		want := []entities.Reason{{Code: entities.ReasonLeakThreshold, Level: naranja, I: 0.27, Threshold: 0.25}}
 		if !equalReasons(got.Reasons, want) {
 			t.Fatalf("reasons = %+v, se esperaba %+v", got.Reasons, want)
@@ -367,4 +373,14 @@ func equalReasons(a, b []entities.Reason) bool {
 		}
 	}
 	return true
+}
+
+// referenceParams son los parámetros del escenario de referencia de la
+// especificación (amarillo 0,18, salida 0,16): los escenarios de este archivo
+// están escritos sobre esos cortes. La plantilla de producción
+// (entities.DefaultThresholdParams) ya usa amarillo 0,16.
+func referenceParams() entities.ThresholdParams {
+	p := entities.DefaultThresholdParams()
+	p.Amarillo = 0.18
+	return p
 }

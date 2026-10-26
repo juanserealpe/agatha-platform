@@ -2,6 +2,7 @@ package entities
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain"
@@ -26,13 +27,32 @@ type ThresholdParams struct {
 	ExitMargin float64
 	// ExitHours: horas calculadas consecutivas bajo la banda de salida que cierran el episodio.
 	ExitHours int
+
+	// ConfirmNaranjaWithPlanitud: NARANJA (por umbral o persistencia) solo se
+	// asigna si el d_pl de la hora es >= DPlMin; si no, la hora queda en
+	// AMARILLO con el motivo NARANJA_NOT_CONFIRMED.
+	ConfirmNaranjaWithPlanitud bool
+	// DPlMin es el % mínimo de registros con planitud alta (0–100). Obligatorio
+	// si ConfirmNaranjaWithPlanitud.
+	DPlMin *float64
+	// PersistenceMode: STRICT = racha seguida; WINDOW = horas sobre el corte en
+	// las últimas PersistenceWindowHours horas calculadas.
+	PersistenceMode PersistenceMode
+	// PersistenceWindowHours (solo WINDOW): tamaño de la ventana móvil.
+	PersistenceWindowHours *int
+	// PersistenceMinHours (solo WINDOW): horas sobre el corte dentro de la
+	// ventana que escalan un nivel (reemplaza a escalate_*_after_hours como
+	// umbral; un escalamiento NULL sigue desactivado).
+	PersistenceMinHours *int
 }
 
 // DefaultThresholdParams es la plantilla de configuración (todos los valores
-// son beta). La usan el seed y la primera versión de un punto nuevo.
+// son beta). La usan el seed y la primera versión de un punto nuevo. Amarillo
+// 0,16 (salida 0,14) es la v2 de la especificación: +2 h de antelación en la
+// fuga del 24 ago a costa de 1 amarillo sin evento (26 sep).
 func DefaultThresholdParams() ThresholdParams {
 	return ThresholdParams{
-		Amarillo:                   0.18,
+		Amarillo:                   0.16,
 		Naranja:                    0.25,
 		Rojo:                       0.35,
 		MinHours:                   2,
@@ -40,17 +60,25 @@ func DefaultThresholdParams() ThresholdParams {
 		EscalateNaranjaAfterHours:  intPtr(6),
 		ExitMargin:                 0.02,
 		ExitHours:                  2,
+		PersistenceMode:            PersistenceStrict,
 	}
 }
 
 // Normalize redondea los umbrales y el margen a la precisión de la columna
-// (4 decimales). Se valida DESPUÉS de normalizar: dos valores distintos pueden
+// (4 decimales; d_pl_min a 2) y normaliza el modo de persistencia (vacío ⇒ STRICT). Se valida DESPUÉS de normalizar: dos valores distintos pueden
 // quedar iguales al redondear.
 func (p ThresholdParams) Normalize() ThresholdParams {
 	p.Amarillo = round4(p.Amarillo)
 	p.Naranja = round4(p.Naranja)
 	p.Rojo = round4(p.Rojo)
 	p.ExitMargin = round4(p.ExitMargin)
+	if p.DPlMin != nil {
+		p.DPlMin = floatPtr(round2(*p.DPlMin))
+	}
+	p.PersistenceMode = PersistenceMode(strings.ToUpper(strings.TrimSpace(string(p.PersistenceMode))))
+	if p.PersistenceMode == "" {
+		p.PersistenceMode = PersistenceStrict
+	}
 	return p
 }
 
@@ -70,7 +98,62 @@ func (p ThresholdParams) Validate() error {
 		(p.EscalateNaranjaAfterHours != nil && *p.EscalateNaranjaAfterHours < 1) {
 		return domain.ErrHoursRange
 	}
+	if p.DPlMin != nil && !(*p.DPlMin >= 0 && *p.DPlMin <= 100) {
+		return domain.ErrPlanitudConfig
+	}
+	if p.ConfirmNaranjaWithPlanitud && p.DPlMin == nil {
+		return domain.ErrPlanitudConfig
+	}
+	return p.validatePersistence()
+}
+
+// validatePersistence: el modo es STRICT o WINDOW; las horas de ventana, si
+// vienen, >= 1; con WINDOW ambas son obligatorias y min <= ventana.
+func (p ThresholdParams) validatePersistence() error {
+	if p.PersistenceMode != PersistenceStrict && p.PersistenceMode != PersistenceWindow {
+		return domain.ErrPersistenceConfig
+	}
+	if (p.PersistenceWindowHours != nil && *p.PersistenceWindowHours < 1) ||
+		(p.PersistenceMinHours != nil && *p.PersistenceMinHours < 1) {
+		return domain.ErrPersistenceConfig
+	}
+	if p.PersistenceMode == PersistenceWindow &&
+		(p.PersistenceWindowHours == nil || p.PersistenceMinHours == nil || *p.PersistenceMinHours > *p.PersistenceWindowHours) {
+		return domain.ErrPersistenceConfig
+	}
 	return nil
+}
+
+// IsWindow indica si la persistencia se cuenta por ventana móvil.
+func (p ThresholdParams) IsWindow() bool { return p.PersistenceMode == PersistenceWindow }
+
+// EscalationHours es el umbral de horas que escala desde from (AMARILLO →
+// NARANJA, NARANJA → ROJO) con el modo vigente: escalate_*_after_hours en
+// STRICT, persistence_min_hours en WINDOW. nil = escalamiento desactivado.
+func (p ThresholdParams) EscalationHours(from Level) *int {
+	var configured *int
+	switch from {
+	case LevelAmarillo:
+		configured = p.EscalateAmarilloAfterHours
+	case LevelNaranja:
+		configured = p.EscalateNaranjaAfterHours
+	}
+	if configured == nil {
+		return nil
+	}
+	if p.IsWindow() {
+		return copyIntPtr(p.PersistenceMinHours)
+	}
+	return copyIntPtr(configured)
+}
+
+// IsNaranjaConfirmed indica si el d_pl de la hora confirma NARANJA. Sin la
+// confirmación activa, siempre; con ella, d_pl conocido y >= d_pl_min.
+func (p ThresholdParams) IsNaranjaConfirmed(dPl *float64) bool {
+	if !p.ConfirmNaranjaWithPlanitud {
+		return true
+	}
+	return dPl != nil && p.DPlMin != nil && *dPl >= *p.DPlMin
 }
 
 // HistoryDepth es K: cuántas horas calculadas anteriores hacen falta para
@@ -82,6 +165,9 @@ func (p ThresholdParams) HistoryDepth() int {
 	}
 	if p.EscalateNaranjaAfterHours != nil {
 		k = max(k, *p.EscalateNaranjaAfterHours)
+	}
+	if p.IsWindow() && p.PersistenceWindowHours != nil {
+		k = max(k, *p.PersistenceWindowHours)
 	}
 	return k + 1
 }
@@ -140,6 +226,11 @@ type ThresholdPatch struct {
 	EscalateNaranjaAfterHours  Optional[*int]
 	ExitMargin                 Optional[float64]
 	ExitHours                  Optional[int]
+	ConfirmNaranjaWithPlanitud Optional[bool]
+	DPlMin                     Optional[*float64]
+	PersistenceMode            Optional[PersistenceMode]
+	PersistenceWindowHours     Optional[*int]
+	PersistenceMinHours        Optional[*int]
 }
 
 // ApplyTo copia de base los campos que el parche no informa.
@@ -153,6 +244,11 @@ func (patch ThresholdPatch) ApplyTo(base ThresholdParams) ThresholdParams {
 		EscalateNaranjaAfterHours:  copyIntPtr(patch.EscalateNaranjaAfterHours.or(base.EscalateNaranjaAfterHours)),
 		ExitMargin:                 patch.ExitMargin.or(base.ExitMargin),
 		ExitHours:                  patch.ExitHours.or(base.ExitHours),
+		ConfirmNaranjaWithPlanitud: patch.ConfirmNaranjaWithPlanitud.or(base.ConfirmNaranjaWithPlanitud),
+		DPlMin:                     copyFloatPtr(patch.DPlMin.or(base.DPlMin)),
+		PersistenceMode:            patch.PersistenceMode.or(base.PersistenceMode),
+		PersistenceWindowHours:     copyIntPtr(patch.PersistenceWindowHours.or(base.PersistenceWindowHours)),
+		PersistenceMinHours:        copyIntPtr(patch.PersistenceMinHours.or(base.PersistenceMinHours)),
 	}
 }
 
@@ -163,6 +259,9 @@ type ThresholdVersion struct {
 	MeasuringPointID int64
 	EventType        EventType
 	Version          int
+	// PreviousVersionID es el ID de la versión anterior del punto (nil en la
+	// 1). No es columna: lo completa el caso de uso al crear o consultar.
+	PreviousVersionID *int64
 	ThresholdParams
 	ValidFrom time.Time
 	ValidTo   *time.Time // nil = vigente
@@ -185,6 +284,17 @@ const (
 )
 
 func round4(v float64) float64 { return math.Round(v*1e4) / 1e4 }
+
+func round2(v float64) float64 { return math.Round(v*1e2) / 1e2 }
+
+func floatPtr(v float64) *float64 { return &v }
+
+func copyFloatPtr(p *float64) *float64 {
+	if p == nil {
+		return nil
+	}
+	return floatPtr(*p)
+}
 
 func intPtr(v int) *int { return &v }
 

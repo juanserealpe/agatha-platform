@@ -10,6 +10,7 @@ import (
 var errorStatus = map[appErrors.ErrorCode]int{
 	appErrors.CodeNotFound:                http.StatusNotFound,
 	appErrors.CodeInvalidInput:            http.StatusBadRequest,
+	appErrors.CodeConflict:                http.StatusConflict,
 	appErrors.CodeFutureDate:              http.StatusBadRequest,
 	appErrors.CodeAlreadyIngested:         http.StatusConflict,
 	appErrors.CodeBeforeInitialDate:       http.StatusBadRequest,
