@@ -9,6 +9,8 @@ import { useDevices } from "@/features/sensors";
 import { useAlertDetailParam } from "../../hooks/useAlertDetailParam";
 import { deviceOptionLabel } from "../../lib/deviceLabel";
 import { summarizeFilters } from "../../lib/filterSummary";
+import { historySearchKey } from "../../lib/historySearchParams";
+import { ExportAlertsButton } from "./ExportAlertsButton";
 import { useAlertHistory } from "../../hooks/useAlertHistory";
 import { useHistorySearch } from "../../hooks/useHistorySearch";
 import { AlertHistoryTable } from "./AlertHistoryTable";
@@ -52,10 +54,14 @@ export function AlertHistorySection() {
 
     return (
         <div className="flex flex-col gap-3">
-            <p className="text-sm text-gray-600" aria-live="polite">
-                Número de alertas: <span className="font-data-mono font-bold text-gray-900">{total}</span>
-                {summary.length > 0 && <span className="text-gray-500"> · {summary.join(" · ")}</span>}
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <p className="pt-1.5 text-sm text-gray-600" aria-live="polite">
+                    Número de alertas: <span className="font-data-mono font-bold text-gray-900">{total}</span>
+                    {summary.length > 0 && <span className="text-gray-500"> · {summary.join(" · ")}</span>}
+                </p>
+                {/* Con otra búsqueda se reinicia, para no arrastrar el error de la exportación anterior. */}
+                <ExportAlertsButton key={historySearchKey({ filters, page: 1 })} filters={filters} total={total} />
+            </div>
 
             {isError && (
                 <p role="alert" className="rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700">

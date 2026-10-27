@@ -127,3 +127,11 @@ export function formatColombiaDate(value: DateInput): string {
     const { day, month, year } = colombiaParts(date);
     return `${day}/${month}/${year}`;
 }
+
+/** Marca de tiempo para nombres de archivo en hora de Colombia, p. ej. "20261026_1504". */
+export function formatColombiaFileStamp(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return "";
+    const { day, month, year, hour, minute } = colombiaParts(date);
+    return `${year}${month}${day}_${hour}${minute}`;
+}

@@ -61,6 +61,8 @@
     --color-tgi-azul: #1a71b8;
     /* Verde de marca profundo: contraste AAA con texto blanco (≈10:1). Solo para navegación. */
     --color-tgi-verde-oscuro: #004d25;
+    /* Azul de marca oscurecido para botones de acción secundaria (contraste AAA con texto blanco). */
+    --color-tgi-azul-oscuro: #145a93;
     /* Fondo de página: gris con un toque verde, casi imperceptible. */
     --color-tgi-fondo: #eef3ef;
     --font-data-mono: "JetBrains Mono Variable", monospace;

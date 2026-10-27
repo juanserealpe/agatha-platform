@@ -3,6 +3,7 @@ import {
     formatAbsolute,
     formatClock,
     formatColombiaDate,
+    formatColombiaFileStamp,
     formatColombiaDateTime,
     formatDayMonth,
     formatRelative,
@@ -72,5 +73,16 @@ describe("hora de Colombia", () => {
     it("muestra un guion si la fecha es inválida", () => {
         expect(formatColombiaDateTime("no-es-fecha")).toBe("—");
         expect(formatColombiaDate("no-es-fecha")).toBe("—");
+    });
+});
+
+describe("formatColombiaFileStamp", () => {
+    it("usa la hora de Colombia", () => {
+        expect(formatColombiaFileStamp("2026-10-26T20:04:00Z")).toBe("20261026_1504");
+        expect(formatColombiaFileStamp("2026-10-27T02:30:00Z")).toBe("20261026_2130");
+    });
+
+    it("vacío si la fecha es inválida", () => {
+        expect(formatColombiaFileStamp("no-es-fecha")).toBe("");
     });
 });
