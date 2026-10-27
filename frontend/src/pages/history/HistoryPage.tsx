@@ -1,13 +1,19 @@
-import { History } from "lucide-react";
+import { useId } from "react";
+import { AlertHistorySection } from "@/features/alerts";
 
 export function HistoryPage() {
+    const titleId = useId();
+
     return (
-        <section className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-gray-300 py-20 text-center">
-            <History size={32} className="text-gray-400" aria-hidden />
-            <h2 className="text-lg font-semibold text-gray-900">Historial de Alertas</h2>
-            <p className="max-w-md text-sm text-gray-500">
-                Aquí se listarán las alertas registradas y pendientes de clasificar. Esta sección está en construcción.
-            </p>
+        <section aria-labelledby={titleId} className="flex flex-col gap-4">
+            <header>
+                <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+                    Historial de alertas
+                </h2>
+                <p className="text-sm text-gray-500">Consulta, gestión y exportación de todas las alertas generadas.</p>
+            </header>
+
+            <AlertHistorySection />
         </section>
     );
 }

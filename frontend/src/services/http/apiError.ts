@@ -31,6 +31,11 @@ export function isApiError(error: unknown): error is ApiError {
     return error instanceof ApiError;
 }
 
+/** Mensaje para el usuario: el de un ApiError o el de respaldo. Nunca expone errores técnicos crudos. */
+export function userErrorMessage(error: unknown, fallback: string): string {
+    return isApiError(error) ? error.message : fallback;
+}
+
 /** Errores del cliente (4xx): reintentar no cambia el resultado. */
 export function isClientError(error: unknown): boolean {
     return isApiError(error) && error.status >= 400 && error.status < 500;

@@ -10,6 +10,7 @@ import type {
     ManagementStatus,
 } from "@/services/alertManagement";
 import { OTHER_LABEL } from "@/services/alertManagement";
+import type { RowAction } from "../lib/rowActions";
 import { SEVERITY_STYLES, type SeverityStyle } from "./alertDisplay";
 
 // Único lugar donde los enums de Alert Management se traducen a textos y estilos. Los componentes no
@@ -102,3 +103,9 @@ export const ORIGIN_LABEL: Record<ManagementOrigin, string> = {
 export const EMPTY_CELL = "—";
 
 export const IN_PROGRESS_LABEL = "En curso";
+
+export const ROW_ACTION_LABEL: Record<RowAction, string> = {
+    classify: "Clasificar",
+    label: "Agregar etiqueta",
+    view: "Ver detalle",
+};
