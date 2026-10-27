@@ -80,7 +80,7 @@ func (d *DeviceDirectory) Get(ctx context.Context, pointID int64) (*entities.Dev
 	if err != nil {
 		return nil, err
 	}
-	return &entities.Device{MeasuringPointID: row.MeasuringPointID, PK: row.Name, Zone: row.Name}, nil
+	return &entities.Device{MeasuringPointID: row.MeasuringPointID, PK: row.Name}, nil
 }
 
 // Names devuelve el nombre (PK) de los puntos dados.

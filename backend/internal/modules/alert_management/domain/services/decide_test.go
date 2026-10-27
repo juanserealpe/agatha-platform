@@ -102,7 +102,7 @@ func (w *world) feed(notices ...entities.LevelNotice) []Decision {
 	w.t.Helper()
 	out := make([]Decision, 0, len(notices))
 	for _, n := range notices {
-		in := DecideInput{State: w.state, Notice: n, Policy: w.policy, Device: entities.Device{MeasuringPointID: pointID, PK: "PK34+500", Zone: "PK34+500"}}
+		in := DecideInput{State: w.state, Notice: n, Policy: w.policy, Device: entities.Device{MeasuringPointID: pointID, PK: "PK34+500"}}
 		if w.active != nil {
 			a := *w.active
 			in.Active = &a
@@ -480,6 +480,76 @@ func finishedAt(t *testing.T) *world {
 		calc(3, 0.12, N, N, cleared, inEpisode(false), belowRun(2)),
 	)
 	return w
+}
+
+// bodyOf devuelve el cuerpo del primer mensaje con ese código.
+func (w *world) bodyOf(code string) string {
+	for _, m := range w.messages {
+		if m.Code == code {
+			return m.Body
+		}
+	}
+	return ""
+}
+
+// La duración es el tiempo transcurrido (lo que suman los colores), no las
+// horas evaluadas: de h0 a h3 son 3 h aunque se evaluaron 4 horas.
+func TestDecide_EndDurationIsElapsedTime(t *testing.T) {
+	w := finishedAt(t)
+	a := w.alerts[123]
+	if !a.StartedAt.Equal(h(0)) || !a.EndedAt.Equal(h(3)) {
+		t.Fatalf("alerta = %+v", a)
+	}
+	if body := w.bodyOf(messages.CodeEndNormal); !strings.Contains(body, "Duró 3 h") {
+		t.Fatalf("END_NORMAL = %q, se esperaba 3 h (h0 → h3)", body)
+	}
+	if got := a.DurationHours(*a.EndedAt); got != 3 {
+		t.Fatalf("DurationHours = %d", got)
+	}
+}
+
+// Las horas sin datos con la alerta activa son tiempo transcurrido: cuentan.
+func TestDecide_EndDurationIncludesNoDataHours(t *testing.T) {
+	w := newWorld(t)
+	w.feed(
+		calc(0, 0.17, A, A, none, inEpisode(false)),
+		calc(1, 0.18, A, A, opened, hoursAbove(2)),
+		noCalc(2),
+		noCalc(3),
+		calc(4, 0.13, N, N, none, inEpisode(true), belowRun(1)),
+		calc(5, 0.12, N, N, cleared, inEpisode(false), belowRun(2)),
+	)
+	if body := w.bodyOf(messages.CodeEndNormal); !strings.Contains(body, "Duró 5 h") {
+		t.Fatalf("END_NORMAL = %q, se esperaba 5 h (h0 → h5)", body)
+	}
+}
+
+// La pausa entre el fin y la reactivación no suma: termina en h3, vuelve con
+// un color desde h9 y termina en h12 ⇒ 3 + 3 = 6 h.
+func TestDecide_EndDurationExcludesReactivationPause(t *testing.T) {
+	w := finishedAt(t)
+	w.feed(
+		calc(9, 0.17, A, A, none, inEpisode(false)),
+		calc(10, 0.18, A, A, opened, hoursAbove(2)),
+		calc(11, 0.13, N, N, none, inEpisode(true), belowRun(1)),
+		calc(12, 0.12, N, N, cleared, inEpisode(false), belowRun(2)),
+	)
+	var ends []string
+	for _, m := range w.messages {
+		if m.Code == messages.CodeEndNormal {
+			ends = append(ends, m.Body)
+		}
+	}
+	if len(ends) != 2 || !strings.Contains(ends[1], "Duró 6 h") {
+		t.Fatalf("END_NORMAL = %q, se esperaba 6 h (3 + 3, sin las 6 h de pausa)", ends)
+	}
+	var sum time.Duration
+	for _, seg := range w.segments[123] {
+		sum += seg.EndedAt.Sub(seg.StartedAt)
+	}
+	if a := w.alerts[123]; a.DurationHours(*a.EndedAt) != int(sum.Hours()) {
+		t.Fatalf("DurationHours = %d, los colores suman %v", a.DurationHours(*a.EndedAt), sum)
+	}
 }
 
 // Escenario 13: vuelve 6 h después sin clasificar ⇒ misma alerta, color nuevo, sin notificar.

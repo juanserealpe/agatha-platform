@@ -202,12 +202,12 @@ func (b *builder) withoutAlert(d *Decision, firstHour bool) {
 
 	if withinWindow {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeNewAfterClassified, ""), map[string]string{
-			"pk": b.in.Device.PK, "codigo_anterior": last.Code,
+			"pk": b.in.Device.PK, "nivel": messages.LevelName(level), "codigo_anterior": last.Code,
 			"clasificacion": messages.ClassificationName(last.Management.Classification),
 		}, "", level, true))
 	} else {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeOpen, string(level)), map[string]string{
-			"pk": b.in.Device.PK, "hora_inicio": messages.FormatHour(started), "zona": b.in.Device.Zone,
+			"pk": b.in.Device.PK, "hora_inicio": messages.FormatHour(started),
 		}, "", level, true))
 	}
 
@@ -232,6 +232,8 @@ func (b *builder) reactivate(d *Decision, last entities.Alert, computed entities
 	n := b.in.Notice
 	a := cloneAlert(last)
 	hoursSinceEnd := int(b.at.Sub(*a.EndedAt).Hours())
+	// El color nuevo arranca en started: lo anterior desde el fin es pausa.
+	paused := last.Runtime.PausedHours + max(int(started.Sub(*a.EndedAt).Hours()), 0)
 	previousMax := a.MaxLevel
 	level := entities.MaxLevel(a.CurrentLevel, computed)
 
@@ -247,8 +249,9 @@ func (b *builder) reactivate(d *Decision, last entities.Alert, computed entities
 	a.HoursCalculated += max(n.HoursAbove, 1)
 	a.BelowLevelHours = 0
 	a.Runtime = entities.Runtime{
-		PrevZone: entities.ZoneAbove,
-		Recent:   []entities.HourValue{{At: b.at, I: n.Value()}},
+		PrevZone:    entities.ZoneAbove,
+		Recent:      []entities.HourValue{{At: b.at, I: n.Value()}},
+		PausedHours: paused,
 	}
 
 	kind := entities.KindUpdate
@@ -287,7 +290,7 @@ func (b *builder) withAlert(d *Decision) {
 		a.EndedAt = &at
 		d.CloseSegmentAt = &at
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeEndNormal, ""), map[string]string{
-			"codigo": a.Code, "N": strconv.Itoa(a.HoursCalculated), "max": messages.LevelName(a.MaxLevel),
+			"codigo": a.Code, "N": strconv.Itoa(a.DurationHours(at)), "max": messages.LevelName(a.MaxLevel),
 			"horas": strconv.Itoa(p.MergeWindowHours),
 		}, "", a.CurrentLevel, true))
 		id := a.ID
@@ -397,7 +400,6 @@ func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level) {
 	d.CloseSegmentAt = &at
 	d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentUp, Level: level, StartedAt: at}
 
-	zone := b.in.Device.Zone
 	switch {
 	case a.InIntervention() && level.Rank() <= p.InterventionSilentMaxLevel.Rank():
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpDuringIntervention, ""), map[string]string{
@@ -405,19 +407,19 @@ func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level) {
 		}, "", level, true))
 	case level == entities.LevelRojo && n.PersistenceHours > 0:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpRojo, messages.VariantPersist), map[string]string{
-			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "zona": zone,
+			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours),
 		}, "", level, true))
 	case level == entities.LevelRojo:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpRojo, ""), map[string]string{
-			"codigo": a.Code, "zona": zone,
+			"codigo": a.Code,
 		}, "", level, true))
 	case n.PersistenceHours > 0:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpNaranjaPersist, ""), map[string]string{
-			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "zona": zone,
+			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours),
 		}, "", level, true))
 	default:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpNaranjaFast, ""), map[string]string{
-			"codigo": a.Code, "zona": zone,
+			"codigo": a.Code,
 		}, "", level, true))
 	}
 }
@@ -485,7 +487,7 @@ func (b *builder) oscillation(d *Decision, a *entities.Alert) bool {
 func (b *builder) band(d *Decision, a *entities.Alert, zone, prevZone string) bool {
 	n := b.in.Notice
 	var key string
-	params := map[string]string{}
+	params := map[string]string{"nivel": messages.LevelName(a.CurrentLevel)}
 	switch {
 	case zone == entities.ZoneBand && prevZone == entities.ZoneAbove:
 		key = messages.Key(messages.CodeAlmostNormal, "")
@@ -493,7 +495,6 @@ func (b *builder) band(d *Decision, a *entities.Alert, zone, prevZone string) bo
 		key = messages.Key(messages.CodeOneHourNormal, "")
 	case zone == entities.ZoneAbove && (prevZone == entities.ZoneBand || prevZone == entities.ZoneBelow):
 		key = messages.Key(messages.CodeBackAbnormal, "")
-		params["nivel"] = messages.LevelName(a.CurrentLevel)
 	default:
 		return false
 	}
@@ -551,7 +552,7 @@ func (b *builder) trend(d *Decision, a *entities.Alert) bool {
 		direction = "bajando"
 	}
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeTrend, ""), map[string]string{
-		"direccion": direction, "nivel": messages.LevelName(a.CurrentLevel), "N": strconv.Itoa(a.HoursCalculated),
+		"direccion": direction, "nivel": messages.LevelName(a.CurrentLevel), "N": strconv.Itoa(a.DurationHours(b.at)),
 	}, "", a.CurrentLevel, true))
 	return true
 }
@@ -595,7 +596,7 @@ func (b *builder) summary(d *Decision, a *entities.Alert) {
 		trend = "bajando"
 	}
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeSummary, ""), map[string]string{
-		"nivel": messages.LevelName(a.CurrentLevel), "N": strconv.Itoa(a.HoursCalculated), "tendencia": trend,
+		"nivel": messages.LevelName(a.CurrentLevel), "N": strconv.Itoa(a.DurationHours(b.at)), "tendencia": trend,
 	}, "", a.CurrentLevel, true))
 }
 

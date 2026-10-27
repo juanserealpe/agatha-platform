@@ -136,7 +136,9 @@ Sigue el patrón de `rule_threshold_versions`: solo se agregan versiones y nunca
 |---|---|---|---|---|
 | `rule_engine.level_evaluated` (v3) | Rule Engine | `entities.LevelNotice` (lo traduce `internal/bootstrap/alert_management.go`) | `alert_management.level_evaluated` | `ProcessingService.Process` (`LIVE`) |
 
-Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un duplicado o una hora vieja (`evaluated_at` ≤ `alert_processing_state.last_evaluated_at`) no hace nada. Hoy el módulo **no publica** eventos.
+Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un duplicado o una hora vieja (`evaluated_at` ≤ `alert_processing_state.last_evaluated_at`) no hace nada.
+
+**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`, después del commit (ver "Notificaciones"). Hoy no tiene suscriptores. Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
 
 ## Catch-up y backfill (sección 9.2)
 
@@ -158,7 +160,9 @@ Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_
 
 - `alerts.classified_client_record_id` / `labeled_client_record_id`: dan idempotencia a la clasificación y la etiqueta, no solo a las observaciones.
 - `ALMOST_NORMAL` no cita las horas que faltan, porque el evento v3 no trae `exit_hours`. Dice "terminará si sigue así".
-- `{pk}` y `{zona}` salen de `devices.name`, porque `devices` no tiene abscisa ni zona. Sin dispositivo, se usa `MP-<id>`.
+- `{pk}` sale de `devices.name` (que ya trae "Sensor …"), porque `devices` no tiene abscisa. Sin dispositivo, se usa `MP-<id>`.
+- **Los mensajes solo informan el estado y la criticidad; nunca dicen qué hacer.** Se quitaron del texto de la especificación las indicaciones operativas ("Programar recorrido", "Enviar cuadrilla", "avisar al centro de control", "no se requiere salir a campo") y la variable `{zona}`. Además, **el cuerpo no repite el título**: lo complementa. Las dos reglas las verifican tests del catálogo (`MessageCatalogVersion = 3`).
+- La duración ("Duró N h", "lleva N h" y `duration_hours` en la API) es tiempo transcurrido sin las pausas entre fin y reactivación (`Alert.DurationHours`), no `hours_calculated`.
 - Después de una subida no se emiten las reglas 5 a 9 en esa hora. Abrir o reactivar no emite otras reglas.
 - Sin estado previo y en mitad de un episodio (módulo habilitado tarde), la primera hora abre la alerta igual.
 - El Excel se implementó solo con la stdlib (no hay dependencias nuevas en `go.mod`).

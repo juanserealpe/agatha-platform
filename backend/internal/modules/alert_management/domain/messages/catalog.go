@@ -14,7 +14,9 @@ import (
 )
 
 // MessageCatalogVersion se guarda en cada mensaje. Subirla al cambiar un texto.
-const MessageCatalogVersion = 1
+// v2: {pk} sin "sensor" delante (devices.name ya lo trae).
+// v3: el cuerpo no repite el título y ningún texto dice qué hacer (sin zona).
+const MessageCatalogVersion = 3
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
 const LowConfidenceMark = "Sensor en ajuste: resultado preliminar."
@@ -72,157 +74,160 @@ func Key(code, variant string) string {
 	return code + "/" + variant
 }
 
+// catalog: el título dice qué pasó (y la criticidad); el cuerpo agrega el
+// detalle sin repetir el título. Ningún texto indica qué hacer: solo el
+// estado de la alerta (lo verifican las pruebas).
 var catalog = map[string]Template{
 	Key(CodeOpen, VariantAmarillo): {
 		Code: CodeOpen, Kind: entities.KindNotification,
-		Title: "Alerta nueva: ruido anormal en el sensor {pk}",
-		Body:  "Sensor {pk}: el sensor escucha un ruido mayor de lo normal desde las {hora_inicio}. Por ahora no se requiere salir a campo.",
+		Title: "Alerta nueva en {pk}: nivel Amarillo",
+		Body:  "Ruido mayor de lo normal desde las {hora_inicio}.",
 		Vars:  []string{"pk", "hora_inicio"},
 	},
 	Key(CodeOpen, VariantNaranja): {
 		Code: CodeOpen, Kind: entities.KindNotification,
-		Title: "Alerta nueva: ruido fuerte en el sensor {pk}",
-		Body:  "Sensor {pk}: ruido fuerte en la tubería desde las {hora_inicio}. Programar recorrido a la zona {zona}.",
-		Vars:  []string{"pk", "hora_inicio", "zona"},
+		Title: "Alerta nueva en {pk}: nivel Naranja",
+		Body:  "Ruido fuerte en la tubería desde las {hora_inicio}.",
+		Vars:  []string{"pk", "hora_inicio"},
 	},
 	Key(CodeOpen, VariantRojo): {
 		Code: CodeOpen, Kind: entities.KindNotification,
-		Title: "Alerta nueva: ruido muy fuerte en el sensor {pk}",
-		Body:  "Sensor {pk}: ruido fuerte en la tubería desde las {hora_inicio}. Enviar cuadrilla a la zona {zona}.",
-		Vars:  []string{"pk", "hora_inicio", "zona"},
+		Title: "Alerta nueva en {pk}: nivel Rojo",
+		Body:  "Ruido muy fuerte en la tubería desde las {hora_inicio}.",
+		Vars:  []string{"pk", "hora_inicio"},
 	},
 	Key(CodeUpNaranjaPersist, ""): {
 		Code: CodeUpNaranjaPersist, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Naranja",
-		Body:  "La alerta {codigo} subió a Naranja: el ruido anormal lleva {N} h seguidas sin bajar. Programar recorrido de la zona {zona}.",
-		Vars:  []string{"codigo", "N", "zona"},
+		Body:  "El ruido anormal lleva {N} h seguidas sin bajar.",
+		Vars:  []string{"codigo", "N"},
 	},
 	Key(CodeUpNaranjaFast, ""): {
 		Code: CodeUpNaranjaFast, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Naranja",
-		Body:  "La alerta {codigo} subió a Naranja: el ruido aumentó rápidamente. Programar recorrido de la zona {zona}.",
-		Vars:  []string{"codigo", "zona"},
+		Body:  "El ruido aumentó rápidamente.",
+		Vars:  []string{"codigo"},
 	},
 	Key(CodeUpRojo, ""): {
 		Code: CodeUpRojo, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Rojo",
-		Body:  "La alerta {codigo} subió a Rojo: ruido muy fuerte. Enviar cuadrilla a la zona {zona} y avisar al centro de control.",
-		Vars:  []string{"codigo", "zona"},
+		Body:  "Ruido muy fuerte en la tubería.",
+		Vars:  []string{"codigo"},
 	},
 	Key(CodeUpRojo, VariantPersist): {
 		Code: CodeUpRojo, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Rojo",
-		Body:  "La alerta {codigo} subió a Rojo: ruido fuerte sostenido {N} h. Enviar cuadrilla a la zona {zona} y avisar al centro de control.",
-		Vars:  []string{"codigo", "N", "zona"},
+		Body:  "Ruido fuerte sostenido durante {N} h.",
+		Vars:  []string{"codigo", "N"},
 	},
 	// El kind de REACTIVATED depende de si supera el máximo: lo fija la regla.
 	Key(CodeReactivated, ""): {
 		Code: CodeReactivated, Kind: entities.KindUpdate,
-		Title: "La alerta {codigo} se reactiva",
-		Body:  "El ruido volvió {horas} h después de terminar. La alerta {codigo} se reactiva en {nivel}.",
+		Title: "La alerta {codigo} se reactiva en {nivel}",
+		Body:  "El ruido volvió {horas} h después de terminar.",
 		Vars:  []string{"horas", "codigo", "nivel"},
 	},
 	Key(CodeNewAfterClassified, ""): {
 		Code: CodeNewAfterClassified, Kind: entities.KindNotification,
-		Title: "Alerta nueva en el sensor {pk}",
-		Body:  "Alerta nueva: la anterior ({codigo_anterior}) ya había sido clasificada como {clasificacion}.",
-		Vars:  []string{"pk", "codigo_anterior", "clasificacion"},
+		Title: "Alerta nueva en {pk}: nivel {nivel}",
+		Body:  "La anterior ({codigo_anterior}) ya había sido clasificada como {clasificacion}.",
+		Vars:  []string{"pk", "nivel", "codigo_anterior", "clasificacion"},
 	},
 	Key(CodeUpDuringIntervention, ""): {
 		Code: CodeUpDuringIntervention, Kind: entities.KindUpdate,
-		Title: "Subió durante la intervención",
-		Body:  "El ruido subió a {nivel} durante la intervención registrada (sin sonido).",
+		Title: "Subió a {nivel} durante la intervención",
+		Body:  "Por la intervención registrada, esta subida no se notifica.",
 		Vars:  []string{"nivel"},
 	},
 	Key(CodeNoCalcStart, ""): {
 		Code: CodeNoCalcStart, Kind: entities.KindUpdate,
 		Title: "Sin datos suficientes",
-		Body:  "No hay datos suficientes para evaluar desde las {hora}; la alerta sigue en {nivel}.",
+		Body:  "No se puede evaluar desde las {hora}; la alerta sigue en {nivel}.",
 		Vars:  []string{"hora", "nivel"},
 	},
 	Key(CodeNoCalcEnd, ""): {
 		Code: CodeNoCalcEnd, Kind: entities.KindUpdate,
 		Title: "Vuelve a haber datos",
-		Body:  "Vuelve a haber datos; la alerta sigue en {nivel}.",
+		Body:  "La alerta sigue en {nivel}.",
 		Vars:  []string{"nivel"},
 	},
 	Key(CodeDowngradeStart, ""): {
 		Code: CodeDowngradeStart, Kind: entities.KindUpdate,
-		Title: "El ruido bajó",
-		Body:  "El ruido bajó a nivel {nivel_hora}. Si se mantiene así {horas} h, la alerta bajará a {nivel_inferior}.",
+		Title: "El ruido bajó a nivel {nivel_hora}",
+		Body:  "Si se mantiene así {horas} h, la alerta bajará a {nivel_inferior}.",
 		Vars:  []string{"nivel_hora", "horas", "nivel_inferior"},
 	},
 	Key(CodeDowngrade, ""): {
 		Code: CodeDowngrade, Kind: entities.KindUpdate,
 		Title: "La alerta bajó a {nivel_inferior}",
-		Body:  "El ruido se mantuvo por debajo de {nivel} durante {horas} h; la alerta baja a {nivel_inferior}. Máximo alcanzado: {max}.",
+		Body:  "El ruido se mantuvo por debajo de {nivel} durante {horas} h. Máximo alcanzado: {max}.",
 		Vars:  []string{"nivel", "horas", "nivel_inferior", "max"},
 	},
 	Key(CodeRojoHeld, ""): {
 		Code: CodeRojoHeld, Kind: entities.KindUpdate,
-		Title: "Sigue en rojo hasta que se clasifique",
-		Body:  "El ruido bajó hace {horas} h, pero la alerta sigue en rojo hasta que alguien la clasifique.",
+		Title: "Sigue en Rojo",
+		Body:  "El ruido bajó hace {horas} h, pero una alerta roja sin clasificar no baja de nivel.",
 		Vars:  []string{"horas"},
 	},
 	Key(CodeCountdown, ""): {
 		Code: CodeCountdown, Kind: entities.KindUpdate,
 		Title: "Puede subir a {nivel_siguiente}",
-		Body:  "Lleva {N} h seguidas. Si sigue {horas} h más, pasa a {nivel_siguiente}.",
+		Body:  "Lleva {N} h seguidas; faltan {horas} h para el cambio de nivel.",
 		Vars:  []string{"N", "horas", "nivel_siguiente"},
 	},
 	Key(CodeTrend, ""): {
 		Code: CodeTrend, Kind: entities.KindUpdate,
 		Title: "El ruido está {direccion}",
-		Body:  "El ruido está {direccion}. La alerta sigue en {nivel} (lleva {N} h).",
+		Body:  "La alerta sigue en {nivel} y lleva {N} h.",
 		Vars:  []string{"direccion", "nivel", "N"},
 	},
 	Key(CodeAlmostNormal, ""): {
 		Code: CodeAlmostNormal, Kind: entities.KindUpdate,
 		Title: "Casi normal",
 		// El evento v3 no trae exit_hours del Rule Engine: el texto no lo cita.
-		Body: "El ruido volvió casi a lo normal; la alerta terminará si sigue así.",
+		Body: "La alerta terminará si el ruido se mantiene así.",
 		Vars: []string{},
 	},
 	Key(CodeOneHourNormal, ""): {
 		Code: CodeOneHourNormal, Kind: entities.KindUpdate,
 		Title: "1 h con ruido normal",
-		Body:  "1 h con ruido normal.",
-		Vars:  []string{},
+		Body:  "La alerta sigue en {nivel} hasta completar el cierre.",
+		Vars:  []string{"nivel"},
 	},
 	Key(CodeBackAbnormal, ""): {
 		Code: CodeBackAbnormal, Kind: entities.KindUpdate,
 		Title: "El ruido anormal volvió",
-		Body:  "El ruido anormal volvió; sigue en {nivel}.",
+		Body:  "La alerta sigue en {nivel}.",
 		Vars:  []string{"nivel"},
 	},
 	Key(CodeOscillating, ""): {
 		Code: CodeOscillating, Kind: entities.KindUpdate,
 		Title: "El ruido oscila",
-		Body:  "El ruido oscila alrededor del límite desde las {hora}. No se informará cada subida y bajada.",
+		Body:  "Sube y baja alrededor del límite desde las {hora}; no se informará cada cambio.",
 		Vars:  []string{"hora"},
 	},
 	Key(CodeSummary, ""): {
 		Code: CodeSummary, Kind: entities.KindSummary,
 		Title: "Sin cambios",
-		Body:  "Sin cambios: sigue en {nivel}, lleva {N} h, ruido {tendencia}.",
+		Body:  "Sigue en {nivel}, lleva {N} h, ruido {tendencia}.",
 		Vars:  []string{"nivel", "N", "tendencia"},
 	},
 	Key(CodeEndNormal, ""): {
 		Code: CodeEndNormal, Kind: entities.KindEnd,
 		Title: "La alerta {codigo} terminó",
-		Body:  "La alerta terminó: el ruido volvió a lo normal. Duró {N} h; nivel máximo {max}. Si vuelve en las próximas {horas} h y no se ha clasificado, se reactivará esta misma alerta.",
+		Body:  "El ruido volvió a lo normal. Duró {N} h; nivel máximo {max}. Si vuelve en las próximas {horas} h y sigue sin clasificar, se reactivará esta misma alerta.",
 		Vars:  []string{"codigo", "N", "max", "horas"},
 	},
 	Key(CodeClassified, ""): {
 		Code: CodeClassified, Kind: entities.KindManagement,
 		Title: "Clasificada como {clasificacion}",
-		Body:  "Clasificada como {clasificacion} desde {origen}.",
+		Body:  "Registrada desde {origen}.",
 		Vars:  []string{"clasificacion", "origen"},
 	},
 	Key(CodeLabeled, ""): {
 		Code: CodeLabeled, Kind: entities.KindManagement,
 		Title: "Etiqueta: {etiqueta}",
-		Body:  "Etiqueta: {etiqueta}, desde {origen}.",
+		Body:  "Registrada desde {origen}.",
 		Vars:  []string{"etiqueta", "origen"},
 	},
 }

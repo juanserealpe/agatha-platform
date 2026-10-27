@@ -252,3 +252,22 @@ func TestRoutes_NoNotificationDelivery(t *testing.T) {
 		t.Fatalf("notifications: %d", rec.Code)
 	}
 }
+
+// duration_hours es la misma duración que el mensaje de fin (tiempo
+// transcurrido sin pausas): el front no la calcula por su cuenta.
+func TestItem_DurationHours(t *testing.T) {
+	started := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
+	ended := started.Add(38 * time.Hour)
+	finished := entities.Alert{State: entities.AlertFinished, StartedAt: started, EndedAt: &ended, LastEvaluatedAt: ended}
+	if got := toItem(ports.AlertSummary{Alert: finished}).DurationHours; got != 38 {
+		t.Fatalf("finalizada: duration_hours = %d", got)
+	}
+	finished.Runtime.PausedHours = 6
+	if got := toItem(ports.AlertSummary{Alert: finished}).DurationHours; got != 32 {
+		t.Fatalf("con pausa: duration_hours = %d", got)
+	}
+	active := entities.Alert{State: entities.AlertActive, StartedAt: started, LastEvaluatedAt: started.Add(5 * time.Hour)}
+	if got := toItem(ports.AlertSummary{Alert: active}).DurationHours; got != 5 {
+		t.Fatalf("activa: duration_hours = %d (hasta la última hora procesada)", got)
+	}
+}

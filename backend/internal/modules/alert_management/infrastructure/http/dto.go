@@ -37,14 +37,18 @@ type DeviceRef struct {
 
 // AlertItem es una fila del historial, del panel o del mapa.
 type AlertItem struct {
-	ID               int64             `json:"id"`
-	Code             string            `json:"code"`
-	Device           DeviceRef         `json:"device"`
-	Event            string            `json:"event"`
-	State            string            `json:"state"`
-	StartedAt        string            `json:"started_at"`
-	EndedAt          *string           `json:"ended_at"`
-	InProgress       bool              `json:"in_progress"`
+	ID         int64     `json:"id"`
+	Code       string    `json:"code"`
+	Device     DeviceRef `json:"device"`
+	Event      string    `json:"event"`
+	State      string    `json:"state"`
+	StartedAt  string    `json:"started_at"`
+	EndedAt    *string   `json:"ended_at"`
+	InProgress bool      `json:"in_progress"`
+	// DurationHours es el tiempo transcurrido (hasta el fin, o hasta la última
+	// hora procesada si sigue activa), sin las pausas entre fin y reactivación.
+	// Es el mismo número que el mensaje de fin ("Duró N h").
+	DurationHours    int               `json:"duration_hours"`
 	CurrentLevel     *string           `json:"current_level"`
 	MaxLevel         string            `json:"max_level"`
 	Blinking         bool              `json:"blinking"`
@@ -66,12 +70,17 @@ func toItem(s ports.AlertSummary) AlertItem {
 		Label:            strOrNil(string(a.Management.Label)), LabelOtherText: strOrNil(a.Management.LabelOtherText),
 		AvailableActions: entities.ActionsFor(a.Management.Status),
 	}
+	until := a.LastEvaluatedAt
 	if a.State == entities.AlertActive {
 		level := string(a.CurrentLevel)
 		item.CurrentLevel = &level
 	} else {
 		item.EndedAt = localPtr(a.EndedAt)
+		if a.EndedAt != nil {
+			until = *a.EndedAt
+		}
 	}
+	item.DurationHours = a.DurationHours(until)
 	return item
 }
 

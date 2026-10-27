@@ -70,6 +70,9 @@ type Runtime struct {
 	LastTrend        string      `json:"last_trend,omitempty"`
 	LastMessageAt    *time.Time  `json:"last_message_at,omitempty"`
 	InNoCalc         bool        `json:"in_no_calc,omitempty"`
+	// PausedHours son las horas entre cada fin y su reactivación: no suman a
+	// la duración (se conservan entre reactivaciones).
+	PausedHours int `json:"paused_hours,omitempty"`
 }
 
 // Alert es una alerta de un dispositivo y un evento.
@@ -113,6 +116,15 @@ type Alert struct {
 
 	Source    Source
 	CreatedAt time.Time
+}
+
+// DurationHours es el tiempo transcurrido de la alerta, en horas, desde
+// StartedAt hasta until (su fin, o la última hora procesada si sigue activa),
+// sin las pausas entre fin y reactivación. Es lo que suman sus colores. Las
+// horas sin datos cuentan: la alerta siguió activa. No es HoursCalculated
+// (horas evaluadas, que cuenta también la hora de inicio).
+func (a Alert) DurationHours(until time.Time) int {
+	return max(int(until.Sub(a.StartedAt).Hours())-a.Runtime.PausedHours, 0)
 }
 
 // Blinking: rojo sin clasificar (CA-1.2.3). Clasificar solo quita el titileo.
@@ -187,21 +199,14 @@ type ProcessingState struct {
 // Device son los datos del dispositivo que usan los mensajes.
 type Device struct {
 	MeasuringPointID int64
-	// PK es la abscisa del punto (hoy, devices.name); Zone, la zona de los
-	// recorridos (hoy, la misma PK: devices no tiene zona).
-	PK   string
-	Zone string
+	// PK es el nombre con el que se muestra el punto (hoy, devices.name).
+	PK string
 }
 
 // DeviceOrDefault completa un dispositivo sin datos con MP-<id>.
 func DeviceOrDefault(pointID int64, d *Device) Device {
 	if d != nil && d.PK != "" {
-		out := *d
-		if out.Zone == "" {
-			out.Zone = out.PK
-		}
-		return out
+		return *d
 	}
-	name := fmt.Sprintf("MP-%d", pointID)
-	return Device{MeasuringPointID: pointID, PK: name, Zone: name}
+	return Device{MeasuringPointID: pointID, PK: fmt.Sprintf("MP-%d", pointID)}
 }
