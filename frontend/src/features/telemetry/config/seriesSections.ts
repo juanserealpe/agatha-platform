@@ -64,9 +64,11 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
         {
             title: "Indicador de fuga I",
             seriesKeys: ["indicador"],
-            description: "Probabilidad de que ocurra una fuga, según cómo ha evolucionado el sonido captado por el sensor.",
+            // Puntaje de anomalía, no probabilidad: mismo mensaje que la nota del modal de alertas (ANOMALY_SCORE_NOTE).
+            description:
+                "Evolución de qué tan anómalo es el sonido frente a lo habitual en este punto. No es una probabilidad de fuga.",
             howToRead: [
-                "Cerca de 0 todo está normal; mientras más alto, más probable es una fuga.",
+                "Cerca de 0 el sonido es el habitual; entre más alto, más se aleja de lo normal y más atención merece.",
                 "Las franjas amarilla, naranja y roja indican el nivel de alerta: mientras más arriba, mayor la urgencia.",
                 "La alerta solo se activa si el valor se mantiene alto varias horas, no por un pico aislado.",
             ],
@@ -79,7 +81,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
             description: "Porcentaje del último día en que el sonido agudo estuvo más fuerte de lo normal.",
             howToRead: [
                 `En condiciones normales ronda el ${EXPECTED_DENSITY_PCT} % (línea punteada).`,
-                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso empuja el indicador de fuga.",
+                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso hace subir el indicador de fuga.",
             ],
             references: [{ label: `Normal ≈ ${EXPECTED_DENSITY_PCT} %`, value: EXPECTED_DENSITY_PCT }],
             yScale: { min: 0, minTop: 25, max: 100 },
@@ -97,7 +99,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
         {
             title: "Sonido grave (B1)",
             seriesKeys: ["b1"],
-            description: "Intensidad del sonido grave (500–1200 Hz). Se compara con el agudo para confirmar una fuga.",
+            description: "Intensidad del sonido grave (500–1200 Hz). Se compara con el agudo para distinguir una posible fuga de otros ruidos.",
             howToRead: [
                 "En una fuga real el sonido grave y el agudo suben juntos.",
                 "Si solo sube uno de los dos, probablemente no es una fuga.",
