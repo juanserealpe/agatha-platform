@@ -11,7 +11,7 @@ export function useSeries(
 ) {
     return useQuery({
         queryKey: ["series", deviceId, startDate, endDate, variables],
-        queryFn: () => dashboardService.getSeries(deviceId!, startDate, endDate, variables),
+        queryFn: ({ signal }) => dashboardService.getSeries(deviceId!, startDate, endDate, variables, signal),
         enabled: deviceId !== undefined,
         staleTime: 60_000,
         gcTime: 30 * 60 * 1000,

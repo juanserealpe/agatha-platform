@@ -33,6 +33,27 @@ const dayMonthFormatter = new Intl.DateTimeFormat(LOCALE, { day: "numeric", mont
 
 const relativeFormatter =new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto", style: "short" });
 
+// Las fechas del backend se muestran siempre en hora de Colombia, sin depender de la zona del navegador.
+const COLOMBIA_TIME_ZONE = "America/Bogota";
+
+const colombiaDateTimeFormatter = new Intl.DateTimeFormat(LOCALE, {
+    timeZone: COLOMBIA_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+});
+
+type DatePart = "day" | "month" | "year" | "hour" | "minute";
+
+function colombiaParts(date: Date): Record<DatePart, string> {
+    const parts = colombiaDateTimeFormatter.formatToParts(date);
+    const part = (type: DatePart) => parts.find((p) => p.type === type)?.value ?? "";
+    return { day: part("day"), month: part("month"), year: part("year"), hour: part("hour"), minute: part("minute") };
+}
+
 function toDate(value: DateInput): Date | null {
     const date = value instanceof Date ? value : new Date(value);
     return Number.isNaN(date.getTime()) ? null : date;
@@ -89,4 +110,20 @@ export function formatTimestamp(value: DateInput, now: number = Date.now()): str
     return now - date.getTime() < RECENT_THRESHOLD_MS
         ? formatRelative(date, now)
         : shortFormatter.format(date);
+}
+
+/** Fecha y hora en hora de Colombia, 24 h, p. ej. "24/08/2026 11:00". */
+export function formatColombiaDateTime(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { day, month, year, hour, minute } = colombiaParts(date);
+    return `${day}/${month}/${year} ${hour}:${minute}`;
+}
+
+/** Solo la fecha en hora de Colombia, p. ej. "24/08/2026". */
+export function formatColombiaDate(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { day, month, year } = colombiaParts(date);
+    return `${day}/${month}/${year}`;
 }

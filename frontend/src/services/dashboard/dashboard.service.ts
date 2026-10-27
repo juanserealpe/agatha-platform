@@ -1,33 +1,26 @@
 import type { SeriesResponse } from "@/services/dashboard/series.types";
+import { apiPath, httpClient } from "@/services/http";
 import type { Device } from "./dashboard.types";
 
-const BASE_URL = import.meta.env.DEV ? "" : import.meta.env.VITE_API_BASE_URL;
-
 export const dashboardService = {
-    async getDevices(): Promise<Device[]> {
-        const res = await fetch(`${BASE_URL}/api/dashboard/devices`);
-        if (!res.ok) {
-            throw new Error(`No se pudo obtener el listado de dispositivos (${res.status})`);
-        }
-        return res.json();
+    getDevices(signal?: AbortSignal): Promise<Device[]> {
+        return httpClient.get(apiPath("api", "dashboard", "devices"), {
+            signal,
+            errorMessage: "No se pudo obtener el listado de dispositivos.",
+        });
     },
 
-    async getSeries(
+    getSeries(
         deviceId: number,
         startDate: string,
         endDate: string,
-        variables: string[]
+        variables: string[],
+        signal?: AbortSignal
     ): Promise<SeriesResponse> {
-        const params = new URLSearchParams({
-            deviceId: String(deviceId),
-            startDate,
-            endDate,
-            variables: variables.join(","),
+        return httpClient.get(apiPath("api", "dashboard", "series"), {
+            query: { deviceId, startDate, endDate, variables: variables.join(",") },
+            signal,
+            errorMessage: "No se pudieron obtener las series.",
         });
-        const res = await fetch(`${BASE_URL}/api/dashboard/series?${params.toString()}`);
-        if (!res.ok) {
-            throw new Error(`No se pudieron obtener las series (${res.status})`);
-        }
-        return res.json();
-    }
+    },
 };

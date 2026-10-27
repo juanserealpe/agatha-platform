@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { formatAbsolute, formatClock, formatDayMonth, formatRelative, formatShort, formatTimestamp } from "./formatDate";
+import {
+    formatAbsolute,
+    formatClock,
+    formatColombiaDate,
+    formatColombiaDateTime,
+    formatDayMonth,
+    formatRelative,
+    formatShort,
+    formatTimestamp,
+} from "./formatDate";
 
 // Fechas construidas en hora local para que el resultado no dependa de la zona horaria de quien ejecuta.
 const evening = new Date(2026, 9, 11, 21, 7, 15);
@@ -47,5 +56,21 @@ describe("formatos de gráficas", () => {
 
     it("formatDayMonth omite el conector y el punto del mes", () => {
         expect(formatDayMonth(evening)).toBe("11 oct");
+    });
+});
+
+describe("hora de Colombia", () => {
+    it("formatColombiaDateTime respeta el offset del backend", () => {
+        expect(formatColombiaDateTime("2026-08-24T11:00:00-05:00")).toBe("24/08/2026 11:00");
+    });
+
+    it("convierte UTC a Colombia aunque cambie el día", () => {
+        expect(formatColombiaDateTime("2026-08-24T03:30:00Z")).toBe("23/08/2026 22:30");
+        expect(formatColombiaDate("2026-08-24T03:30:00Z")).toBe("23/08/2026");
+    });
+
+    it("muestra un guion si la fecha es inválida", () => {
+        expect(formatColombiaDateTime("no-es-fecha")).toBe("—");
+        expect(formatColombiaDate("no-es-fecha")).toBe("—");
     });
 });
