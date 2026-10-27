@@ -9,6 +9,8 @@ import { useDevices } from "@/features/sensors";
 import { useAlertDetailParam } from "../../hooks/useAlertDetailParam";
 import { deviceOptionLabel } from "../../lib/deviceLabel";
 import { summarizeFilters } from "../../lib/filterSummary";
+import { ROW_ACTION_MODE } from "../../lib/managementMode";
+import type { RowAction } from "../../lib/rowActions";
 import { historySearchKey } from "../../lib/historySearchParams";
 import { ExportAlertsButton } from "./ExportAlertsButton";
 import { useAlertHistory } from "../../hooks/useAlertHistory";
@@ -25,8 +27,11 @@ export function AlertHistorySection() {
     const { data: devices = [] } = useDevices();
     const summary = summarizeFilters(filters, (id) => deviceOptionLabel(id, devices));
 
-    // El modal de gestión llega en un paso posterior; por ahora toda acción abre el detalle de la alerta.
-    const handleAction = useCallback((id: AlertId) => openAlert(String(id)), [openAlert]);
+    // El id es el de la ALERTA; cada acción abre el modal en su modo (clasificar, etiquetar o lectura).
+    const handleAction = useCallback(
+        (id: AlertId, action: RowAction) => openAlert(String(id), ROW_ACTION_MODE[action]),
+        [openAlert]
+    );
 
     if (isPending) {
         return <EmptyState Icon={Loader2} title="Cargando alertas…" className="py-16 [&>svg]:animate-spin" />;

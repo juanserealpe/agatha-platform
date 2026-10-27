@@ -1,38 +1,51 @@
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAlert } from "../hooks/useAlerts";
+import { lazy, Suspense } from "react";
+import { Loader2, SearchX } from "lucide-react";
+import { parseAlertId } from "@/services/alertManagement";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { EmptyState } from "@/shared/components/EmptyState";
+import { usePreloadWhenIdle } from "@/shared/hooks/usePreloadWhenIdle";
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
-import { ALERT_TYPE_LABEL, SEVERITY_STYLES } from "../config/alertDisplay";
 
-/**
- * Punto de entrada del detalle de alerta. Se monta una sola vez en el layout raíz y se abre con ?alerta=<id>.
- * El contenido del modal (clasificación, observaciones) se implementará en una fase posterior.
- */
-export function AlertDetailHost() {
-    const { alertId, close } = useAlertDetailParam();
-    const { data: alert, isLoading, error } = useAlert(alertId);
+// El modal de gestión solo se usa al abrir una alerta: se descarga aparte y se precarga en tiempo ocioso.
+const loadManagementDialog = () => import("./management/AlertManagementDialog");
+const AlertManagementDialog = lazy(() =>
+    loadManagementDialog().then((module) => ({ default: module.AlertManagementDialog }))
+);
 
-    if (alertId === null) return null;
-
-    const title = alert
-        ? `${SEVERITY_STYLES[alert.severity].label} · ${ALERT_TYPE_LABEL[alert.type]}`
-        : "Detalle de alerta";
-
-    const description = isLoading
-        ? "Cargando alerta…"
-        : error
-            ? "No se pudo cargar la alerta."
-            : alert
-                ? "El detalle y la clasificación de la alerta están en construcción."
-                : `No se encontró la alerta «${alertId}».`;
-
+function PlaceholderDialog({ title, loading, onClose }: { title: string; loading: boolean; onClose: () => void }) {
     return (
-        <Dialog open onOpenChange={(isOpen) => !isOpen && close()}>
+        <Dialog open onOpenChange={(isOpen) => !isOpen && onClose()}>
             <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>{title}</DialogTitle>
-                    <DialogDescription>{description}</DialogDescription>
-                </DialogHeader>
+                <DialogTitle className="sr-only">Gestión de alerta</DialogTitle>
+                <EmptyState
+                    Icon={loading ? Loader2 : SearchX}
+                    title={title}
+                    className={loading ? "border-none py-8 [&>svg]:animate-spin" : "border-none py-8"}
+                />
             </DialogContent>
         </Dialog>
+    );
+}
+
+/**
+ * Punto de entrada del modal de gestión. Se monta una sola vez en el layout raíz y se abre con
+ * ?alerta=<id>&gestion=<modo> desde cualquier página.
+ */
+export function AlertDetailHost() {
+    const { alertId: rawId, mode, close } = useAlertDetailParam();
+    usePreloadWhenIdle(loadManagementDialog);
+
+    if (rawId === null) return null;
+
+    const alertId = parseAlertId(rawId);
+    if (alertId === null) {
+        return <PlaceholderDialog title="No se encontró la alerta" loading={false} onClose={close} />;
+    }
+
+    return (
+        <Suspense fallback={<PlaceholderDialog title="Cargando alerta…" loading onClose={close} />}>
+            {/* La clave reinicia el modal (paso y formulario) al abrir otra alerta o modo. */}
+            <AlertManagementDialog key={`${alertId}-${mode}`} alertId={alertId} initialMode={mode} onClose={close} />
+        </Suspense>
     );
 }

@@ -21,11 +21,3 @@ export function usePendingAlerts() {
         refetchInterval: ALERTS_REFETCH_MS,
     });
 }
-
-export function useAlert(id: string | null) {
-    return useQuery({
-        queryKey: alertKeys.detail(id ?? ""),
-        queryFn: () => alertsService.getById(id!),
-        enabled: id !== null,
-    });
-}
