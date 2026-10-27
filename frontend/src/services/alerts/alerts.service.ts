@@ -8,4 +8,5 @@ export interface AlertsService {
     getPending(): Promise<Alert[]>;
     /** null si la alerta no existe. */
     getById(id: string): Promise<Alert | null>;
+    /** ---*/
 }
