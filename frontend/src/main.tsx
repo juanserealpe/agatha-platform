@@ -6,8 +6,18 @@ import { RouterProvider } from 'react-router'
 import 'leaflet/dist/leaflet.css'
 import './index.css'
 import { router } from './app/router'
+import { isClientError } from '@/services/http'
 
-const queryClient = new QueryClient()
+const MAX_QUERY_RETRIES = 3
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Un 4xx (filtro inválido, alerta inexistente) no cambia al reintentar: se muestra el mensaje de inmediato.
+      retry: (failureCount, error) => !isClientError(error) && failureCount < MAX_QUERY_RETRIES,
+    },
+  },
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
