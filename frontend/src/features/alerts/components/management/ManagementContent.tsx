@@ -1,15 +1,19 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { AlertDetail, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { allowedClassifications } from "../../lib/classificationForm";
 import type { ManagementMode } from "../../lib/managementMode";
 import { describeExisting } from "../../lib/managementOutcome";
+import { AlertExplanation } from "./AlertExplanation";
 import { ClassificationStep } from "./ClassificationStep";
+import { EventTimeline } from "./EventTimeline";
 import { LabelStep } from "./LabelStep";
 import { ManagementHeader } from "./ManagementHeader";
 import { ManagementNotice, type NoticeTone } from "./ManagementNotice";
 import { ManagementSummary } from "./ManagementSummary";
+import { ObservationList } from "./ObservationList";
+import { StepHeading } from "./StepHeading";
 
 interface Notice {
     tone: NoticeTone;
@@ -39,6 +43,7 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
     const [notice, setNotice] = useState<Notice | null>(null);
     // Recién clasificada en este modal: se ofrece "Agregar etiqueta" / "Ahora no" (CA-2.2.3).
     const [justClassified, setJustClassified] = useState(false);
+    const observationsTitleId = useId();
 
     const canClassify = allowedClassifications(detail.available_actions).length > 0;
     const canLabel = detail.available_actions.includes("ADD_LABEL") && detail.classification !== null;
@@ -62,6 +67,7 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
 
     // Un modo que el backend ya no permite (p. ej. se gestionó en otra pestaña) cae al resumen de lectura.
     let body;
+    let inStep = true;
     if (mode === "clasificar" && canClassify) {
         body = <ClassificationStep detail={detail} onSaved={handleClassified} onCancel={onClose} />;
     } else if (mode === "etiquetar" && canLabel && detail.classification !== null) {
@@ -74,9 +80,14 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
             />
         );
     } else {
+        inStep = false;
         body = (
             <>
                 <ManagementSummary detail={detail} />
+                <section aria-labelledby={observationsTitleId} className="flex flex-col gap-2">
+                    <StepHeading id={observationsTitleId} title="Observaciones" />
+                    <ObservationList observations={detail.observations} />
+                </section>
                 {justClassified && canLabel ? (
                     <DialogFooter className="-mx-5 -mb-5 items-center px-5 sm:justify-between">
                         <p className="text-sm text-gray-700">¿Desea agregar ahora la causa del evento? Es opcional.</p>
@@ -104,6 +115,10 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
         <>
             <ManagementHeader alert={detail} />
             {notice && <ManagementNotice tone={notice.tone}>{notice.text}</ManagementNotice>}
+            {/* Contexto del evento en todos los modos: para clasificar hay que entender qué pasó. En los pasos
+                la explicación va plegada para que el formulario quede a la vista. */}
+            <AlertExplanation detail={detail} collapsed={inStep} />
+            <EventTimeline levels={detail.levels} endedAt={detail.in_progress ? null : detail.ended_at} />
             {body}
         </>
     );

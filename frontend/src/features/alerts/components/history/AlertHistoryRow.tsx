@@ -11,6 +11,7 @@ import {
     IN_PROGRESS_LABEL,
     labelDisplayText,
 } from "../../config/alertManagementDisplay";
+import { devicePkLabel } from "../../lib/deviceLabel";
 import type { RowAction } from "../../lib/rowActions";
 import { LevelBadge } from "../badges/LevelBadge";
 import { ManagementStatusBadge } from "../badges/ManagementStatusBadge";
@@ -55,7 +56,9 @@ export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction }:
 
             <TableCell className="px-3">
                 <div className={STACK}>
-                    <span className="font-data-mono text-xs font-semibold text-gray-900">{item.device.pk}</span>
+                    <span className="font-data-mono text-xs font-semibold text-gray-900" title={item.device.pk}>
+                        {devicePkLabel(item.device.pk)}
+                    </span>
                     <span className={cn("font-data-mono", SECONDARY)}>ID {item.device.id}</span>
                 </div>
             </TableCell>
