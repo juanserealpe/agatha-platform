@@ -4,7 +4,7 @@ import type { LeakThresholds } from "@/services/dashboard/series.types";
 // Plantilla beta del Rule Engine (backend: rule_engine/domain/entities.DefaultThresholdParams).
 // Los umbrales son versionados por punto: cuando la serie del indicador traiga `thresholds`,
 // se usan esos y esta plantilla queda solo como respaldo.
-export const DEFAULT_LEAK_THRESHOLDS: LeakThresholds = { amarillo: 0.18, naranja: 0.25, rojo: 0.35 };
+export const DEFAULT_LEAK_THRESHOLDS: LeakThresholds = { amarillo: 0.16, naranja: 0.25, rojo: 0.35 };
 
 export type LeakLevel = "normal" | "amarillo" | "naranja" | "rojo";
 
