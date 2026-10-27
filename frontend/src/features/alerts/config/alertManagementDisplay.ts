@@ -109,3 +109,11 @@ export const ROW_ACTION_LABEL: Record<RowAction, string> = {
     label: "Agregar etiqueta",
     view: "Ver detalle",
 };
+
+// Chip de nivel seleccionado: conserva el color de su criticidad (con check) en vez del oscuro genérico.
+// Clases completas y literales para que Tailwind las genere.
+export const LEVEL_CHIP_SELECTED_CLASS: Record<AlertLevel, string> = {
+    AMARILLO: "aria-pressed:border-amber-300 aria-pressed:bg-amber-50 aria-pressed:text-amber-800 aria-pressed:hover:bg-amber-100",
+    NARANJA: "aria-pressed:border-orange-300 aria-pressed:bg-orange-50 aria-pressed:text-orange-700 aria-pressed:hover:bg-orange-100",
+    ROJO: "aria-pressed:border-red-300 aria-pressed:bg-red-50 aria-pressed:text-red-700 aria-pressed:hover:bg-red-100",
+};

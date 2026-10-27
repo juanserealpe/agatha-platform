@@ -5,7 +5,10 @@ import { userErrorMessage } from "@/services/http";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { Pagination } from "@/shared/components/Pagination";
+import { useDevices } from "@/features/sensors";
 import { useAlertDetailParam } from "../../hooks/useAlertDetailParam";
+import { deviceOptionLabel } from "../../lib/deviceLabel";
+import { summarizeFilters } from "../../lib/filterSummary";
 import { useAlertHistory } from "../../hooks/useAlertHistory";
 import { useHistorySearch } from "../../hooks/useHistorySearch";
 import { AlertHistoryTable } from "./AlertHistoryTable";
@@ -17,6 +20,8 @@ export function AlertHistorySection() {
     const { filters, page, goToPage } = useHistorySearch();
     const { data, error, isPending, isError, isFetching, isPlaceholderData, refetch, totalPages } = useAlertHistory(filters, page);
     const { open: openAlert } = useAlertDetailParam();
+    const { data: devices = [] } = useDevices();
+    const summary = summarizeFilters(filters, (id) => deviceOptionLabel(id, devices));
 
     // El modal de gestión llega en un paso posterior; por ahora toda acción abre el detalle de la alerta.
     const handleAction = useCallback((id: AlertId) => openAlert(String(id)), [openAlert]);
@@ -49,6 +54,7 @@ export function AlertHistorySection() {
         <div className="flex flex-col gap-3">
             <p className="text-sm text-gray-600" aria-live="polite">
                 Número de alertas: <span className="font-data-mono font-bold text-gray-900">{total}</span>
+                {summary.length > 0 && <span className="text-gray-500"> · {summary.join(" · ")}</span>}
             </p>
 
             {isError && (

@@ -53,6 +53,12 @@
     --color-alerta-naranja: #f97316;
     --color-alerta-roja: #ef4444;
     --color-telemetry-cyan: #06b6d4;
+    /* Identidad TGI (colores del logo). Solo para acentos y fondos suaves, nunca para estados ni severidad.
+       El verde de marca no alcanza contraste AA con texto blanco: no usarlo como fondo de botones. */
+    --color-tgi-verde: #00a14b;
+    --color-tgi-lima: #a2c83a;
+    --color-tgi-celeste: #29a9e0;
+    --color-tgi-azul: #1a71b8;
     --font-data-mono: "JetBrains Mono Variable", monospace;
 
 }

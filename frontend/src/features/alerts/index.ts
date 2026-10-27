@@ -1,3 +1,4 @@
+export { AlertHistoryFilters } from "./components/filters/AlertHistoryFilters";
 export { AlertHistorySection } from "./components/history/AlertHistorySection";
 export { AlertDetailHost } from "./components/AlertDetailHost";
 export { NewAlertToast } from "./components/NewAlertToast";
