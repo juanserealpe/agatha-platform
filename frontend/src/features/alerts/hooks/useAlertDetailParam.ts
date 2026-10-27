@@ -34,11 +34,12 @@ export function useAlertDetailParam() {
                     else next.set(MANAGEMENT_MODE_PARAM, nextMode);
                     return next;
                 },
-                // Si ya hay un detalle abierto se reemplaza, para que "Atrás" no recorra cada alerta vista.
-                { replace: alertId !== null, state: OPENED_IN_APP_STATE }
+                // Si ya hay un detalle abierto se reemplaza, para que "Atrás" no recorra cada alerta vista. Se lee
+                // de la URL actual (no del render) para que `open` sea estable y las filas memoizadas no se repinten.
+                { replace: new URLSearchParams(window.location.search).has(ALERT_DETAIL_PARAM), state: OPENED_IN_APP_STATE }
             );
         },
-        [alertId, setSearchParams]
+        [setSearchParams]
     );
 
     const close = useCallback(() => {

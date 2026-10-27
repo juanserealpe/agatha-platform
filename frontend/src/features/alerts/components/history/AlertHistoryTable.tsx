@@ -24,9 +24,10 @@ interface AlertHistoryTableProps {
     /** Hay una página nueva en camino: se atenúa la actual en lugar de vaciarla. */
     isUpdating: boolean;
     onAction: (id: AlertId, action: RowAction) => void;
+    onIntent: (id: AlertId) => void;
 }
 
-export function AlertHistoryTable({ items, caption, isUpdating, onAction }: AlertHistoryTableProps) {
+export function AlertHistoryTable({ items, caption, isUpdating, onAction, onIntent }: AlertHistoryTableProps) {
     return (
         <Table aria-busy={isUpdating} className={cn("transition-opacity", isUpdating && "opacity-60")}>
             <TableCaption className="sr-only">{caption}</TableCaption>
@@ -49,7 +50,7 @@ export function AlertHistoryTable({ items, caption, isUpdating, onAction }: Aler
             </TableHeader>
             <TableBody>
                 {items.map((item) => (
-                    <AlertHistoryRow key={item.id} item={item} onAction={onAction} />
+                    <AlertHistoryRow key={item.id} item={item} onAction={onAction} onIntent={onIntent} />
                 ))}
             </TableBody>
         </Table>

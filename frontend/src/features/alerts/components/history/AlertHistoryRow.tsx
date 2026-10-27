@@ -20,6 +20,7 @@ import { AlertRowActions } from "./AlertRowActions";
 interface AlertHistoryRowProps {
     item: AlertItem;
     onAction: (id: AlertId, action: RowAction) => void;
+    onIntent: (id: AlertId) => void;
 }
 
 const MUTED = "text-gray-400";
@@ -36,7 +37,7 @@ function DateTime({ value, className }: { value: string; className?: string }) {
 }
 
 /** Fila del historial. Memoizada: al gestionar una alerta solo se vuelve a pintar su fila. */
-export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction }: AlertHistoryRowProps) {
+export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction, onIntent }: AlertHistoryRowProps) {
     const label = labelDisplayText(item.label, item.label_other_text);
 
     return (
@@ -112,7 +113,7 @@ export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction }:
             </TableCell>
 
             <TableCell className="px-3">
-                <AlertRowActions item={item} onAction={onAction} />
+                <AlertRowActions item={item} onAction={onAction} onIntent={onIntent} />
             </TableCell>
         </TableRow>
     );

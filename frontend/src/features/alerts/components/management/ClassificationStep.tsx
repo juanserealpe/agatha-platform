@@ -1,11 +1,12 @@
 import { useId, useState, type FormEvent } from "react";
-import type { LucideIcon } from "lucide-react";
-import { CircleCheck, CircleX, Loader2, Lock } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
 import type { AlertDetail, Classification, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 import { CLASSIFICATION_LABEL } from "../../config/alertManagementDisplay";
+import { CLASSIFICATION_OPTIONS } from "../../config/classificationOptions";
 import { useClassifyAlert } from "../../hooks/useAlertManagementMutations";
 import { allowedClassifications, validateClassificationForm } from "../../lib/classificationForm";
 import { ManagementNotice } from "./ManagementNotice";
@@ -16,11 +17,6 @@ const SAVE_ERROR = "No fue posible guardar la clasificación. Intente nuevamente
 
 // Las observaciones se registran en el paso de etiqueta: la clasificación solo decide real o falsa.
 const NO_OBSERVATION = "";
-
-const OPTIONS: Record<Classification, { label: string; description: string; Icon: LucideIcon }> = {
-    CONFIRMADA: { label: "Confirmar alerta real", description: "El evento ocurrió o se verificó en campo.", Icon: CircleCheck },
-    FALSA_ALERTA: { label: "Falsa alerta", description: "No corresponde a un evento real en el ducto.", Icon: CircleX },
-};
 
 interface ClassificationStepProps {
     detail: Pick<AlertDetail, "id" | "available_actions">;
@@ -65,19 +61,22 @@ export function ClassificationStep({ detail, onSaved, onCancel }: Classification
                     className="grid-cols-1 sm:grid-cols-2"
                 >
                     {allowed.map((option) => {
-                        const { label, description, Icon } = OPTIONS[option];
+                        const { label, description, Icon, cardClass, radioClass } = CLASSIFICATION_OPTIONS[option];
                         return (
                             <label
                                 key={option}
-                                className="flex cursor-pointer items-start gap-3 rounded-lg border border-border px-3 py-3 transition-colors hover:bg-gray-50 has-disabled:cursor-default has-data-checked:border-gray-900 has-data-checked:bg-gray-900 has-data-checked:text-white has-data-checked:hover:bg-gray-800"
+                                className={cn(
+                                    "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors has-disabled:cursor-default",
+                                    cardClass
+                                )}
                             >
-                                <RadioGroupItem value={option} className="mt-0.5 data-checked:border-white" />
+                                <RadioGroupItem value={option} className={cn("mt-0.5 bg-white", radioClass)} />
                                 <span className="flex flex-col gap-0.5">
                                     <span className="flex items-center gap-1.5 text-sm font-semibold">
                                         <Icon className="size-4" aria-hidden />
                                         {label}
                                     </span>
-                                    <span className="text-xs opacity-80">{description}</span>
+                                    <span className="text-xs opacity-90">{description}</span>
                                 </span>
                             </label>
                         );

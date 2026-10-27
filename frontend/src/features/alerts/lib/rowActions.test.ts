@@ -28,3 +28,4 @@ describe("getRowActions", () => {
         expect(getRowActions([])).toEqual([]);
     });
 });
+

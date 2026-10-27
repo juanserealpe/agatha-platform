@@ -21,3 +21,4 @@ export function getRowActions(available: readonly AlertAction[]): RowAction[] {
     const actions = new Set(available.map((action) => ACTION_TO_ROW_ACTION[action]).filter(Boolean));
     return ROW_ACTION_ORDER.filter((action) => actions.has(action));
 }
+

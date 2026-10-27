@@ -14,6 +14,7 @@ import type { RowAction } from "../../lib/rowActions";
 import { historySearchKey } from "../../lib/historySearchParams";
 import { ExportAlertsButton } from "./ExportAlertsButton";
 import { useAlertHistory } from "../../hooks/useAlertHistory";
+import { usePrefetchAlertDetail } from "../../hooks/useAlertManagementDetail";
 import { useHistorySearch } from "../../hooks/useHistorySearch";
 import { AlertHistoryTable } from "./AlertHistoryTable";
 
@@ -24,6 +25,7 @@ export function AlertHistorySection() {
     const { filters, page, goToPage } = useHistorySearch();
     const { data, error, isPending, isError, isFetching, isPlaceholderData, refetch, totalPages } = useAlertHistory(filters, page);
     const { open: openAlert } = useAlertDetailParam();
+    const prefetchDetail = usePrefetchAlertDetail();
     const { data: devices = [] } = useDevices();
     const summary = summarizeFilters(filters, (id) => deviceOptionLabel(id, devices));
 
@@ -96,6 +98,7 @@ export function AlertHistorySection() {
                             caption={`Historial de alertas, página ${data.page} de ${totalPages}`}
                             isUpdating={isPlaceholderData && isFetching}
                             onAction={handleAction}
+                            onIntent={prefetchDetail}
                         />
                     </div>
 
