@@ -24,3 +24,20 @@ export function pageCount(total: number, pageSize: number): number {
     if (pageSize <= 0) return 1;
     return Math.max(1, Math.ceil(total / pageSize));
 }
+
+/**
+ * Detalle con la gestión que devolvió una escritura (clasificación, etiqueta, estado y acciones), para que el
+ * modal avance al instante mientras se vuelve a consultar el detalle completo. El resto del detalle se conserva.
+ */
+export function patchDetailManagement<T extends AlertItem>(detail: T | undefined, updated: AlertItem): T | undefined {
+    if (!detail || detail.id !== updated.id) return detail;
+    return {
+        ...detail,
+        classification: updated.classification,
+        management_status: updated.management_status,
+        label: updated.label,
+        label_other_text: updated.label_other_text,
+        available_actions: updated.available_actions,
+        blinking: updated.blinking,
+    };
+}

@@ -6,7 +6,10 @@ import { ManagementStatusBadge } from "../badges/ManagementStatusBadge";
 import { StepHeading } from "./StepHeading";
 
 interface ManagementSummaryProps {
-    detail: Pick<AlertDetail, "management_status" | "classification_detail" | "label_detail">;
+    detail: Pick<
+        AlertDetail,
+        "management_status" | "classification" | "label" | "label_other_text" | "classification_detail" | "label_detail"
+    >;
 }
 
 function Row({ term, value, meta }: { term: string; value: string; meta?: string }) {
@@ -21,10 +24,16 @@ function Row({ term, value, meta }: { term: string; value: string; meta?: string
     );
 }
 
-/** Clasificación y etiqueta registradas, con su origen y fecha, en solo lectura (CA-2.2.4). */
+/**
+ * Clasificación y etiqueta registradas, con su origen y fecha-hora, en solo lectura (CA-2.2.4).
+ * Recién guardadas, el valor llega antes que el origen y la fecha (se completan al recargar el detalle).
+ */
 export function ManagementSummary({ detail }: ManagementSummaryProps) {
     const titleId = useId();
-    const { classification_detail: classification, label_detail: label } = detail;
+    const classification = detail.classification_detail?.value ?? detail.classification;
+    const labelText = detail.label_detail
+        ? labelDisplayText(detail.label_detail.value, detail.label_detail.other_text)
+        : labelDisplayText(detail.label, detail.label_other_text);
 
     return (
         <section aria-labelledby={titleId} className="flex flex-col gap-2">
@@ -32,13 +41,13 @@ export function ManagementSummary({ detail }: ManagementSummaryProps) {
             <dl className="rounded-lg border border-border px-3">
                 <Row
                     term="Clasificación"
-                    value={classification ? CLASSIFICATION_LABEL[classification.value] : "Sin clasificar"}
-                    meta={classification ? managementMeta(classification) : undefined}
+                    value={classification ? CLASSIFICATION_LABEL[classification] : "Sin clasificar"}
+                    meta={detail.classification_detail ? managementMeta(detail.classification_detail) : undefined}
                 />
                 <Row
                     term="Etiqueta"
-                    value={label ? (labelDisplayText(label.value, label.other_text) ?? "") : "Sin etiqueta"}
-                    meta={label ? managementMeta(label) : undefined}
+                    value={labelText ?? "Sin etiqueta"}
+                    meta={detail.label_detail ? managementMeta(detail.label_detail) : undefined}
                 />
             </dl>
         </section>

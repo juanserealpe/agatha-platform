@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toAlertId, type AlertItem, type AlertSearchResponse } from "@/services/alertManagement";
-import { pageCount, replaceHistoryItem } from "./historyCache";
+import { pageCount, patchDetailManagement, replaceHistoryItem } from "./historyCache";
 
 function alertItem(id: number, overrides: Partial<AlertItem> = {}): AlertItem {
     return {
@@ -57,5 +57,35 @@ describe("pageCount", () => {
         [0, 10, 1],
     ])("total %d con %d por página → %d", (total, size, expected) => {
         expect(pageCount(total, size)).toBe(expected);
+    });
+});
+
+describe("patchDetailManagement", () => {
+    it("actualiza solo los campos de gestión", () => {
+        const detail = { ...alertItem(1), opened_at: "2026-08-24T11:00:00-05:00" };
+        const updated = alertItem(1, {
+            device: { id: 11556, pk: "MP-11556" },
+            classification: "FALSA_ALERTA",
+            management_status: "CLASIFICADA_SIN_ETIQUETA",
+            available_actions: ["ADD_LABEL", "VIEW"],
+            blinking: false,
+        });
+
+        const result = patchDetailManagement(detail, updated);
+
+        expect(result).toMatchObject({
+            classification: "FALSA_ALERTA",
+            management_status: "CLASIFICADA_SIN_ETIQUETA",
+            available_actions: ["ADD_LABEL", "VIEW"],
+            blinking: false,
+            opened_at: "2026-08-24T11:00:00-05:00",
+        });
+        expect(result?.device.pk).toBe("PK34+500");
+    });
+
+    it("no toca el detalle de otra alerta", () => {
+        const detail = alertItem(1);
+        expect(patchDetailManagement(detail, alertItem(2))).toBe(detail);
+        expect(patchDetailManagement(undefined, alertItem(1))).toBeUndefined();
     });
 });

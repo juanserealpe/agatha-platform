@@ -2,12 +2,13 @@ import { useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
     alertManagementService,
+    type AlertDetail,
     type AlertId,
     type AlertSearchResponse,
     type ManagementResult,
 } from "@/services/alertManagement";
 import { createClientRecordIdTracker } from "../lib/clientRecordId";
-import { replaceHistoryItem } from "../lib/historyCache";
+import { patchDetailManagement, replaceHistoryItem } from "../lib/historyCache";
 import {
     buildClassificationRequest,
     buildLabelRequest,
@@ -29,6 +30,10 @@ function applyManagementResult(queryClient: QueryClient, result: ManagementResul
     // Las búsquedas quedan marcadas como desactualizadas sin recargarse ahora: la fila clasificada sigue
     // visible aunque ya no cumpla el filtro de estado, y la próxima búsqueda o cambio de página trae lo vigente.
     void queryClient.invalidateQueries({ queryKey: alertKeys.histories(), refetchType: "none" });
+    // El modal avanza de inmediato (p. ej. al paso de etiqueta) y luego se trae el detalle completo.
+    queryClient.setQueryData<AlertDetail>(alertKeys.management(result.alert.id), (detail) =>
+        patchDetailManagement(detail, result.alert)
+    );
     void queryClient.invalidateQueries({ queryKey: alertKeys.management(result.alert.id) });
 }
 
