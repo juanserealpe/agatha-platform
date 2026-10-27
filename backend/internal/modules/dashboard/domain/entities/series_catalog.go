@@ -22,7 +22,7 @@ var seriesCatalog = []SeriesDefinition{
 	{Key: "pitch", Name: "Pitch", Unit: "°", Source: SourceMeasurement, MetricID: 1},
 	{Key: "roll", Name: "Roll", Unit: "°", Source: SourceMeasurement, MetricID: 2},
 	{Key: "aceleracion", Name: "Aceleración (magnitud promedio)", Unit: "g", Source: SourceMeasurement, MetricID: 8},
-	{Key: "voltaje", Name: "Voltaje", Unit: "mV", Source: SourceMeasurement, MetricID: 3},
+	{Key: "voltaje", Name: "Voltaje", Unit: "V", Source: SourceMeasurement, MetricID: 3},
 	{Key: "corriente", Name: "Corriente", Unit: "mA", Source: SourceMeasurement, MetricID: 4},
 }
 
