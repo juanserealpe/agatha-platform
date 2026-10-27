@@ -64,7 +64,7 @@ export function AlertFiltersForm({ applied, onApply, onClear }: AlertFiltersForm
             onSubmit={handleSubmit}
             noValidate
             aria-label="Filtros del historial"
-            className="flex flex-col gap-4 rounded-xl border border-tgi-verde/15 bg-linear-to-b from-tgi-verde/5 to-white p-4 shadow-xs"
+            className="flex flex-col gap-4 rounded-xl border border-tgi-verde/30 bg-white p-4 shadow-xs"
         >
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-3 xl:grid-cols-[minmax(180px,220px)_150px_150px_auto_auto]">
                 <DeviceFilterSelect id={ids.device} value={draft.device} onChange={(device) => update("device", device)} />

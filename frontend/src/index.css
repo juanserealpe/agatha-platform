@@ -59,6 +59,10 @@
     --color-tgi-lima: #a2c83a;
     --color-tgi-celeste: #29a9e0;
     --color-tgi-azul: #1a71b8;
+    /* Verde de marca profundo: contraste AAA con texto blanco (≈10:1). Solo para navegación. */
+    --color-tgi-verde-oscuro: #004d25;
+    /* Fondo de página: gris con un toque verde, casi imperceptible. */
+    --color-tgi-fondo: #eef3ef;
     --font-data-mono: "JetBrains Mono Variable", monospace;
 
 }
@@ -81,7 +85,8 @@
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    /* Anillo de foco en azul TGI: identidad y foco más visible que el gris de shadcn. */
+    --ring: #1a71b8;
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);

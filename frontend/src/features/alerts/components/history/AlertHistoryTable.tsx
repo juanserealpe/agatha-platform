@@ -30,7 +30,7 @@ export function AlertHistoryTable({ items, caption, isUpdating, onAction }: Aler
     return (
         <Table aria-busy={isUpdating} className={cn("transition-opacity", isUpdating && "opacity-60")}>
             <TableCaption className="sr-only">{caption}</TableCaption>
-            <TableHeader className="bg-tgi-verde/5">
+            <TableHeader className="bg-tgi-verde/10">
                 <TableRow className="hover:bg-transparent">
                     {COLUMNS.map((column, index) => (
                         <TableHead
