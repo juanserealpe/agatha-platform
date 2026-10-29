@@ -3,7 +3,7 @@ package services
 import (
 	"time"
 
-	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
@@ -18,22 +18,21 @@ func NewDashboardValidator(dashboardLogger *logger.Logger) *DashboardValidator {
 }
 
 func (s *DashboardValidator) ValidateDateRange(startDate time.Time, endDate time.Time) error {
-	if endDate.Before(startDate) {
-		s.dashboardLogger.Error("[DashboardService/ValidatorService] Rango de fechas inválido:startDate=%s, endDate=%s",
-			startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
-		return appErrors.ErrInvalidDate
+	if !startDate.Before(endDate) {
+		s.dashboardLogger.Error("[DashboardService/ValidatorService] Rango de fechas inválido",
+			"startDate", startDate.Format(time.RFC3339), "endDate", endDate.Format(time.RFC3339))
+		return domain.ErrInvalidDateRange
 	}
-	s.dashboardLogger.Info("[DashboardService/ValidatorService] Rango de fechas válido:startDate=%s, endDate=%s",
-		startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
+	s.dashboardLogger.Info("[DashboardService/ValidatorService] Rango de fechas válido",
+		"startDate", startDate.Format(time.RFC3339), "endDate", endDate.Format(time.RFC3339))
 	return nil
 }
 
-func (s *DashboardValidator) ValidateFutureDate(date time.Time) error {
-	now := time.Now()
-	if date.After(now) {
-		s.dashboardLogger.Error("[DashboardService/ValidatorService] Fecha futura inválida: date=%s", date.Format(time.RFC3339))
-		return appErrors.ErrFutureDate
+func (s *DashboardValidator) ValidateNotFuture(date time.Time, futureErr error) error {
+	if date.After(time.Now()) {
+		s.dashboardLogger.Error("[DashboardService/ValidatorService] Fecha futura inválida", "date", date.Format(time.RFC3339))
+		return futureErr
 	}
-	s.dashboardLogger.Info("[DashboardService/ValidatorService] Fecha válida: date=%s", date.Format(time.RFC3339))
+	s.dashboardLogger.Info("[DashboardService/ValidatorService] Fecha válida", "date", date.Format(time.RFC3339))
 	return nil
 }

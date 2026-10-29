@@ -1,0 +1,15 @@
+# Secretos: se inyectan en runtime vía env_file, nunca dentro de la imagen.
+.env
+.env.*
+
+# Documentación, tooling y artefactos que no participan del build.
+.claude
+docs
+**/docs
+*.md
+**/*.MD
+tests
+.golangci.yml
+Dockerfile
+docker-compose.yml
+.dockerignore

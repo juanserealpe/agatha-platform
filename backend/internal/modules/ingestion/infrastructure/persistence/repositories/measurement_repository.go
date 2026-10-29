@@ -46,11 +46,11 @@ func (r *MeasurementRepository) Save(ctx context.Context, entity entities.RawMea
 }
 
 func (r *MeasurementRepository) SaveBatch(ctx context.Context, entitiesList []entities.RawMeasurement,
-) error {
+) (entities.SaveBatchResult, error) {
 	r.logger.Info("[SAVE BATCH] Iniciando proceso de guardado de mediciones en la base de datos", "cantidad", len(entitiesList))
 	if len(entitiesList) == 0 {
 		r.logger.Warn("[SAVE BATCH] No hay mediciones para guardar en la base de datos")
-		return nil
+		return entities.SaveBatchResult{}, nil
 	}
 
 	modelsList := make(
@@ -73,17 +73,17 @@ func (r *MeasurementRepository) SaveBatch(ctx context.Context, entitiesList []en
 	r.logger.Info("[SAVE BATCH] finalizó el MAPPER", "cantidad", len(modelsList))
 	if len(modelsList) == 0 {
 		r.logger.Warn("[SAVE BATCH] No hay modelos para guardar en la base de datos")
-		return nil
+		return entities.SaveBatchResult{}, nil
 	}
-	err := r.db.
+	result := r.db.
 		WithContext(ctx).
-		Create(&modelsList).
-		Error
+		Create(&modelsList)
 
-	if err != nil {
-		r.logger.Error("[SAVE BATCH] Error al guardar las mediciones en la base de datos", "error", err)
-		return err
+	if result.Error != nil {
+		r.logger.Error("[SAVE BATCH] Error al guardar las mediciones en la base de datos", "error", result.Error)
+		return entities.SaveBatchResult{}, result.Error
 	}
 
-	return nil
+	// RowsAffected refleja las filas realmente insertadas (también con ON CONFLICT DO NOTHING).
+	return entities.SaveBatchResult{Inserted: int(result.RowsAffected)}, nil
 }

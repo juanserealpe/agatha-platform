@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/dtos"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain/repositories"
 	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -36,7 +37,8 @@ func (s *DashboardService) GetAllDevices(ctx context.Context,
 	s.dashboardLogger.Info("[DashboardService] Obteniendo todos los dispositivos")
 	devices, err := s.deviceRepository.GetAllDeviceSummaries(ctx)
 	if err != nil {
-		return nil, err
+		s.dashboardLogger.Error("[DashboardService] Error consultando dispositivos", "error", err)
+		return nil, domain.ErrConsultingDevices
 	}
 
 	response := make([]dtos.DeviceResponse, 0, len(devices))
@@ -48,9 +50,9 @@ func (s *DashboardService) GetAllDevices(ctx context.Context,
 			LastConnection:   device.LastConnection,
 			LastBatteryLevel: device.LastBatteryLevel,
 		})
-		s.dashboardLogger.Info("[DashboardService] Dispositivo recibido: ID=%d, Name=%s", device.ID, device.Name)
+		s.dashboardLogger.Info("[DashboardService] Dispositivo recibido", "device_id", device.ID, "device_name", device.Name)
 	}
-	s.dashboardLogger.Info("[DashboardService] Total de dispositivos obtenidos: %d", len(response))
+	s.dashboardLogger.Info("[DashboardService] Total de dispositivos obtenidos", "total", len(response))
 	return response, nil
 }
 
@@ -61,7 +63,12 @@ func (s *DashboardService) GetMeasurements(ctx context.Context, deviceID int64, 
 		return nil, err
 	}
 
-	err = s.dashboardValidator.ValidateFutureDate(startDate)
+	err = s.dashboardValidator.ValidateNotFuture(startDate, domain.ErrStartDateFuture)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.dashboardValidator.ValidateNotFuture(endDate, domain.ErrEndDateFuture)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +82,7 @@ func (s *DashboardService) GetMeasurements(ctx context.Context, deviceID int64, 
 			"error", err,
 		)
 
-		return nil, err
+		return nil, domain.ErrConsultingMeasurements
 	}
 
 	if !existDeviceResponse {
@@ -107,7 +114,12 @@ func (s *DashboardService) GetMeasurements(ctx context.Context, deviceID int64, 
 	)
 
 	if err != nil {
-		return nil, err
+		s.dashboardLogger.Error(
+			"[DashboardService] Error consultando mediciones",
+			"device_id", deviceID,
+			"error", err,
+		)
+		return nil, domain.ErrConsultingMeasurements
 	}
 	metrics := make(map[uint64]*dtos.MetricMeasurementsResponse)
 

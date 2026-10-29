@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 	sharedhttp "github.com/juanserealpe/agatha-platform/backend/internal/shared/http"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/application/services"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/dashboard/domain"
 )
 
 type MeasurementHandler struct {
@@ -31,24 +31,45 @@ func (h *MeasurementHandler) GetMeasurements(w http.ResponseWriter, r *http.Requ
 
 	query := r.URL.Query()
 
-	deviceID, err := strconv.ParseInt(query.Get("deviceId"), 10, 64)
-	if err != nil {
-		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al parsear deviceId")
-		sharedhttp.HandleError(w, appErrors.ErrInvalidDate)
+	deviceIDParam := query.Get("deviceId")
+	if deviceIDParam == "" {
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - deviceId ausente")
+		sharedhttp.HandleError(w, domain.ErrMissingDeviceID)
 		return
 	}
 
-	startDate, err := time.Parse(time.RFC3339, query.Get("startDate"))
-	if err != nil {
-		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al parsear startDate")
-		sharedhttp.HandleError(w, appErrors.ErrInvalidDate)
+	deviceID, err := strconv.ParseInt(deviceIDParam, 10, 64)
+	if err != nil || deviceID <= 0 {
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - deviceId inválido", "deviceId", deviceIDParam)
+		sharedhttp.HandleError(w, domain.ErrInvalidDeviceID)
 		return
 	}
 
-	endDate, err := time.Parse(time.RFC3339, query.Get("endDate"))
+	startDateParam := query.Get("startDate")
+	if startDateParam == "" {
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - startDate ausente")
+		sharedhttp.HandleError(w, domain.ErrMissingStartDate)
+		return
+	}
+
+	startDate, err := time.Parse(time.RFC3339, startDateParam)
 	if err != nil {
-		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - Error al parsear endDate")
-		sharedhttp.HandleError(w, appErrors.ErrInvalidDate)
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - startDate inválida", "startDate", startDateParam)
+		sharedhttp.HandleError(w, domain.ErrInvalidStartDate)
+		return
+	}
+
+	endDateParam := query.Get("endDate")
+	if endDateParam == "" {
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - endDate ausente")
+		sharedhttp.HandleError(w, domain.ErrMissingEndDate)
+		return
+	}
+
+	endDate, err := time.Parse(time.RFC3339, endDateParam)
+	if err != nil {
+		h.dashboardLogger.Error("[ENDPOINT/MEASUREMENT] GET - endDate inválida", "endDate", endDateParam)
+		sharedhttp.HandleError(w, domain.ErrInvalidEndDate)
 		return
 	}
 

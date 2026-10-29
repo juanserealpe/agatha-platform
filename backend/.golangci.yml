@@ -1,0 +1,131 @@
+version: "2"
+
+# Solo reglas de arquitectura (imports). Los demás linters quedan apagados para
+# no cambiar el comportamiento actual del repo.
+linters:
+  default: none
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        # shared/eventbus: solo stdlib y shared/logger.
+        eventbus:
+          list-mode: strict
+          files:
+            - "**/internal/shared/eventbus/**"
+          allow:
+            - $gostd
+            - github.com/juanserealpe/agatha-platform/backend/internal/shared/logger
+            - github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+        # Ingestion: domain y application no conocen el bus (solo infrastructure/events y el composition root).
+        ingestion-core-no-eventbus:
+          list-mode: lax
+          files:
+            - "**/internal/modules/ingestion/domain/**"
+            - "**/internal/modules/ingestion/application/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "domain/application no importan el bus; usar el port EventPublisher"
+        # Contrato público de Ingestion: solo stdlib (lo importan otros módulos).
+        ingestion-contract-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/modules/ingestion/contract/**"
+          allow:
+            - $gostd
+        # Processing no conoce a Ingestion: el composition root traduce los eventos.
+        processing-no-ingestion:
+          list-mode: lax
+          files:
+            - "**/internal/modules/processing/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "processing no importa ingestion (ni su contract); la traducción vive en bootstrap"
+        # Processing lee las tablas de Baseline con su propio modelo (port BaselineProvider).
+        processing-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/processing/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "processing no importa ingestion; lee raw_measurements con su propio modelo"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline
+              desc: "processing no importa baseline; lee sus tablas con un modelo de solo lectura propio"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine
+              desc: "processing no conoce a sus consumidores; la traducción vive en bootstrap"
+        # Processing publica processing.indicator_evaluated: solo infrastructure/events conoce el bus.
+        processing-core-no-eventbus:
+          list-mode: lax
+          files:
+            - "**/internal/modules/processing/domain/**"
+            - "**/internal/modules/processing/application/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "domain/application no importan el bus; usar el port EventPublisher"
+        # Contrato público de Processing: solo stdlib (lo importa bootstrap).
+        processing-contract-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/modules/processing/contract/**"
+          allow:
+            - $gostd
+        # Rule Engine consume eventos de Processing sin importarlo y no conoce el bus.
+        rule-engine-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/rule_engine/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
+              desc: "rule_engine no importa processing (ni su contract); usa su propio Notice traducido en bootstrap"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "rule_engine no importa ingestion"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline
+              desc: "rule_engine no importa baseline"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "rule_engine no conoce el bus; la suscripción vive en bootstrap"
+        # Contrato público del Rule Engine: solo stdlib (lo importarán bootstrap y Alert Management).
+        rule-engine-contract-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/modules/rule_engine/contract/**"
+          allow:
+            - $gostd
+        # Alert Management consume eventos del Rule Engine sin importarlo y no conoce el bus.
+        # No entrega avisos: publica su contract por un port (adaptador en bootstrap).
+        alert-management-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/alert_management/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine
+              desc: "alert_management no importa rule_engine (ni su contract); usa su propio LevelNotice traducido en bootstrap"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
+              desc: "alert_management no importa processing"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "alert_management no importa ingestion; lee devices con su propio modelo"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline
+              desc: "alert_management no conoce a baseline (baseline lee alerts por su cuenta)"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "alert_management no conoce el bus; la suscripción vive en bootstrap"
+        # Baseline es autosuficiente: solo lee tablas. Nunca conoce a Processing.
+        baseline-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/baseline/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "baseline no importa ingestion; tiene su propio modelo de lectura de raw_measurements"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
+              desc: "baseline no importa processing; processing lee sus tablas por su cuenta"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "baseline no publica ni consume eventos en el MVP"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management
+              desc: "baseline no importa alert_management; lee alerts con su propio modelo (AlertEventsReader)"
+        # Kernel de cálculo (lo comparten Baseline y Processing): solo stdlib, sin IO ni estado.
+        features-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/shared/features/**"
+          allow:
+            - $gostd

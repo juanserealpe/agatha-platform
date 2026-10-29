@@ -10,7 +10,7 @@ import (
 var metricIDMap = map[string]uint64{
 	"Pitch":          1,
 	"Roll":           2,
-	"Voltaje (V)":   3,
+	"Voltaje (V)":    3,
 	"Corriente (mA)": 4,
 	"Batería (%)":    5,
 	"RMS (ADC)":      6,
@@ -31,6 +31,14 @@ var metricIDMap = map[string]uint64{
 
 	"Planitud espectral": 18,
 	"Deriva (grados)":    19,
+
+	"Temperatura (°C)": 20,
+	"Humedad (%)":      21,
+}
+
+var componentMetricIDMap = map[string]uint64{
+	"chart_temperature": 20,
+	"chart_humidity":    21,
 }
 
 type Mapper struct {
@@ -45,14 +53,45 @@ func NewMapper(
 	}
 }
 
-func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series,
+func (m *Mapper) MapSeries(
+	device *entities.Device,
+	series dashboard.Series,
 ) ([]entities.RawMeasurement, error) {
 
-	metricID, ok := metricIDMap[series.Name]
+	fmt.Printf(
+		"Mapping series: name=%s component=%s unit=%s\n",
+		series.Name,
+		series.ComponentID,
+		series.Unit,
+	)
+
+	// Primero intentamos identificar la métrica por el componente.
+	// Esto es necesario porque temperatura y humedad llegan desde
+	// DataOS con el mismo nombre: "MP-11556".
+	metricID, ok := componentMetricIDMap[series.ComponentID]
+
 	if !ok {
-		fmt.Errorf("no se encontró un ID de métrica para la serie %q", series.Name)
+		// Para las demás métricas seguimos utilizando el nombre
+		// de la serie como hasta ahora.
+		metricID, ok = metricIDMap[series.Name]
+	}
+
+	if !ok {
+		fmt.Printf(
+			"Serie no mapeada: name=%s component=%s\n",
+			series.Name,
+			series.ComponentID,
+		)
+
 		return nil, nil
 	}
+
+	fmt.Printf(
+		"Metric ID for name=%s component=%s: %d\n",
+		series.Name,
+		series.ComponentID,
+		metricID,
+	)
 
 	measurements := make([]entities.RawMeasurement, 0, len(series.DataPoints))
 
@@ -72,7 +111,7 @@ func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series,
 			MeasuringPointID: device.MeasuringPointID,
 			MetricID:         metricID,
 			Timestamp:        timestamp,
-			Value:            point.Value,
+			Value:            entities.NormalizeMeasurementValue(metricID, point.Value),
 			Source:           "dataos",
 		}
 

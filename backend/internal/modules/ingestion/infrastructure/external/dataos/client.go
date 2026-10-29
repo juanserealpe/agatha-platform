@@ -60,6 +60,8 @@ func (c *Client) GetMeasurements(ctx context.Context, device *entities.Device, s
 
 	c.logger.Info("[GetMeasurements] Iniciando proceso de extracción de series de datos de DataOS", "device", device.MeasuringPointID, "start", start, "end", end)
 	series, err := c.seriesExtractor.Extract(response)
+
+	c.logger.Info("[GetMeasurements] Extracción de series de datos de DataOS completada", "datos", len(series), "device", device.MeasuringPointID)
 	if err != nil {
 		c.logger.Error("[GetMeasurements] Error al extraer series de datos de DataOS", "error", err, "device", device.MeasuringPointID, "start", start, "end", end)
 		return nil, err
