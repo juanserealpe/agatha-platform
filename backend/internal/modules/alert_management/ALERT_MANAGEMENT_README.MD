@@ -150,7 +150,7 @@ Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un dupli
 
 ## Exclusión de la línea base (sección 9.3, invertida)
 
-Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_events`, ni endpoints `/known-events`. **Baseline lee `alerts` con su propio modelo** (`AlertEventsReader`) y excluye **todas** las alertas del punto, en `[started_at, ended_at)` (una activa, hasta el fin del rango que consulta). Ver `baseline/BASELINE_README.md`.
+Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_events`, ni endpoints `/known-events`. **Baseline lee `alerts` con su propio modelo** (`AlertEventsReader`) y excluye **todas** las alertas del punto, en `[started_at − 2 h, ended_at + 2 h)` (una activa, hasta el fin del rango que consulta). Ver `baseline/BASELINE_README.md`.
 
 ## Tablas
 
@@ -159,16 +159,18 @@ Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_
 ## Decisiones propias (más allá de la especificación)
 
 - `alerts.classified_client_record_id` / `labeled_client_record_id`: dan idempotencia a la clasificación y la etiqueta, no solo a las observaciones.
-- `ALMOST_NORMAL` no cita las horas que faltan, porque el evento v3 no trae `exit_hours`. Dice "terminará si sigue así".
+- `ALMOST_NORMAL` no cita las horas que faltan, porque el evento v3 no trae `exit_hours`. Dice "terminará si baja de {cierre} y se mantiene así".
 - `{pk}` sale de `devices.name` (que ya trae "Sensor …"), porque `devices` no tiene abscisa. Sin dispositivo, se usa `MP-<id>`.
-- **Los mensajes solo informan el estado y la criticidad; nunca dicen qué hacer.** Se quitaron del texto de la especificación las indicaciones operativas ("Programar recorrido", "Enviar cuadrilla", "avisar al centro de control", "no se requiere salir a campo") y la variable `{zona}`. Además, **el cuerpo no repite el título**: lo complementa. Las dos reglas las verifican tests del catálogo (`MessageCatalogVersion = 3`).
+- **Los mensajes solo informan el estado y la criticidad; nunca dicen qué hacer.** Se quitaron del texto de la especificación las indicaciones operativas ("Programar recorrido", "Enviar cuadrilla", "avisar al centro de control", "no se requiere salir a campo") y la variable `{zona}`. Además, **el cuerpo no repite el título**: lo complementa. Las dos reglas las verifican tests del catálogo.
+- **Los mensajes citan el dato (catálogo v4, `MessageCatalogVersion = 4`).** Todo mensaje del procesamiento horario dice el índice de ruido de la hora en decimal con coma (`messages.FormatValue`: "0,18", con un tercer decimal solo si hace falta, "0,158") y el límite que explica el mensaje. Ese límite puede ser lo normal (`{normal}`, el corte de Amarillo), el corte del nivel (`{corte}`), la salida de Amarillo (`{cierre}`), el índice anterior (`{valor_anterior}`: la última hora calculada o la de `trend_lookback_hours` antes) o el máximo de la alerta (`{valor_max}`). Ejemplo: "Índice de ruido en 0,18 desde las 05:00 del 24/08; lo normal es menos de 0,16." Lo verifica `TestCatalog_ProcessingMessagesCiteTheIndex`, y `TestDecide_MessagesCiteTheData` fija cada texto. "Lleva N h" ya no dice "seguidas", porque con persistencia `WINDOW` N es un conteo en la ventana.
+- `alerts.max_indicator_value`: el índice más alto de las horas calculadas de la alerta, con sus reactivaciones. Lo citan el fin, la bajada y el resumen, y lo expone el detalle (`max_indicator_value`). `Migrate` completa las filas previas con el mayor índice que conocen: la apertura, el último y el de sus mensajes. Es un valor aproximado; `-rebuild` lo deja exacto.
 - La duración ("Duró N h", "lleva N h" y `duration_hours` en la API) es tiempo transcurrido sin las pausas entre fin y reactivación (`Alert.DurationHours`), no `hours_calculated`.
 - Después de una subida no se emiten las reglas 5 a 9 en esa hora. Abrir o reactivar no emite otras reglas.
 - Sin estado previo y en mitad de un episodio (módulo habilitado tarde), la primera hora abre la alerta igual.
 - El Excel se implementó solo con la stdlib (no hay dependencias nuevas en `go.mod`).
 - `late` viaja en el evento en vez de filtrar acá: la política es de Alert Management, pero qué canal se omite lo decide Notification.
 
-- La sección 9.3 (fachada `KnownEvents` + tabla `known_events` + `/known-events`) **no se implementa así**: los eventos manuales del analista son un insumo de Baseline, no gestión de alertas. Baseline conserva su lista estática y lee `alerts` directo (acople de esquema, solo lectura).
+- La sección 9.3 (fachada `KnownEvents` + tabla `known_events` + `/known-events`) **no se implementa así**: los eventos manuales del analista son un insumo de Baseline, no gestión de alertas. Baseline ya no tiene lista estática: lee `alerts` directo (acople de esquema, solo lectura).
 
 ## Configuración
 

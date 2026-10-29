@@ -13,7 +13,7 @@ import (
 func ToBaselineVersionModel(v entities.BaselineVersion) (models.BaselineVersionModel, error) {
 	periods := make([]models.ExcludedPeriodJSON, len(v.ExcludedPeriods))
 	for i, p := range v.ExcludedPeriods {
-		periods[i] = models.ExcludedPeriodJSON{From: p.From.UTC(), To: p.To.UTC(), PeakI: p.PeakI}
+		periods[i] = models.ExcludedPeriodJSON{From: p.From.UTC(), To: p.To.UTC()}
 	}
 
 	periodsJSON, err := json.Marshal(periods)
@@ -73,7 +73,7 @@ func ToBaselineVersion(m models.BaselineVersionModel) (entities.BaselineVersion,
 
 	periods := make([]entities.ExcludedPeriod, len(periodsJSON))
 	for i, p := range periodsJSON {
-		periods[i] = entities.ExcludedPeriod{From: p.From.UTC(), To: p.To.UTC(), PeakI: p.PeakI}
+		periods[i] = entities.ExcludedPeriod{From: p.From.UTC(), To: p.To.UTC()}
 	}
 
 	flags := make([]entities.Flag, len(m.Flags))

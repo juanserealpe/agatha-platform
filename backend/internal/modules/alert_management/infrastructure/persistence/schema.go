@@ -47,6 +47,12 @@ func Migrate(db *gorm.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_alert_policy_versions_scope_version
 			ON alert_policy_versions (COALESCE(measuring_point_id, 0), event_type, version)`,
 		`CREATE EXTENSION IF NOT EXISTS btree_gist`,
+		// max_indicator_value llegó con el catálogo v4: las alertas previas
+		// toman el mayor índice que conocen (apertura, último y sus mensajes).
+		// Aproximado (no todas las horas dejan mensaje); -rebuild lo deja exacto.
+		`UPDATE alerts a SET max_indicator_value = GREATEST(a.opening_indicator_value, a.last_indicator_value,
+			COALESCE((SELECT max(m.indicator_value) FROM alert_messages m WHERE m.alert_id = a.id), 0))
+			WHERE a.max_indicator_value = 0`,
 	}
 	for _, stmt := range statements {
 		if err := db.Exec(stmt).Error; err != nil {

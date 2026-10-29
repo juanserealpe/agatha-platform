@@ -131,6 +131,17 @@ func (b *builder) message(alert *entities.Alert, key string, params map[string]s
 	return m
 }
 
+// value es el índice de la hora; cut, el corte de entrada del nivel. Así se
+// citan en los mensajes.
+func (b *builder) value() string { return messages.FormatValue(b.in.Notice.Value()) }
+
+func (b *builder) cut(l entities.Level) string {
+	return messages.FormatValue(b.in.Notice.Thresholds.For(l))
+}
+
+// normal es el límite de lo normal: el corte de Amarillo.
+func (b *builder) normal() string { return b.cut(entities.LevelAmarillo) }
+
 func (b *builder) noCalc(d *Decision) {
 	a := cloneAlert(*b.in.Active)
 	a.HoursNoData++
@@ -138,6 +149,7 @@ func (b *builder) noCalc(d *Decision) {
 		a.Runtime.InNoCalc = true
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeNoCalcStart, ""), map[string]string{
 			"hora": messages.FormatHour(b.at), "nivel": messages.LevelName(a.CurrentLevel),
+			"valor_anterior": messages.FormatValue(a.LastIndicatorValue),
 		}, "", a.CurrentLevel, false))
 	}
 	d.Alert = &a
@@ -187,6 +199,7 @@ func (b *builder) withoutAlert(d *Decision, firstHour bool) {
 		MaxLevel:                 level,
 		OpeningIndicatorValue:    n.Value(),
 		LastIndicatorValue:       n.Value(),
+		MaxIndicatorValue:        n.Value(),
 		LastEvaluatedAt:          b.at,
 		HoursCalculated:          max(n.HoursAbove, 1),
 		LowConfidenceAtOpen:      n.LowConfidence,
@@ -204,10 +217,12 @@ func (b *builder) withoutAlert(d *Decision, firstHour bool) {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeNewAfterClassified, ""), map[string]string{
 			"pk": b.in.Device.PK, "nivel": messages.LevelName(level), "codigo_anterior": last.Code,
 			"clasificacion": messages.ClassificationName(last.Management.Classification),
+			"valor":         b.value(), "normal": b.normal(),
 		}, "", level, true))
 	} else {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeOpen, string(level)), map[string]string{
 			"pk": b.in.Device.PK, "hora_inicio": messages.FormatHour(started),
+			"valor": b.value(), "normal": b.normal(), "corte": b.cut(level),
 		}, "", level, true))
 	}
 
@@ -245,6 +260,7 @@ func (b *builder) reactivate(d *Decision, last entities.Alert, computed entities
 	a.CurrentLevel = level
 	a.MaxLevel = entities.MaxLevel(previousMax, level)
 	a.LastIndicatorValue = n.Value()
+	a.MaxIndicatorValue = max(a.MaxIndicatorValue, n.Value())
 	a.LastEvaluatedAt = b.at
 	a.HoursCalculated += max(n.HoursAbove, 1)
 	a.BelowLevelHours = 0
@@ -260,6 +276,7 @@ func (b *builder) reactivate(d *Decision, last entities.Alert, computed entities
 	}
 	d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeReactivated, ""), map[string]string{
 		"horas": strconv.Itoa(hoursSinceEnd), "codigo": a.Code, "nivel": messages.LevelName(level),
+		"valor": b.value(), "normal": b.normal(),
 	}, kind, level, true))
 
 	d.Alert = &a
@@ -275,7 +292,10 @@ func (b *builder) withAlert(d *Decision) {
 	a := cloneAlert(*b.in.Active)
 	v := n.Value()
 
+	// previous es el índice de la última hora calculada (antes de esta).
+	previous := a.LastIndicatorValue
 	a.LastIndicatorValue = v
+	a.MaxIndicatorValue = max(a.MaxIndicatorValue, v)
 	a.LastEvaluatedAt = b.at
 	a.HoursCalculated++
 	d.State.PendingRunStartedAt = nil
@@ -291,7 +311,8 @@ func (b *builder) withAlert(d *Decision) {
 		d.CloseSegmentAt = &at
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeEndNormal, ""), map[string]string{
 			"codigo": a.Code, "N": strconv.Itoa(a.DurationHours(at)), "max": messages.LevelName(a.MaxLevel),
-			"horas": strconv.Itoa(p.MergeWindowHours),
+			"horas": strconv.Itoa(p.MergeWindowHours), "valor": b.value(), "normal": b.normal(),
+			"valor_max": messages.FormatValue(a.MaxIndicatorValue),
 		}, "", a.CurrentLevel, true))
 		id := a.ID
 		d.State.LastAlertID = &id
@@ -306,7 +327,7 @@ func (b *builder) withAlert(d *Decision) {
 	current, computed := a.CurrentLevel, n.ComputedLevel
 	switch {
 	case computed.Rank() > current.Rank():
-		b.up(d, &a, computed)
+		b.up(d, &a, computed, previous)
 		primary = true
 	case computed.Rank() < current.Rank():
 		a.BelowLevelHours++
@@ -317,7 +338,7 @@ func (b *builder) withAlert(d *Decision) {
 	// Reglas 2 a 9: gana la primera que aplica. Tras una subida, solo 2 a 4.
 	if wasNoCalc {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeNoCalcEnd, ""), map[string]string{
-			"nivel": messages.LevelName(a.CurrentLevel),
+			"nivel": messages.LevelName(a.CurrentLevel), "valor": b.value(),
 		}, "", a.CurrentLevel, true))
 		return
 	}
@@ -387,7 +408,8 @@ func zoneOf(n entities.LevelNotice) string {
 	}
 }
 
-func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level) {
+// up: previous es el índice de la última hora calculada (lo cita la subida rápida).
+func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level, previous float64) {
 	n := b.in.Notice
 	p := b.in.Policy
 	at := b.at
@@ -403,23 +425,24 @@ func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level) {
 	switch {
 	case a.InIntervention() && level.Rank() <= p.InterventionSilentMaxLevel.Rank():
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpDuringIntervention, ""), map[string]string{
-			"nivel": messages.LevelName(level),
+			"nivel": messages.LevelName(level), "valor": b.value(), "corte": b.cut(level),
 		}, "", level, true))
 	case level == entities.LevelRojo && n.PersistenceHours > 0:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpRojo, messages.VariantPersist), map[string]string{
-			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours),
+			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "valor": b.value(),
+			"corte": b.cut(entities.LevelNaranja),
 		}, "", level, true))
 	case level == entities.LevelRojo:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpRojo, ""), map[string]string{
-			"codigo": a.Code,
+			"codigo": a.Code, "valor_anterior": messages.FormatValue(previous), "valor": b.value(), "corte": b.cut(level),
 		}, "", level, true))
 	case n.PersistenceHours > 0:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpNaranjaPersist, ""), map[string]string{
-			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours),
+			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "valor": b.value(), "normal": b.normal(),
 		}, "", level, true))
 	default:
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpNaranjaFast, ""), map[string]string{
-			"codigo": a.Code,
+			"codigo": a.Code, "valor_anterior": messages.FormatValue(previous), "valor": b.value(), "corte": b.cut(level),
 		}, "", level, true))
 	}
 }
@@ -439,7 +462,7 @@ func (b *builder) downgrade(d *Decision, a *entities.Alert) bool {
 		}
 		a.Runtime.RojoHeldSent = true
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeRojoHeld, ""), map[string]string{
-			"horas": strconv.Itoa(p.DowngradeHours),
+			"horas": strconv.Itoa(p.DowngradeHours), "valor": b.value(), "corte": b.cut(current),
 		}, "", current, true))
 		return true
 	}
@@ -454,6 +477,7 @@ func (b *builder) downgrade(d *Decision, a *entities.Alert) bool {
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeDowngrade, ""), map[string]string{
 		"nivel": messages.LevelName(current), "horas": strconv.Itoa(p.DowngradeHours),
 		"nivel_inferior": messages.LevelName(lower), "max": messages.LevelName(a.MaxLevel),
+		"corte": b.cut(current), "valor": b.value(), "valor_max": messages.FormatValue(a.MaxIndicatorValue),
 	}, "", lower, true))
 	return true
 }
@@ -477,7 +501,8 @@ func (b *builder) oscillation(d *Decision, a *entities.Alert) bool {
 	}
 	rt.Oscillating = true
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeOscillating, ""), map[string]string{
-		"hora": messages.FormatHour(rt.Flips[0]),
+		"hora": messages.FormatHour(rt.Flips[0]), "cambios": strconv.Itoa(len(rt.Flips)),
+		"normal": b.normal(), "valor": b.value(),
 	}, "", a.CurrentLevel, true))
 	return true
 }
@@ -487,7 +512,11 @@ func (b *builder) oscillation(d *Decision, a *entities.Alert) bool {
 func (b *builder) band(d *Decision, a *entities.Alert, zone, prevZone string) bool {
 	n := b.in.Notice
 	var key string
-	params := map[string]string{"nivel": messages.LevelName(a.CurrentLevel)}
+	params := map[string]string{
+		"nivel": messages.LevelName(a.CurrentLevel), "valor": b.value(), "normal": b.normal(),
+		// La salida de Amarillo: bajo ella cuentan las horas de cierre.
+		"cierre": messages.FormatValue(n.Exit.Amarillo),
+	}
 	switch {
 	case zone == entities.ZoneBand && prevZone == entities.ZoneAbove:
 		key = messages.Key(messages.CodeAlmostNormal, "")
@@ -512,6 +541,7 @@ func (b *builder) downgradeStart(d *Decision, a *entities.Alert) bool {
 		"nivel_hora":     messages.LevelName(b.in.Notice.ComputedLevel),
 		"horas":          strconv.Itoa(b.in.Policy.DowngradeHours),
 		"nivel_inferior": messages.LevelName(current.Below()),
+		"valor":          b.value(), "nivel": messages.LevelName(current), "corte": b.cut(current),
 	}, "", current, true))
 	return true
 }
@@ -533,13 +563,14 @@ func (b *builder) countdown(d *Decision, a *entities.Alert) bool {
 	a.Runtime.CountdownSentFor = a.CurrentLevel
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeCountdown, ""), map[string]string{
 		"N": strconv.Itoa(runs), "horas": strconv.Itoa(b.in.Policy.CountdownHours), "nivel_siguiente": messages.LevelName(next),
+		"corte": b.cut(a.CurrentLevel), "valor": b.value(),
 	}, "", a.CurrentLevel, true))
 	return true
 }
 
 // trend (regla 8): la tendencia cambia (±trend_delta frente a trend_lookback_hours antes).
 func (b *builder) trend(d *Decision, a *entities.Alert) bool {
-	trend := trendAt(a.Runtime.Recent, b.at, b.in.Policy)
+	trend, previous := trendAt(a.Runtime.Recent, b.at, b.in.Policy)
 	if trend == "" || trend == a.Runtime.LastTrend {
 		return false
 	}
@@ -553,11 +584,14 @@ func (b *builder) trend(d *Decision, a *entities.Alert) bool {
 	}
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeTrend, ""), map[string]string{
 		"direccion": direction, "nivel": messages.LevelName(a.CurrentLevel), "N": strconv.Itoa(a.DurationHours(b.at)),
+		"valor_anterior": messages.FormatValue(previous), "valor": b.value(),
+		"horas": strconv.Itoa(b.in.Policy.TrendLookbackHours),
 	}, "", a.CurrentLevel, true))
 	return true
 }
 
-func trendAt(recent []entities.HourValue, at time.Time, p entities.Policy) string {
+// trendAt devuelve la tendencia y el índice de trend_lookback_hours antes.
+func trendAt(recent []entities.HourValue, at time.Time, p entities.Policy) (string, float64) {
 	ref := at.Add(-time.Duration(p.TrendLookbackHours) * time.Hour)
 	var current, previous *float64
 	for i := range recent {
@@ -569,16 +603,16 @@ func trendAt(recent []entities.HourValue, at time.Time, p entities.Policy) strin
 		}
 	}
 	if current == nil || previous == nil {
-		return ""
+		return "", 0
 	}
 	diff := math.Round((*current-*previous)*100) / 100
 	switch {
 	case diff >= p.TrendDelta-1e-9:
-		return entities.TrendUp
+		return entities.TrendUp, *previous
 	case diff <= -p.TrendDelta+1e-9:
-		return entities.TrendDown
+		return entities.TrendDown, *previous
 	default:
-		return entities.TrendStable
+		return entities.TrendStable, *previous
 	}
 }
 
@@ -597,6 +631,7 @@ func (b *builder) summary(d *Decision, a *entities.Alert) {
 	}
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeSummary, ""), map[string]string{
 		"nivel": messages.LevelName(a.CurrentLevel), "N": strconv.Itoa(a.DurationHours(b.at)), "tendencia": trend,
+		"valor": b.value(), "normal": b.normal(), "valor_max": messages.FormatValue(a.MaxIndicatorValue),
 	}, "", a.CurrentLevel, true))
 }
 

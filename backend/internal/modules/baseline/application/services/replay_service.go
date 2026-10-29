@@ -121,7 +121,8 @@ func (s *ReplayService) estimate(
 	return newVersion(pointID, estimation, from, asOf, trigger, asOf), true
 }
 
-// load lee, una sola vez, los samples y los eventos conocidos de [from, to).
+// load lee, una sola vez, los samples de [from, to) y los eventos conocidos
+// de ese rango ampliado con el margen.
 func (s *ReplayService) load(ctx context.Context, pointID int64, from, to time.Time,
 ) ([]features.Sample, []entities.KnownEvent, error) {
 	raw, err := s.history.GetSamples(ctx, pointID, from, to)
@@ -130,7 +131,8 @@ func (s *ReplayService) load(ctx context.Context, pointID int64, from, to time.T
 		return nil, nil, domain.ErrConsultingHistory
 	}
 
-	known, err := s.events.GetKnownEvents(ctx, pointID, from, to)
+	eventsFrom, eventsTo := s.cfg.KnownEventsRange(from, to)
+	known, err := s.events.GetKnownEvents(ctx, pointID, eventsFrom, eventsTo)
 	if err != nil {
 		s.log.Error("[ReplayService] Error consultando los eventos conocidos", "measuring_point_id", pointID, "error", err)
 		return nil, nil, domain.ErrConsultingKnownEvents

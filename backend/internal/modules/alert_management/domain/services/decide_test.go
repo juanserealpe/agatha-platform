@@ -690,3 +690,180 @@ func TestDecide_RejectsNoticeForOtherPoint(t *testing.T) {
 		t.Fatal("se esperaba error: la alerta activa es de otro punto")
 	}
 }
+
+// Los mensajes citan el dato: el índice de la hora y el límite que lo explica
+// (cortes 0,16 / 0,25 / 0,35; salidas 0,14 / 0,23 / 0,33).
+func TestDecide_MessagesCiteTheData(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func(t *testing.T) *world
+		code  string
+		body  string
+	}{
+		{"apertura", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
+			return w
+		}, messages.CodeOpen, "Índice de ruido en 0,18 desde las 05:00 del 24/08; lo normal es menos de 0,16."},
+		{"apertura naranja", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.27, O, O, opened, hoursAbove(2)))
+			return w
+		}, messages.CodeOpen, "Índice de ruido en 0,27 desde las 05:00 del 24/08; Naranja empieza en 0,25 y lo normal es menos de 0,16."},
+		{"subida rápida", fastRise, messages.CodeUpNaranjaFast, "El índice de ruido pasó de 0,20 a 0,27; Naranja empieza en 0,25."},
+		{"subida a rojo", fastRise, messages.CodeUpRojo, "El índice de ruido pasó de 0,27 a 0,40; Rojo empieza en 0,35."},
+		{"subida por duración", persistUp, messages.CodeUpNaranjaPersist, "El índice de ruido lleva 12 h por encima de lo normal (menos de 0,16); ahora está en 0,20."},
+		{"cuenta regresiva", persistUp, messages.CodeCountdown, "El índice de ruido lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel."},
+		{"fin", persistUp, messages.CodeEndNormal, "El índice de ruido volvió a 0,12 (lo normal, menos de 0,16). Duró 14 h; nivel máximo Naranja, con índice de hasta 0,20. Si vuelve en las próximas 24 h y sigue sin clasificar, se reactivará esta misma alerta."},
+		{"casi normal", almostNormal, messages.CodeAlmostNormal, "Índice de ruido en 0,15, ya por debajo de 0,16; la alerta terminará si baja de 0,14 y se mantiene así."},
+		{"1 h normal", almostNormal, messages.CodeOneHourNormal, "Índice de ruido en 0,13, por debajo de 0,14. La alerta sigue en Amarillo hasta completar el cierre."},
+		{"vuelve anormal", almostNormal, messages.CodeBackAbnormal, "Índice de ruido en 0,19; lo normal es menos de 0,16. La alerta sigue en Amarillo."},
+		{"empieza a bajar", downgraded, messages.CodeDowngradeStart, "Índice de ruido en 0,20, por debajo del límite de Naranja (0,25). Si se mantiene así 6 h, la alerta bajará a Amarillo."},
+		{"bajó", downgraded, messages.CodeDowngrade, "El índice de ruido se mantuvo por debajo del límite de Naranja (0,25) durante 6 h; ahora está en 0,20. Máximo alcanzado: Naranja, con índice de hasta 0,27."},
+		{"rojo retenido", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.40, R, R, opened, hoursAbove(2)))
+			for n := 2; n <= 7; n++ {
+				w.feed(calc(n, 0.20, A, A, none))
+			}
+			return w
+		}, messages.CodeRojoHeld, "El índice de ruido lleva 6 h por debajo del límite de Rojo (0,35) y está en 0,20, pero una alerta roja sin clasificar no baja de nivel."},
+		{"sin datos", noCalcGap, messages.CodeNoCalcStart, "No se puede evaluar desde las 08:00 del 24/08; la alerta sigue en Naranja. Último índice de ruido: 0,20."},
+		{"vuelven los datos", noCalcGap, messages.CodeNoCalcEnd, "Índice de ruido en 0,20; la alerta sigue en Naranja."},
+		{"intervención", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
+			w.active.Management = entities.Management{Status: entities.StatusClassifiedAndLabel,
+				Classification: entities.ClassificationFalseAlarm, Label: entities.LabelScheduledWork}
+			w.feed(calc(2, 0.27, O, O, none))
+			return w
+		}, messages.CodeUpDuringIntervention, "Índice de ruido en 0,27; Naranja empieza en 0,25. Por la intervención registrada, esta subida no se notifica."},
+		{"reactivación", func(t *testing.T) *world {
+			w := finishedAt(t)
+			w.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.18, A, A, opened, hoursAbove(2)))
+			return w
+		}, messages.CodeReactivated, "El índice de ruido volvió a 0,18, 7 h después de terminar; lo normal es menos de 0,16."},
+		{"nueva tras clasificada", func(t *testing.T) *world {
+			w := finishedAt(t)
+			w.alerts[123].Management = entities.Management{Status: entities.StatusClassifiedNoLabel, Classification: entities.ClassificationFalseAlarm}
+			w.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.18, A, A, opened, hoursAbove(2)))
+			return w
+		}, messages.CodeNewAfterClassified, "La anterior (ALR-000123) ya había sido clasificada como Falsa alerta. Índice de ruido en 0,18; lo normal es menos de 0,16."},
+		{"resumen", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
+			for n := 2; n <= 7; n++ {
+				w.feed(calc(n, 0.18, A, A, none))
+			}
+			return w
+		}, messages.CodeSummary, "Sigue en Amarillo, lleva 7 h, ruido estable. Índice de ruido en 0,18 (lo normal, menos de 0,16); el máximo de la alerta fue 0,18."},
+		{"tendencia", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(
+				calc(0, 0.17, A, A, none, inEpisode(false)),
+				calc(1, 0.17, A, A, opened, hoursAbove(2)),
+				calc(2, 0.17, A, A, none),
+				calc(3, 0.18, A, A, none),
+				calc(4, 0.20, A, A, none),
+			)
+			return w
+		}, messages.CodeTrend, "El índice de ruido pasó de 0,17 a 0,20 en 3 h. La alerta sigue en Amarillo y lleva 4 h."},
+		{"oscila", func(t *testing.T) *world {
+			w := newWorld(t)
+			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
+			for n := 2; n <= 5; n++ {
+				if n%2 == 0 {
+					w.feed(calc(n, 0.15, N, N, none, inEpisode(true)))
+				} else {
+					w.feed(calc(n, 0.17, A, A, none))
+				}
+			}
+			return w
+		}, messages.CodeOscillating, "El índice de ruido cruzó 4 veces el límite normal (0,16) desde las 07:00 del 24/08; ahora está en 0,17. No se informará cada cambio."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := c.build(t)
+			if got := w.bodyOf(c.code); got != c.body {
+				t.Fatalf("%s:\n got %q\nwant %q", c.code, got, c.body)
+			}
+		})
+	}
+}
+
+// El máximo del índice queda en la alerta (lo citan el fin, la bajada y el resumen).
+func TestDecide_TracksMaxIndicatorValue(t *testing.T) {
+	w := fastRise(t)
+	w.feed(calc(5, 0.30, O, O, none))
+	if got := w.alerts[123].MaxIndicatorValue; got != 0.40 {
+		t.Fatalf("máximo = %v, se esperaba 0,40", got)
+	}
+	r := finishedAt(t)
+	r.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.17, A, A, opened, hoursAbove(2)))
+	if got := r.alerts[123].MaxIndicatorValue; got != 0.18 {
+		t.Fatalf("máximo tras reactivar = %v, se esperaba 0,18 (el de antes del fin)", got)
+	}
+}
+
+func fastRise(t *testing.T) *world {
+	w := newWorld(t)
+	w.feed(
+		calc(0, 0.17, A, A, none, inEpisode(false)),
+		calc(1, 0.18, A, A, opened, hoursAbove(2)),
+		calc(2, 0.20, A, A, none),
+		calc(3, 0.27, O, O, none),
+		calc(4, 0.40, R, R, none),
+	)
+	return w
+}
+
+func persistUp(t *testing.T) *world {
+	w := newWorld(t)
+	w.feed(
+		calc(0, 0.17, A, A, none, inEpisode(false), runs(1, 0)),
+		calc(1, 0.18, A, A, opened, runs(2, 0), hoursAbove(2)),
+	)
+	for n := 2; n <= 10; n++ {
+		w.feed(calc(n, 0.19, A, A, none, runs(n+1, 0), hoursAbove(n+1)))
+	}
+	w.feed(
+		calc(11, 0.20, A, O, none, runs(12, 0), hoursAbove(12), persistence(12)),
+		calc(12, 0.15, N, N, none, inEpisode(true)),
+		calc(13, 0.13, N, N, none, inEpisode(true), belowRun(1)),
+		calc(14, 0.12, N, N, cleared, inEpisode(false), belowRun(2)),
+	)
+	return w
+}
+
+func almostNormal(t *testing.T) *world {
+	w := newWorld(t)
+	w.feed(
+		calc(0, 0.17, A, A, none, inEpisode(false)),
+		calc(1, 0.18, A, A, opened, hoursAbove(2)),
+		calc(2, 0.15, N, N, none, inEpisode(true)),
+		calc(3, 0.13, N, N, none, inEpisode(true), belowRun(1)),
+		calc(4, 0.19, A, A, none),
+	)
+	return w
+}
+
+func downgraded(t *testing.T) *world {
+	w := newWorld(t)
+	w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.27, O, O, opened, hoursAbove(2)))
+	for n := 2; n <= 7; n++ {
+		w.feed(calc(n, 0.20, A, A, none))
+	}
+	return w
+}
+
+func noCalcGap(t *testing.T) *world {
+	w := newWorld(t)
+	w.feed(
+		calc(0, 0.17, A, A, none, inEpisode(false)),
+		calc(1, 0.27, O, O, opened, hoursAbove(2)),
+		calc(2, 0.20, A, A, none),
+		noCalc(3), noCalc(4), noCalc(5),
+		calc(6, 0.20, A, A, none),
+	)
+	return w
+}

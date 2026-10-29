@@ -11,10 +11,11 @@ import (
 )
 
 // AlertEventsReader implementa KnownEventsProvider leyendo alerts (tabla de
-// Alert Management), solo lectura. Excluye TODAS las alertas del punto,
-// cualquiera sea su clasificación (también Falsa alerta y Sin clasificar):
-// mientras hubo una alerta, el tubo no estuvo en su condición normal de
-// referencia. Una alerta ACTIVA se excluye hasta el fin del rango consultado.
+// Alert Management), solo lectura. Solo importan started_at y ended_at: excluye
+// TODAS las alertas del punto, cualquiera sea su clasificación (también Falsa
+// alerta y Sin clasificar), porque mientras hubo una alerta el tubo no estuvo
+// en su condición normal de referencia. Una alerta ACTIVA se excluye desde su
+// inicio hasta el fin del rango consultado.
 type AlertEventsReader struct {
 	db *gorm.DB
 }
@@ -24,12 +25,11 @@ func NewAlertEventsReader(db *gorm.DB) *AlertEventsReader {
 }
 
 // GetKnownEvents devuelve las alertas del punto que se solapan con [from, to),
-// ordenadas por inicio (las activas, recortadas a to).
+// ordenadas por inicio (las activas, hasta to).
 func (r *AlertEventsReader) GetKnownEvents(ctx context.Context, pointID int64, from, to time.Time) ([]entities.KnownEvent, error) {
 	var rows []models.AlertIntervalRowModel
 	err := r.db.WithContext(ctx).Raw(`
-SELECT code, started_at, COALESCE(ended_at, @to) AS ended_at,
-       COALESCE(label, classification, 'SIN_CLASIFICAR') AS tag
+SELECT started_at, COALESCE(ended_at, @to) AS ended_at
   FROM alerts
  WHERE measuring_point_id = @point
    AND started_at < @to AND COALESCE(ended_at, @to) > @from
@@ -40,7 +40,7 @@ SELECT code, started_at, COALESCE(ended_at, @to) AS ended_at,
 
 	out := make([]entities.KnownEvent, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, entities.KnownEvent{From: row.StartedAt.UTC(), To: row.EndedAt.UTC(), Label: row.Code + " (" + row.Tag + ")"})
+		out = append(out, entities.KnownEvent{From: row.StartedAt.UTC(), To: row.EndedAt.UTC()})
 	}
 	return out, nil
 }

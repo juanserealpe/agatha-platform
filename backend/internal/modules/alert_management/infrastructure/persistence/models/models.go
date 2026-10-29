@@ -56,9 +56,11 @@ type AlertModel struct {
 	CurrentLevel string `gorm:"column:current_level;type:text;not null;check:chk_alerts_current_level,current_level IN ('AMARILLO', 'NARANJA', 'ROJO')"`
 	MaxLevel     string `gorm:"column:max_level;type:text;not null;check:chk_alerts_max_level,max_level IN ('AMARILLO', 'NARANJA', 'ROJO')"`
 
-	OpeningIndicatorValue float64   `gorm:"column:opening_indicator_value;type:numeric;not null"`
-	LastIndicatorValue    float64   `gorm:"column:last_indicator_value;type:numeric;not null"`
-	LastEvaluatedAt       time.Time `gorm:"column:last_evaluated_at;type:timestamptz;not null"`
+	OpeningIndicatorValue float64 `gorm:"column:opening_indicator_value;type:numeric;not null"`
+	LastIndicatorValue    float64 `gorm:"column:last_indicator_value;type:numeric;not null"`
+	// MaxIndicatorValue: default 0 para las filas previas; Migrate las completa.
+	MaxIndicatorValue float64   `gorm:"column:max_indicator_value;type:numeric;not null;default:0"`
+	LastEvaluatedAt   time.Time `gorm:"column:last_evaluated_at;type:timestamptz;not null"`
 
 	HoursCalculated int `gorm:"column:hours_calculated;type:integer;not null;default:0"`
 	HoursNoData     int `gorm:"column:hours_no_data;type:integer;not null;default:0"`

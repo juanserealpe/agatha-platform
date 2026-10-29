@@ -96,7 +96,10 @@ type Alert struct {
 
 	OpeningIndicatorValue float64
 	LastIndicatorValue    float64
-	LastEvaluatedAt       time.Time
+	// MaxIndicatorValue es el índice más alto de las horas calculadas de la
+	// alerta (sus reactivaciones incluidas): lo citan los mensajes.
+	MaxIndicatorValue float64
+	LastEvaluatedAt   time.Time
 
 	// HoursCalculated: horas calculadas de la alerta (sin las pausas entre fin
 	// y reactivación); HoursNoData: horas sin cálculo con la alerta activa;

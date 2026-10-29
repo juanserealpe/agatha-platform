@@ -198,6 +198,7 @@ type AlertDetailResponse struct {
 	LastReactivatedAt     *string           `json:"last_reactivated_at"`
 	OpeningIndicatorValue float64           `json:"opening_indicator_value"`
 	LastIndicatorValue    float64           `json:"last_indicator_value"`
+	MaxIndicatorValue     float64           `json:"max_indicator_value"`
 	LastEvaluatedAt       string            `json:"last_evaluated_at"`
 	HoursCalculated       int               `json:"hours_calculated"`
 	HoursNoData           int               `json:"hours_no_data"`
@@ -215,7 +216,7 @@ func toDetail(d ports.AlertDetail) AlertDetailResponse {
 	out := AlertDetailResponse{
 		AlertItem: toItem(d.AlertSummary), OpenedAt: local(a.OpenedAt), ReactivationCount: a.ReactivationCount,
 		LastReactivatedAt: localPtr(a.LastReactivatedAt), OpeningIndicatorValue: a.OpeningIndicatorValue,
-		LastIndicatorValue: a.LastIndicatorValue, LastEvaluatedAt: local(a.LastEvaluatedAt),
+		LastIndicatorValue: a.LastIndicatorValue, MaxIndicatorValue: a.MaxIndicatorValue, LastEvaluatedAt: local(a.LastEvaluatedAt),
 		HoursCalculated: a.HoursCalculated, HoursNoData: a.HoursNoData, LowConfidenceAtOpen: a.LowConfidenceAtOpen,
 		ThresholdVersionID: a.ThresholdVersionIDAtOpen, Observations: []ObservationItem{}, Levels: toLevels(d.Segments),
 	}

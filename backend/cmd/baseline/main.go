@@ -223,7 +223,7 @@ func printReport(r baselineServices.RecalculationResult, asOf time.Time) {
 
 	fmt.Printf("\nPeriodos excluidos (%d)\n", len(v.ExcludedPeriods))
 	for _, p := range v.ExcludedPeriods {
-		fmt.Printf("  [%s, %s)  pico I=%.4f\n", p.From.Format(time.RFC3339), p.To.Format(time.RFC3339), p.PeakI)
+		fmt.Printf("  [%s, %s)\n", p.From.Format(time.RFC3339), p.To.Format(time.RFC3339))
 	}
 }
 

@@ -15,6 +15,7 @@ func TestAlert_RoundTripKeepsManagementAndRuntime(t *testing.T) {
 	a := entities.Alert{
 		ID: 123, Code: "ALR-000123", MeasuringPointID: 11556, EventType: entities.EventTypeLeak, State: entities.AlertActive,
 		StartedAt: at, OpenedAt: at, CurrentLevel: entities.LevelNaranja, MaxLevel: entities.LevelRojo, LastEvaluatedAt: at,
+		OpeningIndicatorValue: 0.18, LastIndicatorValue: 0.2, MaxIndicatorValue: 0.41,
 		Runtime: entities.Runtime{PrevZone: entities.ZoneBand, Flips: []time.Time{flip}, LastFlipAt: &flip,
 			Recent: []entities.HourValue{{At: at, I: 0.2}}, CountdownSentFor: entities.LevelAmarillo},
 		Management: entities.Management{Status: entities.StatusClassifiedAndLabel, Classification: entities.ClassificationFalseAlarm,
@@ -32,8 +33,12 @@ func TestAlert_RoundTripKeepsManagementAndRuntime(t *testing.T) {
 	if m.ManagementStatus != string(entities.StatusClassifiedAndLabel) {
 		t.Fatalf("estado = %s", m.ManagementStatus)
 	}
-	if cols := ProcessingColumns(a); cols["classification"] != nil || cols["label"] != nil {
+	cols := ProcessingColumns(a)
+	if cols["classification"] != nil || cols["label"] != nil {
 		t.Fatal("el procesamiento nunca escribe columnas de gestión")
+	}
+	if cols["max_indicator_value"] != 0.41 {
+		t.Fatalf("el procesamiento debe escribir el máximo del índice: %v", cols["max_indicator_value"])
 	}
 }
 

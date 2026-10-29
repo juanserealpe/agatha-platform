@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/entities"
 )
 
 var placeholder = regexp.MustCompile(`\{([a-zA-Z_]+)\}`)
@@ -41,7 +43,7 @@ func TestCatalog_FieldLanguage(t *testing.T) {
 }
 
 func TestRender_FailsOnMissingVariable(t *testing.T) {
-	if _, err := Render(Key(CodeCountdown, ""), map[string]string{"N": "9"}); err == nil {
+	if _, err := Render(Key(CodeCountdown, ""), map[string]string{"N": "9", "corte": "0,16", "valor": "0,19"}); err == nil {
 		t.Fatal("se esperaba error: falta nivel_siguiente")
 	}
 	if _, err := Render("NO_EXISTE", nil); err == nil {
@@ -50,11 +52,11 @@ func TestRender_FailsOnMissingVariable(t *testing.T) {
 }
 
 func TestRender_ReplacesAndMarksLowConfidence(t *testing.T) {
-	text, err := Render(Key(CodeCountdown, ""), map[string]string{"N": "9", "horas": "3", "nivel_siguiente": "Naranja"})
+	text, err := Render(Key(CodeCountdown, ""), map[string]string{"N": "9", "horas": "3", "nivel_siguiente": "Naranja", "corte": "0,16", "valor": "0,19"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text.Body != "Lleva 9 h seguidas; faltan 3 h para el cambio de nivel." || text.Title != "Puede subir a Naranja" {
+	if text.Body != "El índice de ruido lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel." || text.Title != "Puede subir a Naranja" {
 		t.Fatalf("body = %q", text.Body)
 	}
 	if got := WithLowConfidence(text).Body; !strings.HasSuffix(got, LowConfidenceMark) {
@@ -74,10 +76,8 @@ func TestCatalog_EveryCodeHasKind(t *testing.T) {
 // antepone de nuevo ("Sensor Sensor MP-11556 PK34-470").
 func TestCatalog_DeviceNameIsNotPrefixedAgain(t *testing.T) {
 	name := "Sensor MP-11556 PK34-470"
-	params := map[string]string{
-		"pk": name, "nivel": "Naranja", "hora_inicio": "05:00 del 24/08", "codigo": "ALR-000123", "N": "3",
-		"codigo_anterior": "ALR-000122", "clasificacion": "Falsa alerta",
-	}
+	params := sampleParams()
+	params["pk"] = name
 	for key, tpl := range catalog {
 		if !slices.Contains(tpl.Vars, "pk") {
 			continue
@@ -143,5 +143,27 @@ func TestCatalog_NewAlertTitleSaysTheLevel(t *testing.T) {
 	text, _ := Render(Key(CodeNewAfterClassified, ""), sampleParams())
 	if !strings.Contains(text.Title, "<nivel>") {
 		t.Errorf("NEW_AFTER_CLASSIFIED: el título no dice el nivel: %q", text.Title)
+	}
+}
+
+// El índice se muestra en decimal con coma: 2 decimales como mínimo, 3 si
+// hacen falta (0,158 no se confunde con el corte 0,16).
+func TestFormatValue(t *testing.T) {
+	for v, want := range map[float64]string{0.16: "0,16", 0.2: "0,20", 0.158: "0,158", 0.1734: "0,173", 1: "1,00", 0.4: "0,40"} {
+		if got := FormatValue(v); got != want {
+			t.Errorf("FormatValue(%v) = %q, se esperaba %q", v, got, want)
+		}
+	}
+}
+
+// Todo mensaje del procesamiento horario cita el índice de ruido.
+func TestCatalog_ProcessingMessagesCiteTheIndex(t *testing.T) {
+	for key, tpl := range catalog {
+		if tpl.Kind == entities.KindManagement {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(tpl.Body), "índice") {
+			t.Errorf("%s no cita el índice de ruido: %q", key, tpl.Body)
+		}
 	}
 }

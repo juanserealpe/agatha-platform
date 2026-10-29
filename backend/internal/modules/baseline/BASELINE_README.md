@@ -20,8 +20,7 @@ baseline/
 ├── application/services/             # UC-B1/UC-B2 RecalculationService, UC-B4 BackfillService,
 │                                     # ReplayService (simulación)
 └── infrastructure/
-    ├── persistence/                  # models (GORM), mappers, repositories
-    ├── knownevents/                  # StaticProvider (lista en código) + CompositeProvider (une fuentes)
+    ├── persistence/                  # models (GORM), mappers, repositories (incl. AlertEventsReader)
     └── scheduling/recalc_scheduler.go
 ```
 
@@ -52,18 +51,18 @@ UC-B4: valida punto → (salvo `DryRun`) `GetLatest` y, si el punto **ya tiene v
 - Piso de Ex con señal degenerada ⇒ `Δmin`.
 - Una nueva versión con `valid_from <=` al de la vigente se rechaza (`PERSISTING_BASELINE`): el versionado no es retroactivo.
 
-## Eventos conocidos (exclusión forzada)
+## Eventos conocidos: las alertas (exclusión forzada)
 
-Además de lo que marca el barrido de I, hay intervalos que **nunca** deben entrar a la línea base porque corresponden a un evento conocido (fuga, intervención, reparación). Los entrega el port `KnownEventsProvider.GetKnownEvents(point, from, to)`.
+Además de lo que marca el barrido de I, **las alertas del punto nunca entran a la línea base**. Las entrega el port `KnownEventsProvider.GetKnownEvents(point, from, to)`. Ya no hay fechas estáticas en código.
 
-- **Lista estática**: `infrastructure/knownevents.StaticProvider`, una lista en código por punto (`staticEvents`), con fechas en hora de Bogotá. Para el 11556 son los eventos de la tabla `PERIODOS` del notebook del analista: el periodo ambiguo, E1 (y extendido), E2, E3, E4 y E5. **No** incluye R1–R7 ni "Nuevo": son comportamiento normal.
-- **Alertas**: `infrastructure/persistence/repositories.AlertEventsReader` lee `alerts` (tabla de Alert Management) con su propio modelo, solo lectura. Excluye **todas** las alertas del punto, cualquiera sea su clasificación (Confirmada, Falsa alerta o Sin clasificar), en `[started_at, ended_at)`; una alerta ACTIVA se excluye hasta el fin del rango consultado. Etiqueta del intervalo: `ALR-000123 (FUGA_CONFIRMADA_CAMPO)` (etiqueta, o clasificación, o `SIN_CLASIFICAR`). En cada recálculo (semanal, o diario con confianza `LOW`) se consulta de nuevo, así que las alertas nuevas entran solas.
-- **Composición**: `internal/bootstrap/known_events.go` une ambas con `knownevents.CompositeProvider` (si una falla, falla todo). Si la tabla `alerts` no existe al arrancar, solo la lista estática. Alert Management no sabe que Baseline existe.
+- **Fuente única**: `infrastructure/persistence/repositories.AlertEventsReader` lee `alerts` (tabla de Alert Management) con su propio modelo, solo lectura. Solo importan `started_at` y `ended_at`. Excluye **todas** las alertas del punto, cualquiera sea su clasificación (Confirmada, Falsa alerta o Sin clasificar); una alerta ACTIVA (`ended_at` NULL) se excluye desde su inicio hasta el fin del rango consultado. En cada recálculo se consulta de nuevo, así que las alertas nuevas entran solas.
+- **Margen**: cada alerta se excluye en `[started_at − 2 h, ended_at + 2 h)` (`Config.KnownEventMargin`, `BASELINE_KNOWN_EVENT_MARGIN`), para que la transición antes del disparo y después del cierre no sesgue la línea base. Lo aplica el dominio (`ExclusionPolicy`); los servicios consultan el rango ampliado con `Config.KnownEventsRange` para no perder una alerta cuyo margen cae dentro del histórico.
+- **Bootstrap**: `internal/bootstrap/known_events.go`. Si la tabla `alerts` no existe al arrancar, no hay alertas que excluir (Warn). Alert Management no sabe que Baseline existe.
 
 Reglas del cálculo (`RobustBaselineEstimator.EstimateExcluding`, `ExclusionPolicy.ApplyWithKnown`):
 
-- El evento se recorta a `[history_from, history_to)` y se excluye **desde la primera pasada** y en todas: sus registros no entran a la señal y las ventanas que lo solapan no entran a los componentes.
-- Se **une** a los periodos del barrido en `excluded_periods` (un periodo que solo viene de un evento tiene `peak_i = 0`).
+- El evento, ampliado con el margen, se recorta a `[history_from, history_to)` y se excluye **desde la primera pasada** y en todas: sus registros no entran a la señal y las ventanas que lo solapan no entran a los componentes.
+- Se **une** a los periodos del barrido en `excluded_periods` (JSONB `[{from, to}]`, solo fechas; no distingue si el periodo viene del barrido o de una alerta).
 - Sus horas **cuentan para el tope del 40 %**: las marcas automáticas solo disponen del resto.
 - La convergencia sigue midiéndose solo sobre las horas marcadas por el barrido.
 - Si algún evento cae en el histórico, la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`.
@@ -89,7 +88,7 @@ Efecto a vigilar: al sacar los eventos la línea base queda más estrecha y el b
 
 Tablas creadas por **`AutoMigrate`** en `NewBaselineModule` (los tags del modelo generan también el índice parcial, el de vigencia, la FK y los CHECKs):
 
-- `baseline_versions` — una fila por versión. `UNIQUE (measuring_point_id, version)`; `ux_baseline_versions_current` = índice único parcial `WHERE valid_to IS NULL` (**una sola vigente por punto**); `ix_baseline_versions_effective (measuring_point_id, valid_from DESC)`. `excluded_periods` JSONB `[{from, to, peak_i}]`, `flags` TEXT[]. Sin FK a `devices`.
+- `baseline_versions` — una fila por versión. `UNIQUE (measuring_point_id, version)`; `ux_baseline_versions_current` = índice único parcial `WHERE valid_to IS NULL` (**una sola vigente por punto**); `ix_baseline_versions_effective (measuring_point_id, valid_from DESC)`. `excluded_periods` JSONB `[{from, to}]` (solo fechas), `flags` TEXT[]. Sin FK a `devices`.
 - `baseline_component_stats` — PK `(baseline_version_id, window_hours, component)`, FK a `baseline_versions(id)`, MAD crudo (sin 1,4826 ni piso).
 
 `SaveNewVersion` (una TX): `SELECT vigente FOR UPDATE` → `valid_to = ValidFrom` → `INSERT` versión `MAX(version)+1` + stats. SQLSTATE `23505` ⇒ `ErrBaselineConcurrentUpdate` (no-op).

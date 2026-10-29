@@ -13,6 +13,9 @@ type Config struct {
 	MaxPasses              int           // BASELINE_MAX_PASSES (5)
 	RecalcInterval         time.Duration // BASELINE_RECALC_INTERVAL (168 h)
 	LowRecalcInterval      time.Duration // BASELINE_LOW_RECALC_INTERVAL (24 h)
+	// KnownEventMargin se excluye antes del inicio y después del fin de cada
+	// evento conocido (alerta), para que la línea base no vea la transición.
+	KnownEventMargin time.Duration // BASELINE_KNOWN_EVENT_MARGIN (2 h)
 }
 
 // DefaultConfig devuelve los valores cerrados con el analista.
@@ -27,7 +30,15 @@ func DefaultConfig() Config {
 		MaxPasses:              5,
 		RecalcInterval:         168 * time.Hour,
 		LowRecalcInterval:      24 * time.Hour,
+		KnownEventMargin:       2 * time.Hour,
 	}
+}
+
+// KnownEventsRange amplía [from, to) con el margen: un evento que empieza
+// hasta KnownEventMargin después de to (o termina hasta ese margen antes de
+// from) también recorta el histórico.
+func (c Config) KnownEventsRange(from, to time.Time) (time.Time, time.Time) {
+	return from.Add(-c.KnownEventMargin), to.Add(c.KnownEventMargin)
 }
 
 // HistoryWindow es la longitud del histórico antes de asOf.

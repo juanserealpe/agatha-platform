@@ -11,10 +11,11 @@ import (
 // sobre la duración del histórico (sección 9.4).
 type ExclusionPolicy struct {
 	capRatio float64
+	margin   time.Duration
 }
 
 func NewExclusionPolicy(cfg Config) ExclusionPolicy {
-	return ExclusionPolicy{capRatio: cfg.ExclusionCapRatio}
+	return ExclusionPolicy{capRatio: cfg.ExclusionCapRatio, margin: cfg.KnownEventMargin}
 }
 
 // ApplyWithKnown: cada marca t ⇒ [t − 24 h, t); se agregan por I descendente
@@ -22,11 +23,11 @@ func NewExclusionPolicy(cfg Config) ExclusionPolicy {
 // primera marca que lo superaría se detiene y marca CapReached. Los marks
 // deben ser horas alineadas en [from + 24 h, to].
 //
-// Los eventos conocidos se excluyen SIEMPRE (recortados a [from, to)), se unen
+// Los eventos conocidos se excluyen SIEMPRE, ampliados con el margen y
+// recortados a [from, to); se unen
 // a los periodos de las marcas y sus horas cuentan para el tope, de modo que
 // las marcas solo disponen del resto. MarkedHours contiene solo las marcas
-// aceptadas (criterio de convergencia). Un periodo que solo proviene de un
-// evento tiene PeakI = 0.
+// aceptadas (criterio de convergencia).
 func (p ExclusionPolicy) ApplyWithKnown(
 	marks []HourMark,
 	known []entities.KnownEvent,
@@ -45,7 +46,7 @@ func (p ExclusionPolicy) ApplyWithKnown(
 
 	// Las marcas son horas alineadas: la unión se lleva como conjunto de horas cubiertas.
 	covered := map[int64]bool{}
-	forced := clipKnownEvents(known, from, to)
+	forced := clipKnownEvents(known, p.margin, from, to)
 	for _, k := range forced {
 		for h := k.From.Truncate(time.Hour); h.Before(k.To); h = h.Add(time.Hour) {
 			covered[h.Unix()] = true
@@ -81,8 +82,7 @@ func (p ExclusionPolicy) ApplyWithKnown(
 	}
 }
 
-// mergePeriods fusiona los intervalos [t − 24 h, t) que se solapan o tocan;
-// PeakI es el máximo I de las marcas de cada periodo.
+// mergePeriods fusiona los intervalos [t − 24 h, t) que se solapan o tocan.
 func mergePeriods(marks []HourMark) []entities.ExcludedPeriod {
 	ordered := make([]HourMark, len(marks))
 	copy(ordered, marks)
@@ -96,22 +96,20 @@ func mergePeriods(marks []HourMark) []entities.ExcludedPeriod {
 			if m.T.After(periods[last].To) {
 				periods[last].To = m.T
 			}
-			if m.I > periods[last].PeakI {
-				periods[last].PeakI = m.I
-			}
 			continue
 		}
-		periods = append(periods, entities.ExcludedPeriod{From: from, To: m.T, PeakI: m.I})
+		periods = append(periods, entities.ExcludedPeriod{From: from, To: m.T})
 	}
 
 	return periods
 }
 
-// clipKnownEvents recorta los eventos a [from, to) y descarta los que quedan vacíos.
-func clipKnownEvents(known []entities.KnownEvent, from, to time.Time) []entities.ExcludedPeriod {
+// clipKnownEvents amplía cada evento a [From − margin, To + margin), lo recorta
+// a [from, to) y descarta los que quedan vacíos.
+func clipKnownEvents(known []entities.KnownEvent, margin time.Duration, from, to time.Time) []entities.ExcludedPeriod {
 	out := []entities.ExcludedPeriod{}
 	for _, k := range known {
-		start, end := k.From.UTC(), k.To.UTC()
+		start, end := k.From.UTC().Add(-margin), k.To.UTC().Add(margin)
 		if start.Before(from.UTC()) {
 			start = from.UTC()
 		}
@@ -125,8 +123,7 @@ func clipKnownEvents(known []entities.KnownEvent, from, to time.Time) []entities
 	return out
 }
 
-// unionPeriods une dos listas de periodos fusionando los que se solapan o
-// tocan; PeakI es el máximo de los fusionados.
+// unionPeriods une dos listas de periodos fusionando los que se solapan o tocan.
 func unionPeriods(periods, extra []entities.ExcludedPeriod) []entities.ExcludedPeriod {
 	if len(extra) == 0 {
 		return periods
@@ -141,9 +138,6 @@ func unionPeriods(periods, extra []entities.ExcludedPeriod) []entities.ExcludedP
 		if last >= 0 && !p.From.After(out[last].To) {
 			if p.To.After(out[last].To) {
 				out[last].To = p.To
-			}
-			if p.PeakI > out[last].PeakI {
-				out[last].PeakI = p.PeakI
 			}
 			continue
 		}

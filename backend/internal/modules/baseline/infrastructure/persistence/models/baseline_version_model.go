@@ -38,9 +38,9 @@ func (BaselineVersionModel) TableName() string {
 	return "baseline_versions"
 }
 
-// ExcludedPeriodJSON es el formato de cada elemento de excluded_periods.
+// ExcludedPeriodJSON es el formato de cada elemento de excluded_periods: solo
+// fechas. Las filas viejas traen además peak_i, que se ignora al leer.
 type ExcludedPeriodJSON struct {
-	From  time.Time `json:"from"`
-	To    time.Time `json:"to"`
-	PeakI float64   `json:"peak_i"`
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
 }

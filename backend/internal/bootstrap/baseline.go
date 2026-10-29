@@ -56,7 +56,7 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 
 	historyReader := baselineRepositories.NewHistoryReader(platform.DB, metricIDs)
 	baselineRepository := baselineRepositories.NewBaselineRepository(platform.DB)
-	// Lista estática + alertas confirmadas (si la tabla alerts existe).
+	// Todas las alertas del punto (si la tabla alerts existe).
 	knownEvents := knownEventsProvider(platform.DB, logBaseline)
 
 	recalculator := baselineServices.NewRecalculationService(historyReader, baselineRepository, knownEvents, cfg, logBaseline, time.Now)
@@ -92,6 +92,7 @@ func baselineConfigFromEnv(log *logger.Logger) baselineDomain.Config {
 	cfg.ExclusionICutoff = envFloat(log, "BASELINE_EXCLUSION_I_CUTOFF", cfg.ExclusionICutoff)
 	cfg.RecalcInterval = envDuration(log, "BASELINE_RECALC_INTERVAL", cfg.RecalcInterval)
 	cfg.LowRecalcInterval = envDuration(log, "BASELINE_LOW_RECALC_INTERVAL", cfg.LowRecalcInterval)
+	cfg.KnownEventMargin = envDuration(log, "BASELINE_KNOWN_EVENT_MARGIN", cfg.KnownEventMargin)
 
 	return cfg
 }

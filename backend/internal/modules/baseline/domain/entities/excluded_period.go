@@ -2,12 +2,11 @@ package entities
 
 import "time"
 
-// ExcludedPeriod es un intervalo [From, To) excluido del cálculo por anómalo.
-// PeakI es el mayor I(24 h) de las marcas que lo originaron.
+// ExcludedPeriod es un intervalo [From, To) excluido del cálculo: por anómalo
+// (barrido de I) o por una alerta.
 type ExcludedPeriod struct {
-	From  time.Time
-	To    time.Time
-	PeakI float64
+	From time.Time
+	To   time.Time
 }
 
 // Contains indica si t ∈ [From, To).

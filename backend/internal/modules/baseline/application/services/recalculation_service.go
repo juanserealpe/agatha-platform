@@ -79,7 +79,8 @@ func (s *RecalculationService) Recalculate(ctx context.Context, cmd RecalculateC
 		return result, domain.ErrConsultingHistory
 	}
 
-	known, err := s.events.GetKnownEvents(ctx, cmd.PointID, from, asOf)
+	eventsFrom, eventsTo := s.cfg.KnownEventsRange(from, asOf)
+	known, err := s.events.GetKnownEvents(ctx, cmd.PointID, eventsFrom, eventsTo)
 	if err != nil {
 		s.log.Error("[RecalculationService] Error consultando los eventos conocidos",
 			"measuring_point_id", cmd.PointID, "error", err)

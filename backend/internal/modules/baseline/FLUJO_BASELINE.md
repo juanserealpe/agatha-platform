@@ -13,7 +13,7 @@
 2. Por eso la primera carga de un punto se hace con **backfill** (`cmd/baseline -backfill`): crea de una vez todas las versiones que el módulo habría generado desde el primer dato.
 3. De ahí en adelante manda el `RecalcScheduler`: revisa cada hora (minuto `:10` UTC) si al punto le toca recalcular, y si le toca crea una versión nueva.
 4. Cada versión se calcula **desde cero** con los 90 días anteriores a su `valid_from`. No hay cálculo incremental.
-5. Del cálculo se sacan dos cosas: lo que el propio módulo detecta como anómalo, y los **eventos conocidos** (fugas, intervenciones), que hoy son una lista fija en código.
+5. Del cálculo se sacan dos cosas: lo que el propio módulo detecta como anómalo, y los **eventos conocidos**: todas las alertas del punto (tabla `alerts`), con 2 h de margen antes del inicio y después del fin.
 6. Las versiones viejas no se borran ni se modifican: solo se les cierra `valid_to`.
 
 ---
@@ -26,32 +26,19 @@
 | **Scheduler** (UC-B2) | Automático, con `baseline` en `AGATHA_MODULES` | Operación normal | Igual que arriba |
 | **Manual** (UC-B1) | `go run ./cmd/baseline -point N [-asof …]` | Validación con el analista o forzar una versión ahora | `MANUAL` |
 
-Las tres usan el mismo estimador, la misma ventana de 90 días y la misma lista de eventos conocidos. Solo cambia quién decide el `asOf`.
+Las tres usan el mismo estimador, la misma ventana de 90 días y las mismas alertas como eventos conocidos. Solo cambia quién decide el `asOf`.
 
 ### 2.1 Qué datos NO entran al cálculo
 
 | Origen | Quién lo decide | Dónde vive | Flag |
 |---|---|---|---|
 | **Exclusión automática** | El barrido: horas con `I(24 h) ≥ 0,18` excluyen su ventana `[t − 24 h, t)` | Se recalcula en cada versión | — |
-| **Eventos conocidos** | Una lista de intervalos por punto | Hoy: `infrastructure/knownevents/static_provider.go`. Después: el módulo de alertas, por el port `KnownEventsProvider` | `KNOWN_EVENTS_EXCLUDED` |
+| **Eventos conocidos** | Todas las alertas del punto | `infrastructure/persistence/repositories/alert_events_reader.go` (lee `alerts`), por el port `KnownEventsProvider` | `KNOWN_EVENTS_EXCLUDED` |
 
-Eventos conocidos del punto 11556 (hora Bogotá), tomados de la tabla `PERIODOS` del notebook del analista:
-
-| Evento | Desde | Hasta |
-|---|---|---|
-| 22–28 jul (ambiguo) | 23-jul 06:00 | 28-jul 06:00 |
-| E1 extendido | 24-jul 00:00 | 3-ago 00:00 |
-| E1 | 28-jul 00:00 | 2-ago 00:00 |
-| E2 | 20-ago 00:00 | 23-ago 00:00 |
-| E3 pre-explosión | 23-ago 00:00 | 25-ago 06:00 |
-| E4 intervención | 25-ago 06:00 | 27-ago 12:00 |
-| E5 post-reparación | 27-ago 12:00 | 30-ago 00:00 |
-
-Unidos son dos bloques: **23-jul 06:00 → 3-ago 00:00** y **20-ago 00:00 → 30-ago 00:00** (unos 20,7 días).
-
-- Las referencias `R1`–`R7` y el tramo "Nuevo" de esa tabla **no** están en la lista: son comportamiento normal y tienen que entrar a la línea base.
-- Los eventos se excluyen desde la primera pasada, aunque el barrido no los detecte, y cuentan para el tope del 40 %.
-- Para agregar o quitar un evento hoy hay que editar `staticEvents` y desplegar. Las versiones ya creadas no cambian.
+- Solo importan `started_at` y `ended_at`. Cada alerta se excluye en `[started_at − 2 h, ended_at + 2 h)` (`BASELINE_KNOWN_EVENT_MARGIN`).
+- Una alerta **activa** se excluye desde `started_at − 2 h` hasta el fin del histórico.
+- Se excluyen desde la primera pasada, aunque el barrido no las detecte, y cuentan para el tope del 40 %.
+- Ya no hay fechas estáticas: los eventos del estudio del analista (E1–E5) solo se excluyen si existen como alertas.
 
 ---
 
@@ -79,7 +66,7 @@ flowchart TD
 Reglas:
 
 - **Solo datos anteriores**: cada versión usa `[valid_from − 90 d, valid_from)`. Nunca ve datos posteriores a su propio recálculo.
-- **Eventos conocidos con retrospectiva**: una versión simulada excluye la parte ya transcurrida de un evento aunque en ese momento todavía no se supiera que lo era. La versión del 24-jul ya excluye lo ocurrido desde el 23-jul 06:00.
+- **Eventos conocidos con retrospectiva**: una versión simulada excluye la parte ya transcurrida de un evento aunque en ese momento todavía no se supiera que lo era. Con las alertas: una alerta abierta después del `asOf` de una versión también recorta su histórico si su margen de 2 h cae antes de ese `asOf`.
 - **Cadencia real**: la primera versión aparece en la primera hora en punto con ≥ 96 registros de B2. Mientras la versión sea `LOW` o tenga `NO_EXCLUSION_HISTORY`, hay una nueva cada 24 h. Cuando sale `NORMAL`, una cada 168 h.
 - **`created_at = valid_from`**: la versión queda registrada como si se hubiera creado en su momento. No guarda la hora real en que se escribió, y no se distingue de una versión creada por el scheduler.
 - **Precondición**: el punto no puede tener versiones. Con `-dry-run` no se exige (solo muestra).
@@ -110,6 +97,8 @@ DELETE FROM baseline_versions WHERE measuring_point_id = 11556;
 > Borrar versiones es seguro mientras Processing no haya escrito `feature_evaluations` que las referencien por `baseline_version_id`.
 
 ### 3.3 Resultado real del punto 11556 (dry-run del 2026-10-10)
+
+> Histórico: este resultado se obtuvo con la lista estática de eventos, que ya no existe. Con las alertas como fuente las versiones cambian; repetir el dry-run antes de comparar.
 
 El primer registro de B2 es del **2026-07-08 05:15 UTC** (8 de julio, 00:15 en Bogotá). Con los eventos conocidos excluidos, el backfill genera **38 versiones**:
 
@@ -211,7 +200,7 @@ Si el scheduler se habilita **después** del 15-oct 17:00 UTC, la v39 se crea en
 ## 6. Limitaciones conocidas
 
 - **Sacar los eventos conocidos vuelve más sensible la exclusión automática.** La línea base queda más estrecha y el barrido marca más horas marginales (I entre 0,18 y 0,25), algunas dentro de periodos que el analista considera de referencia (R2, R3, R7). El resultado depende del día: la versión del 8-oct converge con 26,5 % excluido; un recálculo del 10-oct no convergió y quedó en 38,4 % (`BASELINE_REVIEW`), cerca del tope del 40 %.
-- **La lista de eventos es estática**: un evento nuevo no se excluye hasta que alguien lo agrega al código.
+- **Solo se excluye lo que generó una alerta**: un evento real que el Rule Engine no detectó entra a la línea base (salvo que lo marque el barrido). Para backfill, las alertas tienen que existir antes.
 - **`excluded_ratio` se calcula sobre los 90 días nominales**, no sobre el tiempo con datos. En las primeras versiones del histórico queda subestimado: la del 2-ago marca 11,57 %, que son 10,4 días excluidos sobre unos 25 días de datos reales.
 - **Anomalía con mala cobertura**: una ventana de 24 h con menos del 70 % de cobertura no se puede marcar como anómala, pero sus muestras sí entran a `θ_D`. Una anomalía larga con pérdida de datos puede contaminar el umbral sin ningún flag.
 - **Las rachas (P) se cortan al perder un solo slot**, así que P queda subestimado cuando hay pérdida repartida.
