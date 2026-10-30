@@ -18,5 +18,6 @@ func ToRawMeasurementModel(
 		Timestamp:        entity.Timestamp,
 		Value:            entity.Value,
 		Source:           entity.Source,
+		IngestionBatchID: entity.IngestionBatchID,
 	}
 }

@@ -87,7 +87,10 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 		RecordID:         &recordID,
 	}
 
-	var created bool
+	var (
+		created  bool
+		inserted int
+	)
 	err = s.unitOfWork.Execute(
 		ctx,
 		func(
@@ -95,20 +98,23 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 			measurementRepository repositories.MeasurementRepository,
 			ingestionStateRepository repositories.IngestionStateRepository,
 		) error {
-			// Primero se reclama el record_id: raw_measurements no tiene índice
-			// único, así que un reintento NO debe volver a escribir mediciones.
-			_, saved, err := ingestionStateRepository.SaveIfAbsent(ctx, state)
+			// Primero se reclama el record_id: un reintento no vuelve a escribir
+			// mediciones, y el id de la fila es el lote de cada medición.
+			savedState, saved, err := ingestionStateRepository.SaveIfAbsent(ctx, state)
 			if err != nil || !saved {
 				return err
 			}
 			created = true
+			linkToBatch(measurements, savedState.BatchSeq)
 
 			// Misma TX: si fallan las mediciones, se libera también el record_id
 			// y Dataflow Labs puede reintentar el registro completo.
-			if _, err := measurementRepository.SaveBatch(ctx, measurements); err != nil {
+			batch, err := measurementRepository.SaveBatch(ctx, measurements)
+			if err != nil {
 				created = false
 				return err
 			}
+			inserted = batch.Inserted
 			return nil
 		},
 	)
@@ -129,6 +135,10 @@ func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCa
 		return response, nil
 	}
 
-	s.logger.Info("registro guardado", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "recibidas", response.ReceivedRecords, "guardadas", len(measurements), "hasta", lastIngestedAt)
+	if omitted := len(measurements) - inserted; omitted > 0 {
+		s.logger.Warn("mediciones ya existentes; no se duplican", "record_id", record.RecordID, "omitidas", omitted)
+	}
+
+	s.logger.Info("registro guardado", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "recibidas", response.ReceivedRecords, "guardadas", inserted, "hasta", lastIngestedAt)
 	return response, nil
 }

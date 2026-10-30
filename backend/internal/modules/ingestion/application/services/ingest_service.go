@@ -97,8 +97,9 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 		LastIngestedAt:   getLatestMeasurementTimestamp(measurements),
 	}
 
-	// 7. Persistir mediciones y estado en la misma transacción. Los resultados
-	// se capturan para publicar el evento DESPUÉS del commit.
+	// 7. Persistir estado y mediciones en la misma transacción. El estado va
+	// primero porque su id es el lote (ingestion_batch_id) de cada medición.
+	// Los resultados se capturan para publicar el evento DESPUÉS del commit.
 	var (
 		batchResult entities.SaveBatchResult
 		stateResult entities.SaveStateResult
@@ -111,15 +112,16 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			measurementRepository repositories.MeasurementRepository,
 			ingestionStateRepository repositories.IngestionStateRepository,
 		) error {
-			savedBatch, err := measurementRepository.SaveBatch(ctx, measurements)
-			if err != nil {
-				return fmt.Errorf("guardar mediciones: %w", err)
-			}
-
-			// Si falla el estado, se revierten también las mediciones.
 			savedState, err := ingestionStateRepository.Save(ctx, state)
 			if err != nil {
 				return errors.Join(ingestionErrors.ErrPersistingIngestionState, err)
+			}
+			linkToBatch(measurements, savedState.BatchSeq)
+
+			// Si fallan las mediciones, se revierte también el estado.
+			savedBatch, err := measurementRepository.SaveBatch(ctx, measurements)
+			if err != nil {
+				return fmt.Errorf("guardar mediciones: %w", err)
 			}
 
 			batchResult = savedBatch
@@ -132,7 +134,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 		return fmt.Errorf("persistir ingesta: %w", err)
 	}
 
-	s.logger.Info("ingesta DataOS guardada", "mp_id", measuringPointID, "mediciones", state.ReceivedRecords, "hasta", state.LastIngestedAt)
+	s.logger.Info("ingesta DataOS guardada", "mp_id", measuringPointID, "recibidas", state.ReceivedRecords, "insertadas", batchResult.Inserted, "hasta", state.LastIngestedAt)
 
 	// 8. Publicar el evento post-commit (nunca hace fallar la ingesta).
 	s.publishMeasurementsIngested(ctx, measuringPointID, state.Source, measurements, batchResult, stateResult)
@@ -170,6 +172,14 @@ func (s *IngestService) publishMeasurementsIngested(
 
 	if err := s.eventPublisher.PublishMeasurementsIngested(ctx, event); err != nil {
 		s.logger.Warn("no se pudo publicar el evento; la ingesta ya está guardada", "mp_id", measuringPointID, "batch_seq", event.BatchSeq, "error", err)
+	}
+}
+
+// linkToBatch asigna a cada medición el lote (id de su fila en
+// ingestion_state_models) que la trajo.
+func linkToBatch(measurements []entities.RawMeasurement, batchSeq int64) {
+	for i := range measurements {
+		measurements[i].IngestionBatchID = &batchSeq
 	}
 }
 

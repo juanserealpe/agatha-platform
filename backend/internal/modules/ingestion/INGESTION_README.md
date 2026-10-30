@@ -9,7 +9,7 @@ Hay dos vías de entrada:
 | Callback HTTP de Dataflow Labs (`POST /ingestion/callback`) | **Principal** (default de Docker) | `cmd/platform` con `AGATHA_MODULES` incluyendo `callback` |
 | Consulta programada a DataOS (`IngestionScheduler`, cada 15 min) | **Contingencia** | `cmd/platform` con `AGATHA_MODULES` incluyendo `dataos`, `cmd/scheduler`, `cmd/ingestion` |
 
-No corras ambas a la vez: `raw_measurements` no tiene índice único y la consulta a DataOS duplicaría filas.
+Usá una sola vía a la vez (`modules.go` lo exige): el índice único de `raw_measurements` descarta las mediciones repetidas, pero cada vía crea sus propios lotes en `ingestion_state_models`.
 
 **Arquitectura**: hexagonal. `application/ports` define `DataProvider`, `IngestionUnitOfWork` y `EventPublisher`; `domain/` tiene entidades, repositorios y errores; `infrastructure/` implementa la persistencia (GORM), el cliente DataOS, el handler HTTP del callback (`infrastructure/http`) y la publicación de eventos. `contract/` es la superficie pública (solo stdlib).
 
@@ -70,7 +70,8 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 
 - Cada registro nuevo es **una fila en `ingestion_state_models`** (`IngestionStateModel`; la documentación vieja la llamaba `ingestion_logs`, pero `IngestionStateModel` no define `TableName()` y GORM usa ese nombre) con `source = dataflow_callback`, `record_id`, `received_records = len(records)` y `last_ingested_at` = MAX(timestamp) de las variables.
 - `record_id` tiene un índice único (`ux_ingestion_logs_record_id`; los lotes de DataOS lo dejan en NULL). `IngestionStateRepository.SaveIfAbsent` inserta con `ON CONFLICT (record_id) DO NOTHING`: si llegan dos peticiones concurrentes con el mismo `record_id`, la segunda espera el commit de la primera y responde `duplicate`. Si la primera se revierte, la segunda inserta.
-- **Mediciones en la misma TX**: dentro del `IngestionUnitOfWork` primero se reclama el `record_id` (`SaveIfAbsent`) y, solo si es nuevo, se escriben las mediciones con `MeasurementRepository.SaveBatch` (`source = dataflow_callback`, `timestamp` = el de cada variable). Un reintento (`duplicate`) no reescribe mediciones. Si `SaveBatch` falla, se revierte también el recibo y se responde 500 para que Dataflow Labs reintente.
+- **Mediciones en la misma TX**: dentro del `IngestionUnitOfWork` primero se reclama el `record_id` (`SaveIfAbsent`) y, solo si es nuevo, se escriben las mediciones con `MeasurementRepository.SaveBatch` (`source = dataflow_callback`, `timestamp` = el de cada variable). Cada medición lleva `ingestion_batch_id` = `id` de la fila del recibo (`SaveStateResult.BatchSeq`). Un reintento (`duplicate`) no reescribe mediciones. Si `SaveBatch` falla, se revierte también el recibo y se responde 500 para que Dataflow Labs reintente.
+- **Mediciones repetidas**: `SaveBatch` inserta con `ON CONFLICT (measuring_point_id, metric_id, timestamp) DO NOTHING` (índice único `ux_raw_measurements_point_metric_ts`) en tandas de 1000 filas. Una medición que ya existía se omite sin fallar y `Inserted` cuenta solo las nuevas. Si un registro nuevo trae mediciones ya guardadas, igual responde `stored` (el recibo es nuevo) y se registra el `WARN` `mediciones ya existentes; no se duplican` (`record_id`, `omitidas`).
 - **Todavía no publica** `ingestion.measurements_ingested` (el módulo `callback` no cablea `EventPublisher`).
 
 ### Mapeo de variables (`CallbackMapper`)
@@ -111,7 +112,7 @@ Antes de persistir, ambos mappers pasan el valor por `entities.NormalizeMeasurem
 
 ## Flujo de ingesta DataOS (contingencia)
 
-`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `UnitOfWork.Execute` (guardar el lote y el estado en una TX) → **post-commit**: `EventPublisher.PublishMeasurementsIngested` (solo si `Inserted > 0`; un error se registra como `Warn` y no hace fallar la ingesta).
+`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `UnitOfWork.Execute` (en una TX: primero el estado, cuyo `id` es el `ingestion_batch_id` de cada medición, y después el lote; si falla el lote se revierte también el estado; `received_records` es el tamaño del lote pedido, no `Inserted`) → **post-commit**: `EventPublisher.PublishMeasurementsIngested` (solo si `Inserted > 0`; un error se registra como `Warn` y no hace fallar la ingesta).
 
 ## DTOs clave
 
@@ -124,7 +125,7 @@ Antes de persistir, ambos mappers pasan el valor por `entities.NormalizeMeasurem
 ## Entidades de dominio
 
 - `Device`: `MeasuringPointID`, `Name`, `Active`
-- `RawMeasurement`: `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`
+- `RawMeasurement`: `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`, `IngestionBatchID *int64` (lote que la trajo; nil en datos anteriores al 2026-10-29)
 - `IngestionState`: `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`, `RecordID *string` (solo para el callback)
 - `CallbackRecord` / `CallbackReading`: registro del callback ya validado (timestamps parseados, `RawTimestamp` y `Value` literales)
 - `SaveBatchResult`, `SaveStateResult`

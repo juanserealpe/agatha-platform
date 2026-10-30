@@ -68,7 +68,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Ingestion
 
-**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, módulo `callback` de `AGATHA_MODULES`). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (módulo `dataos`). No correr ambas a la vez (`raw_measurements` no tiene índice único). Detalle en `modules/ingestion/INGESTION_README.md`.
+**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, módulo `callback` de `AGATHA_MODULES`). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (módulo `dataos`). Se usa una sola a la vez: el índice único de `raw_measurements` descarta mediciones repetidas, pero cada vía crea sus propios lotes en `ingestion_state_models`. Detalle en `modules/ingestion/INGESTION_README.md`.
 
 **Arquitectura**: Hexagonal — `application/ports` define interfaces (`DataProvider`, `IngestionUnitOfWork`, `EventPublisher`), `domain/` contiene entidades y repositorios, `infrastructure/` implementa persistencia, cliente externo DataOS y publicación de eventos (`infrastructure/events`). `contract/` es la superficie pública del módulo (solo stdlib).
 
@@ -91,7 +91,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 ## Entidades de Dominio
 
 - `Device` — `MeasuringPointID`, `Name`, `Active`
-- `RawMeasurement` — `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`
+- `RawMeasurement` — `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`, `IngestionBatchID` (lote que la trajo)
 - `IngestionState` — `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`, `RecordID` (solo callback)
 - `CallbackRecord` / `CallbackReading` — registro del callback validado (timestamps parseados + literales originales)
 - `SaveBatchResult` — `Inserted` (filas realmente insertadas por `MeasurementRepository.SaveBatch`)
@@ -313,13 +313,17 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
     20,temperatura,Temperatura (°C),°,temperatura
     21,humedad,Humedad (%),%,humedad
 
-### 3. `measurements` (Serie de Tiempo de Mediciones)
+### 3. `raw_measurements` (Serie de Tiempo de Mediciones)
+- `id` (PK, `bigint GENERATED ALWAYS AS IDENTITY`): lo genera la BD; el backend nunca lo envía.
 - `measuring_point_id` (FK -> `measuring_points.measuring_point_id`): ID del sensor.
 - `metric_id` (FK -> `metrics.id`): Métrica asociada.
 - `timestamp` (timestamptz): Fecha/hora de la muestra.
 - `value` (numeric/float8): Valor numérico registrado (ej. `81.29`).
-- `source` (string): Fuente del dato (ej. `dataos`).
-*Índice Sugerido:* Composite PK (`measuring_point_id`, `metric_id`, `timestamp`).
+- `source` (string): Fuente del dato (`dataflow_callback` o `dataos`).
+- `ingestion_batch_id` (bigint, NULL, FK -> `ingestion_state_models.id`): lote que trajo la medición (= `batch_seq`; en el callback la une con su `record_id`). NULL en los datos anteriores al 2026-10-29.
+- Índice único `ux_raw_measurements_point_metric_ts (measuring_point_id, metric_id, timestamp)`: una medición por punto, métrica e instante; `SaveBatch` usa `ON CONFLICT (...) DO NOTHING`. Es también el índice de las lecturas por punto/métrica/rango (Processing, Baseline, Dashboard).
+- Índice `ix_raw_measurements_batch (ingestion_batch_id)`.
+- Migración `raw_measurements_pk_unique_batch` (2026-10-29), aplicada a mano en la BD; el modelo GORM replica sus nombres para que `AutoMigrate` no cree nada.
 
 ### 4. `ingestion_state_models` (Estado y Control de Ingestión)
 > Antes se documentaba como `ingestion_logs`; el nombre real lo genera GORM desde `IngestionStateModel` (sin `TableName()`). El índice conserva el nombre `ux_ingestion_logs_record_id`.

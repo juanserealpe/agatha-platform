@@ -64,18 +64,18 @@ func batch(at time.Time) []entities.RawMeasurement {
 	}
 }
 
-// ingest persiste el lote y su estado en una TX, como IngestService.
+// ingest persiste el estado y luego el lote en una TX, como IngestService.
 func ingest(ctx context.Context, uow *UnitOfWork, measurements []entities.RawMeasurement, failAfterState bool,
-) (entities.SaveStateResult, error) {
-	var result entities.SaveStateResult
+) (entities.SaveStateResult, entities.SaveBatchResult, error) {
+	var (
+		stateResult entities.SaveStateResult
+		batchResult entities.SaveBatchResult
+	)
 	last := measurements[len(measurements)-1].Timestamp
 
 	err := uow.Execute(ctx, func(ctx context.Context, m domainRepositories.MeasurementRepository,
 		s domainRepositories.IngestionStateRepository,
 	) error {
-		if _, err := m.SaveBatch(ctx, measurements); err != nil {
-			return err
-		}
 		saved, err := s.Save(ctx, &entities.IngestionState{
 			MeasuringPointID: uint64(testPoint),
 			Source:           "dataos",
@@ -85,13 +85,20 @@ func ingest(ctx context.Context, uow *UnitOfWork, measurements []entities.RawMea
 		if err != nil {
 			return err
 		}
+		for i := range measurements {
+			measurements[i].IngestionBatchID = &saved.BatchSeq
+		}
+		batch, err := m.SaveBatch(ctx, measurements)
+		if err != nil {
+			return err
+		}
 		if failAfterState {
 			return errors.New("falla simulada")
 		}
-		result = saved
+		stateResult, batchResult = saved, batch
 		return nil
 	})
-	return result, err
+	return stateResult, batchResult, err
 }
 
 func count(t *testing.T, db *gorm.DB, table string) int64 {
@@ -108,11 +115,11 @@ func TestUnitOfWork_ConsecutiveBatchesAdvanceStateAndBatchSeq(t *testing.T) {
 	ctx := context.Background()
 	uow := NewUnitOfWork(db, logger.New("ingestion-test", "INFO"))
 
-	first, err := ingest(ctx, uow, batch(t0), false)
+	first, _, err := ingest(ctx, uow, batch(t0), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ingest(ctx, uow, batch(t0.Add(15*time.Minute)), false)
+	second, _, err := ingest(ctx, uow, batch(t0.Add(15*time.Minute)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,11 +146,44 @@ func TestUnitOfWork_ConsecutiveBatchesAdvanceStateAndBatchSeq(t *testing.T) {
 func TestUnitOfWork_RollbackLeavesNoMeasurementsWithoutState(t *testing.T) {
 	db := openDB(t)
 
-	if _, err := ingest(context.Background(), NewUnitOfWork(db, logger.New("ingestion-test", "INFO")), batch(t0), true); err == nil {
+	if _, _, err := ingest(context.Background(), NewUnitOfWork(db, logger.New("ingestion-test", "INFO")), batch(t0), true); err == nil {
 		t.Fatal("se esperaba error")
 	}
 
 	if m, s := count(t, db, "raw_measurements"), count(t, db, "ingestion_state_models"); m != 0 || s != 0 {
 		t.Fatalf("tras el rollback quedaron %d mediciones y %d estados", m, s)
+	}
+}
+
+func TestUnitOfWork_RepeatedMeasurementsAreSkippedAndLinkedToTheirBatch(t *testing.T) {
+	db := openDB(t)
+	ctx := context.Background()
+	uow := NewUnitOfWork(db, logger.New("ingestion-test", "INFO"))
+
+	first, firstBatch, err := ingest(ctx, uow, batch(t0), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstBatch.Inserted != 2 {
+		t.Fatalf("primer lote: insertadas = %d, se esperaban 2", firstBatch.Inserted)
+	}
+
+	// Mismo punto, métrica e instante: el índice único descarta sin fallar.
+	_, repeated, err := ingest(ctx, uow, batch(t0), false)
+	if err != nil {
+		t.Fatalf("un lote repetido no debe fallar: %v", err)
+	}
+	if repeated.Inserted != 0 {
+		t.Fatalf("lote repetido: insertadas = %d, se esperaban 0", repeated.Inserted)
+	}
+
+	var linked int64
+	if err := db.Table("raw_measurements").
+		Where("measuring_point_id = ? AND ingestion_batch_id = ?", testPoint, first.BatchSeq).
+		Count(&linked).Error; err != nil {
+		t.Fatal(err)
+	}
+	if linked != 2 || count(t, db, "raw_measurements") != 2 {
+		t.Fatalf("mediciones del lote %d = %d, se esperaban 2 y ninguna más", first.BatchSeq, linked)
 	}
 }
