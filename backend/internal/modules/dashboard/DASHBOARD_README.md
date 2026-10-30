@@ -58,7 +58,7 @@ Un solo endpoint devuelve variables de distintas tablas con la misma forma (`tim
 | `pitch` | Pitch (°) | `measurement` | `raw_measurements`, `metric_id = 1` |
 | `roll` | Roll (°) | `measurement` | `raw_measurements`, `metric_id = 2` |
 | `aceleracion` | Magnitud promedio del acelerómetro (g) | `measurement` | `raw_measurements`, `metric_id = 8` |
-| `voltaje` | Voltaje (mV) | `measurement` | `raw_measurements`, `metric_id = 3` |
+| `voltaje` | Voltaje (V) | `measurement` | `raw_measurements`, `metric_id = 3` |
 | `corriente` | Corriente (mA) | `measurement` | `raw_measurements`, `metric_id = 4` |
 
 **Agregar una variable = una línea** en `domain/entities/series_catalog.go`. No se tocan el handler, el servicio ni los lectores:

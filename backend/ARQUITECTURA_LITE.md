@@ -76,7 +76,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 | Trigger | Accion | Servicio |
 |---------|--------|----------|
-| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, mapea sus variables a `metric_id` (`CallbackMapper`; las sin mapeo se avisan con WARN) y persiste en una sola TX el recibo en `ingestion_logs` (idempotente por `record_id`) y las mediciones en `raw_measurements`. Aún no publica `ingestion.measurements_ingested` | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
+| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, mapea sus variables a `metric_id` (`CallbackMapper`; las sin mapeo se avisan con WARN) y persiste en una sola TX el recibo en `ingestion_state_models` (idempotente por `record_id`) y las mediciones en `raw_measurements`. Aún no publica `ingestion.measurements_ingested` | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
 | `IngestionScheduler.Start()` | Ingesta periódica por intervalo configurable (contingencia) | `IngestService.IngestDataOs(ctx, measuringPointID, start, end)` |
 
 **Callback**: 200 `stored`/`duplicate`; 400 (JSON o campos inválidos), 401, 404 (`mp_id` no registrado), 405, 413 (> 1 MiB), 415, 500 (fallo de BD ⇒ Dataflow Labs reintenta). Timestamps sin zona **o con sufijo `Z`** se interpretan en `America/Bogota` (Dataflow Labs envía la hora local de Colombia marcada como UTC: la misma lectura llega `11:45:41Z` por callback y `16:45:41Z` por DataOS); un offset explícito (`-05:00`) se respeta; `readings` se conserva como literal JSON. Deduplicación: índice único `ux_ingestion_logs_record_id` + `ON CONFLICT (record_id) DO NOTHING` (seguro ante concurrencia).
@@ -87,8 +87,6 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 |-----|--------|
 | `DataRecordCallback` | `event`, `record_id`, `mp_id`, `serial_id`, `timestamp`, `records []{device_id, timestamp, name, readings}` |
 | `CallbackResponse` | `status` (`stored`\|`duplicate`), `record_id`, `received_records` |
-| `IngestRequest` | `device_id string`, `timestamp time.Time`, `payload map[string]any` |
-| `IngestResponse` | `status string`, `message string`, `timestamp time.Time` |
 
 ## Entidades de Dominio
 
@@ -96,8 +94,6 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `RawMeasurement` — `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`
 - `IngestionState` — `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`, `RecordID` (solo callback)
 - `CallbackRecord` / `CallbackReading` — registro del callback validado (timestamps parseados + literales originales)
-- `IngestionGap` — `MeasuringPointID`, `StartedAt`, `EndedAt`, `Status` (gap tracking)
-- `MetricDefinition` — `Key`, `Name`, `Unit`, `Category`
 - `SaveBatchResult` — `Inserted` (filas realmente insertadas por `MeasurementRepository.SaveBatch`)
 - `SaveStateResult` — `BatchSeq`, `LastIngestedAt` (devuelto por `IngestionStateRepository.Save`)
 
@@ -113,7 +109,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 |---|---|---|
 | `ingestion.measurements_ingested` | `MeasurementsIngested` | `measuring_point_id`, `source`, `from`/`to` (min/max timestamp del lote), `watermark` (`last_ingested_at`), `batch_seq`, `inserted_records`, `occurred_at`, `schema_version` — todos los tiempos en UTC |
 
-`batch_seq` = `id` de la fila insertada en `ingestion_logs` dentro de la misma transacción (la tabla es append-only: una fila por lote), por lo que es monótono y un rollback no lo consume.
+`batch_seq` = `id` de la fila insertada en `ingestion_state_models` dentro de la misma transacción (la tabla es append-only: una fila por lote), por lo que es monótono y un rollback no lo consume.
 
 `watermark` = `last_ingested_at` = **MAX(timestamp) de las muestras del lote** (`getLatestMeasurementTimestamp` en `IngestService`), NO el fin del rango pedido a DataOS: `watermark ≥ t` garantiza que ya existe un registro con timestamp `≥ t` (supuesto de Processing). Coincide con `to`. Si falla el `Save` del estado, la TX completa se revierte (no quedan mediciones sin su fila de estado) y se devuelve `ErrPersistingIngestionState` (`PERSISTING_INGESTION_STATE`).
 
@@ -287,7 +283,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `id` (PK, int): Identificador único de la métrica (ej. `21` = humedad, `20` = temperatura).
 - `key` (string, unique): Clave para código/API (`humedad`, `temperatura`, `pitch`, `rms`).
 - `name` (string): Nombre descriptivo (`Humedad (%)`).
-- `unit` (string): Unidad de medida (`%`, `°`, `mV`, `g/s`).
+- `unit` (string): Unidad de medida (`%`, `°`, `V`, `g/s`).
 - `category` (string): Categoría (`energia`, `vibracion`, `orientation`, `espectral`).
 - `active` (boolean): Estado de la métrica.
 - `created_at`, `updated_at` (timestamptz).
@@ -297,7 +293,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
     ID,Key,Nombre,Unidad,Categoría
     1,pitch,Pitch,°,orientation
     2,roll,Roll,°,orientation
-    3,voltaje,Voltaje (mV),mV,energia
+    3,voltaje,Voltaje (V),V,energia
     4,corriente,Corriente (mA),mA,energia
     5,bateria,Batería (%),%,energia
     6,rms,RMS (ADC),ADC,vibracion
@@ -325,7 +321,8 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `source` (string): Fuente del dato (ej. `dataos`).
 *Índice Sugerido:* Composite PK (`measuring_point_id`, `metric_id`, `timestamp`).
 
-### 4. `ingestion_logs` (Estado y Control de Ingestión)
+### 4. `ingestion_state_models` (Estado y Control de Ingestión)
+> Antes se documentaba como `ingestion_logs`; el nombre real lo genera GORM desde `IngestionStateModel` (sin `TableName()`). El índice conserva el nombre `ux_ingestion_logs_record_id`.
 - `id` (PK, int): ID del registro de sincronización.
 - `measuring_point_id` (FK -> `measuring_points.measuring_point_id`).
 - `source` (string): Origen del lote (ej. `dataos`).

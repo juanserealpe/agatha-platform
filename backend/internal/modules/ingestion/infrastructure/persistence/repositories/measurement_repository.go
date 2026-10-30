@@ -16,71 +16,24 @@ type MeasurementRepository struct {
 	logger *logger.Logger
 }
 
-func NewMeasurementRepository(db *gorm.DB,
-	logger *logger.Logger,
-) *MeasurementRepository {
-	return &MeasurementRepository{
-		db:     db,
-		logger: logger,
-	}
-}
-
-func (r *MeasurementRepository) Save(ctx context.Context, entity entities.RawMeasurement,
-) error {
-	model := mappers.ToRawMeasurementModel(&entity)
-
-	if model == nil {
-		return nil
-	}
-
-	err := r.db.
-		WithContext(ctx).
-		Create(model).
-		Error
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+func NewMeasurementRepository(db *gorm.DB, logger *logger.Logger) *MeasurementRepository {
+	return &MeasurementRepository{db: db, logger: logger}
 }
 
 func (r *MeasurementRepository) SaveBatch(ctx context.Context, entitiesList []entities.RawMeasurement,
 ) (entities.SaveBatchResult, error) {
-	r.logger.Info("[SAVE BATCH] Iniciando proceso de guardado de mediciones en la base de datos", "cantidad", len(entitiesList))
 	if len(entitiesList) == 0 {
-		r.logger.Warn("[SAVE BATCH] No hay mediciones para guardar en la base de datos")
 		return entities.SaveBatchResult{}, nil
 	}
 
-	modelsList := make(
-		[]models.RawMeasurementModel,
-		0,
-		len(entitiesList),
-	)
-	r.logger.Info("[SAVE BATCH] iniciando el MAPPER")
+	modelsList := make([]models.RawMeasurementModel, 0, len(entitiesList))
 	for i := range entitiesList {
-		model := mappers.ToRawMeasurementModel(
-			&entitiesList[i],
-		)
-		if model != nil {
-			modelsList = append(
-				modelsList,
-				*model,
-			)
-		}
+		modelsList = append(modelsList, *mappers.ToRawMeasurementModel(&entitiesList[i]))
 	}
-	r.logger.Info("[SAVE BATCH] finalizó el MAPPER", "cantidad", len(modelsList))
-	if len(modelsList) == 0 {
-		r.logger.Warn("[SAVE BATCH] No hay modelos para guardar en la base de datos")
-		return entities.SaveBatchResult{}, nil
-	}
-	result := r.db.
-		WithContext(ctx).
-		Create(&modelsList)
 
+	result := r.db.WithContext(ctx).Create(&modelsList)
 	if result.Error != nil {
-		r.logger.Error("[SAVE BATCH] Error al guardar las mediciones en la base de datos", "error", result.Error)
+		r.logger.Error("error guardando mediciones", "cantidad", len(modelsList), "error", result.Error)
 		return entities.SaveBatchResult{}, result.Error
 	}
 

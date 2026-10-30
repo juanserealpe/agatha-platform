@@ -92,7 +92,7 @@ Los nombres y las unidades de la respuesta salen de la base de datos; esta tabla
 |---|---|---|---|
 | 1 | Pitch | ° | Orientación |
 | 2 | Roll | ° | Orientación |
-| 3 | Voltaje | mV | Energía |
+| 3 | Voltaje | V | Energía |
 | 4 | Corriente | mA | Energía |
 | 5 | Batería | % | Energía |
 | 6 | RMS | ADC | Vibración |

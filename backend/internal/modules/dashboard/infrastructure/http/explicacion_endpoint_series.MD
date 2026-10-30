@@ -81,7 +81,7 @@ https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28
 
 | Clave | Variable | Unidad | Frecuencia |
 |---|---|---|---|
-| `voltaje` | Voltaje | mV | Una por lectura (~15 min) |
+| `voltaje` | Voltaje | V | Una por lectura (~15 min) |
 | `corriente` | Corriente | mA | Una por lectura (~15 min) |
 
 Tienen unidades distintas: si van en la misma gráfica, cada una necesita su propio eje Y.

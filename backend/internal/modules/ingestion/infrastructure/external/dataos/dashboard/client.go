@@ -23,13 +23,13 @@ func NewClient(
 	}
 }
 
-func (c *Client) Render(ctx context.Context,request RenderRequest,
+func (c *Client) Render(ctx context.Context, request RenderRequest,
 ) (*RenderResponse, error) {
 
 	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"marshal dashboard request: %w",
+			"serializar la petición del dashboard: %w",
 			err,
 		)
 	}
@@ -42,7 +42,7 @@ func (c *Client) Render(ctx context.Context,request RenderRequest,
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"create dashboard request: %w",
+			"crear la petición del dashboard: %w",
 			err,
 		)
 	}
@@ -53,7 +53,7 @@ func (c *Client) Render(ctx context.Context,request RenderRequest,
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"execute dashboard request: %w",
+			"ejecutar la petición del dashboard: %w",
 			err,
 		)
 	}
@@ -62,7 +62,7 @@ func (c *Client) Render(ctx context.Context,request RenderRequest,
 	if resp.StatusCode < http.StatusOK ||
 		resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf(
-			"DataOS dashboard request failed with status %d",
+			"el dashboard de DataOS respondió %d",
 			resp.StatusCode,
 		)
 	}
@@ -71,7 +71,7 @@ func (c *Client) Render(ctx context.Context,request RenderRequest,
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf(
-			"decode dashboard response: %w",
+			"decodificar la respuesta del dashboard: %w",
 			err,
 		)
 	}

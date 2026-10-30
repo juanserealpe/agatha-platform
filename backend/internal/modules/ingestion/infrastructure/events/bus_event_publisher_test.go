@@ -60,12 +60,6 @@ func TestBusEventPublisher_PublishesOnIngestionTopic(t *testing.T) {
 	}
 }
 
-func TestNoopEventPublisher_NeverFails(t *testing.T) {
-	if err := events.NewNoopEventPublisher().PublishMeasurementsIngested(context.Background(), sampleEvent()); err != nil {
-		t.Fatalf("el noop no debe fallar: %v", err)
-	}
-}
-
 func TestMeasurementsIngested_IsJSONSerializable(t *testing.T) {
 	raw, err := json.Marshal(sampleEvent())
 	if err != nil {

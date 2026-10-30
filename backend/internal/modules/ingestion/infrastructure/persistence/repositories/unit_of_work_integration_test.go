@@ -5,7 +5,7 @@
 //	DATABASE_URL=postgres://... go test -tags integration ./internal/modules/ingestion/infrastructure/persistence/repositories/
 //
 // Usan un measuring_point_id sintético y limpian sus filas al terminar.
-// raw_measurements e ingestion_logs deben existir (las crea bootstrap de Ingestion).
+// raw_measurements e ingestion_state_models deben existir (las crea bootstrap de Ingestion).
 package repositories
 
 import (
@@ -49,7 +49,7 @@ func openDB(t *testing.T) *gorm.DB {
 
 	cleanup := func() {
 		db.Exec("DELETE FROM raw_measurements WHERE measuring_point_id = ?", testPoint)
-		db.Exec("DELETE FROM ingestion_logs WHERE measuring_point_id = ?", testPoint)
+		db.Exec("DELETE FROM ingestion_state_models WHERE measuring_point_id = ?", testPoint)
 	}
 	cleanup()
 	t.Cleanup(cleanup)
@@ -71,7 +71,7 @@ func ingest(ctx context.Context, uow *UnitOfWork, measurements []entities.RawMea
 	last := measurements[len(measurements)-1].Timestamp
 
 	err := uow.Execute(ctx, func(ctx context.Context, m domainRepositories.MeasurementRepository,
-		s domainRepositories.IngestionStateRepository, _ domainRepositories.IngestionGapRepository,
+		s domainRepositories.IngestionStateRepository,
 	) error {
 		if _, err := m.SaveBatch(ctx, measurements); err != nil {
 			return err
@@ -131,8 +131,8 @@ func TestUnitOfWork_ConsecutiveBatchesAdvanceStateAndBatchSeq(t *testing.T) {
 	if int64(latest.ID) != second.BatchSeq || !latest.LastIngestedAt.Equal(second.LastIngestedAt) {
 		t.Fatalf("último estado = %+v, se esperaba la fila %d", latest, second.BatchSeq)
 	}
-	if n := count(t, db, "ingestion_logs"); n != 2 {
-		t.Fatalf("filas en ingestion_logs = %d, se esperaban 2", n)
+	if n := count(t, db, "ingestion_state_models"); n != 2 {
+		t.Fatalf("filas en ingestion_state_models = %d, se esperaban 2", n)
 	}
 }
 
@@ -143,7 +143,7 @@ func TestUnitOfWork_RollbackLeavesNoMeasurementsWithoutState(t *testing.T) {
 		t.Fatal("se esperaba error")
 	}
 
-	if m, s := count(t, db, "raw_measurements"), count(t, db, "ingestion_logs"); m != 0 || s != 0 {
+	if m, s := count(t, db, "raw_measurements"), count(t, db, "ingestion_state_models"); m != 0 || s != 0 {
 		t.Fatalf("tras el rollback quedaron %d mediciones y %d estados", m, s)
 	}
 }

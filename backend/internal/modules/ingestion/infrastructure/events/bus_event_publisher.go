@@ -1,3 +1,5 @@
+// Package events adapta el port EventPublisher de Ingestion a shared/eventbus.
+// Es, junto al composition root, el único lugar del módulo que conoce el bus.
 package events
 
 import (

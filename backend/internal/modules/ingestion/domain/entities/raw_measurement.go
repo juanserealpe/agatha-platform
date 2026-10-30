@@ -2,7 +2,7 @@ package entities
 
 import "time"
 
-// VoltageMetricID es el id de "Voltaje (mV)" en el catálogo de métricas.
+// VoltageMetricID es el id de "Voltaje (V)" en el catálogo de métricas.
 const VoltageMetricID uint64 = 3
 
 type RawMeasurement struct {

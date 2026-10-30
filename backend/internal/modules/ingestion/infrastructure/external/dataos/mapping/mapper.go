@@ -7,6 +7,8 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/dashboard"
 )
 
+// metricIDMap traduce el nombre de cada serie de DataOS al id del catálogo de
+// métricas (ARQUITECTURA_LITE.md §2.1).
 var metricIDMap = map[string]uint64{
 	"Pitch":          1,
 	"Roll":           2,
@@ -36,6 +38,8 @@ var metricIDMap = map[string]uint64{
 	"Humedad (%)":      21,
 }
 
+// componentMetricIDMap identifica por componente las series que DataOS nombra
+// igual ("MP-11556" para temperatura y humedad).
 var componentMetricIDMap = map[string]uint64{
 	"chart_temperature": 20,
 	"chart_humidity":    21,
@@ -45,26 +49,13 @@ type Mapper struct {
 	timestampParser *TimestampParser
 }
 
-func NewMapper(
-	timestampParser *TimestampParser,
-) *Mapper {
-	return &Mapper{
-		timestampParser: timestampParser,
-	}
+func NewMapper(timestampParser *TimestampParser) *Mapper {
+	return &Mapper{timestampParser: timestampParser}
 }
 
-func (m *Mapper) MapSeries(
-	device *entities.Device,
-	series dashboard.Series,
-) ([]entities.RawMeasurement, error) {
-
-	fmt.Printf(
-		"Mapping series: name=%s component=%s unit=%s\n",
-		series.Name,
-		series.ComponentID,
-		series.Unit,
-	)
-
+// MapSeries convierte una serie en mediciones crudas. Devuelve nil, nil si la
+// serie no está en el catálogo.
+func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series) ([]entities.RawMeasurement, error) {
 	// Primero intentamos identificar la métrica por el componente.
 	// Esto es necesario porque temperatura y humedad llegan desde
 	// DataOS con el mismo nombre: "MP-11556".
@@ -76,46 +67,26 @@ func (m *Mapper) MapSeries(
 		metricID, ok = metricIDMap[series.Name]
 	}
 
+	// Serie fuera del catálogo: el cliente la informa y la omite.
 	if !ok {
-		fmt.Printf(
-			"Serie no mapeada: name=%s component=%s\n",
-			series.Name,
-			series.ComponentID,
-		)
-
 		return nil, nil
 	}
-
-	fmt.Printf(
-		"Metric ID for name=%s component=%s: %d\n",
-		series.Name,
-		series.ComponentID,
-		metricID,
-	)
 
 	measurements := make([]entities.RawMeasurement, 0, len(series.DataPoints))
 
 	for _, point := range series.DataPoints {
-
 		timestamp, err := m.timestampParser.Parse(point.Timestamp)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"parse timestamp %q for metric %q: %w",
-				point.Timestamp,
-				series.Name,
-				err,
-			)
+			return nil, fmt.Errorf("timestamp %q inválido en la serie %q: %w", point.Timestamp, series.Name, err)
 		}
 
-		measurement := entities.RawMeasurement{
+		measurements = append(measurements, entities.RawMeasurement{
 			MeasuringPointID: device.MeasuringPointID,
 			MetricID:         metricID,
 			Timestamp:        timestamp,
 			Value:            entities.NormalizeMeasurementValue(metricID, point.Value),
 			Source:           "dataos",
-		}
-
-		measurements = append(measurements, measurement)
+		})
 	}
 
 	return measurements, nil

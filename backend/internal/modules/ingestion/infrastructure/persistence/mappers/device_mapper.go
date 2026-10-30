@@ -5,16 +5,6 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/models"
 )
 
-func ToDeviceModel(entity *entities.Device) *models.DeviceModel {
-	return &models.DeviceModel{
-		MeasuringPointID: entity.MeasuringPointID,
-		Name:             entity.Name,
-		Active:           entity.Active,
-		CreatedAt:        entity.CreatedAt,
-		UpdatedAt:        entity.UpdatedAt,
-	}
-}
-
 func ToDeviceEntity(model *models.DeviceModel) *entities.Device {
 	return &entities.Device{
 		MeasuringPointID: model.MeasuringPointID,

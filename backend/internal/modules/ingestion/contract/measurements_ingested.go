@@ -17,7 +17,7 @@ type MeasurementsIngested struct {
 	To time.Time `json:"to"`
 	// Watermark es el last_ingested_at persistido para el lote.
 	Watermark time.Time `json:"watermark"`
-	// BatchSeq es el cursor monótono del lote (id de la fila en ingestion_logs).
+	// BatchSeq es el cursor monótono del lote (id de la fila en ingestion_state_models).
 	BatchSeq int64 `json:"batch_seq"`
 	// InsertedRecords es la cantidad de mediciones realmente insertadas.
 	InsertedRecords int `json:"inserted_records"`

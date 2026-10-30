@@ -20,18 +20,3 @@ func ToRawMeasurementModel(
 		Source:           entity.Source,
 	}
 }
-
-func ToRawMeasurementEntity(model *models.RawMeasurementModel,
-) *entities.RawMeasurement {
-	if model == nil {
-		return nil
-	}
-
-	return &entities.RawMeasurement{
-		MeasuringPointID: model.MeasuringPointID,
-		MetricID:         model.MetricID,
-		Timestamp:        model.Timestamp,
-		Value:            model.Value,
-		Source:           model.Source,
-	}
-}
