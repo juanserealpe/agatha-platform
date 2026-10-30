@@ -23,7 +23,7 @@ services:
       - .env
 
     environment:
-      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine
+      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine, alert_management
 
     ports:
       - "8080:8080"
