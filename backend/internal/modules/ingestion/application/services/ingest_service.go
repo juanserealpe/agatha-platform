@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/ports"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/contract"
 	ingestionErrors "github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/repositories"
@@ -21,8 +20,6 @@ type IngestService struct {
 	deviceRepository      repositories.DeviceRepository
 	unitOfWork            ports.IngestionUnitOfWork
 	ingestionValidator    *IngestionValidator
-	eventPublisher        ports.EventPublisher
-	now                   func() time.Time
 	logger                *logger.Logger
 }
 
@@ -33,7 +30,6 @@ func NewIngestService(
 	unitOfWork ports.IngestionUnitOfWork,
 	logger *logger.Logger,
 	ingestionValidator *IngestionValidator,
-	eventPublisher ports.EventPublisher,
 ) *IngestService {
 	return &IngestService{
 		dataProvider:          dataProvider,
@@ -42,14 +38,11 @@ func NewIngestService(
 		logger:                logger,
 		unitOfWork:            unitOfWork,
 		ingestionValidator:    ingestionValidator,
-		eventPublisher:        eventPublisher,
-		now:                   time.Now,
 	}
 }
 
 // IngestDataOs consulta DataOS en (start, end] y persiste las mediciones junto
-// con su estado de ingesta en una sola transacción. Publica MeasurementsIngested
-// después del commit.
+// con su estado de ingesta en una sola transacción.
 func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64, start time.Time, end time.Time,
 ) error {
 	// 1. Obtener dispositivo.
@@ -99,11 +92,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 
 	// 7. Persistir estado y mediciones en la misma transacción. El estado va
 	// primero porque su id es el lote (ingestion_batch_id) de cada medición.
-	// Los resultados se capturan para publicar el evento DESPUÉS del commit.
-	var (
-		batchResult entities.SaveBatchResult
-		stateResult entities.SaveStateResult
-	)
+	var batchResult entities.SaveBatchResult
 
 	err = s.unitOfWork.Execute(
 		ctx,
@@ -125,7 +114,6 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			}
 
 			batchResult = savedBatch
-			stateResult = savedState
 			return nil
 		},
 	)
@@ -135,44 +123,7 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 	}
 
 	s.logger.Info("ingesta DataOS guardada", "mp_id", measuringPointID, "recibidas", state.ReceivedRecords, "insertadas", batchResult.Inserted, "hasta", state.LastIngestedAt)
-
-	// 8. Publicar el evento post-commit (nunca hace fallar la ingesta).
-	s.publishMeasurementsIngested(ctx, measuringPointID, state.Source, measurements, batchResult, stateResult)
-
 	return nil
-}
-
-// publishMeasurementsIngested publica MeasurementsIngested si se insertó al menos
-// una medición. Debe llamarse solo tras un commit exitoso. Un publisher nil
-// equivale a no-op; un error del publisher se registra como warn y se ignora.
-func (s *IngestService) publishMeasurementsIngested(
-	ctx context.Context,
-	measuringPointID int64,
-	source string,
-	measurements []entities.RawMeasurement,
-	batchResult entities.SaveBatchResult,
-	stateResult entities.SaveStateResult,
-) {
-	if s.eventPublisher == nil || batchResult.Inserted <= 0 || len(measurements) == 0 {
-		return
-	}
-
-	from, to := getMeasurementTimeRange(measurements)
-	event := contract.MeasurementsIngested{
-		MeasuringPointID: measuringPointID,
-		Source:           source,
-		From:             from.UTC(),
-		To:               to.UTC(),
-		Watermark:        stateResult.LastIngestedAt.UTC(),
-		BatchSeq:         stateResult.BatchSeq,
-		InsertedRecords:  batchResult.Inserted,
-		OccurredAt:       s.now().UTC(),
-		SchemaVersion:    contract.SchemaVersion,
-	}
-
-	if err := s.eventPublisher.PublishMeasurementsIngested(ctx, event); err != nil {
-		s.logger.Warn("no se pudo publicar el evento; la ingesta ya está guardada", "mp_id", measuringPointID, "batch_seq", event.BatchSeq, "error", err)
-	}
 }
 
 // linkToBatch asigna a cada medición el lote (id de su fila en
@@ -181,21 +132,6 @@ func linkToBatch(measurements []entities.RawMeasurement, batchSeq int64) {
 	for i := range measurements {
 		measurements[i].IngestionBatchID = &batchSeq
 	}
-}
-
-// getMeasurementTimeRange devuelve el timestamp mínimo y máximo del lote.
-// Requiere al menos una medición.
-func getMeasurementTimeRange(measurements []entities.RawMeasurement) (time.Time, time.Time) {
-	from, to := measurements[0].Timestamp, measurements[0].Timestamp
-	for _, measurement := range measurements[1:] {
-		if measurement.Timestamp.Before(from) {
-			from = measurement.Timestamp
-		}
-		if measurement.Timestamp.After(to) {
-			to = measurement.Timestamp
-		}
-	}
-	return from, to
 }
 
 // getLatestMeasurementTimestamp devuelve el MAX(timestamp) del lote (nil si está vacío).

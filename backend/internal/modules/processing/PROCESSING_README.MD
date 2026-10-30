@@ -26,7 +26,7 @@ processing/
     └── scheduling/      # HourlyScheduler (evaluación horaria)
 ```
 
-> En `infrastructure/events/` quedan `MeasurementsIngestedNotice`/`Subscriber` e `infrastructure/replay/` (CSV) del diseño anterior: **no están cableados** y quedan pendientes de borrar.
+> `infrastructure/replay/` (CSV) es del diseño anterior: **no está cableado** y queda pendiente de borrar. `MeasurementsIngestedNotice`/`Subscriber` se eliminaron el 2026-10-30.
 
 ## Entry Points
 
@@ -36,7 +36,7 @@ processing/
 | `cmd/processing -point` | Evalúa a demanda las horas pendientes de un punto | `EvaluationService.EvaluatePending` (`Trigger = MANUAL`) |
 | `cmd/processing -point -backfill [-from] [-asof] [-dry-run] [-json]` | Histórico de evaluaciones | `EvaluationService.Backfill` (`Trigger = BACKFILL`) |
 
-El scheduler es el **único disparador automático**. No hay suscripción al bus: el callback de Dataflow Labs todavía no publica `ingestion.measurements_ingested`.
+El scheduler es el **único disparador automático**. No hay suscripción al bus: Ingestion no publica eventos.
 
 ## UC-P1 `EvaluatePending`
 

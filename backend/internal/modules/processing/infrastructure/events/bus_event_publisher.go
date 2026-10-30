@@ -1,3 +1,4 @@
+// Package events contiene los adaptadores de eventos salientes de Processing.
 package events
 
 import (

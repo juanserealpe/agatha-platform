@@ -18,7 +18,7 @@ func newTestIngestService(uow *fakeUnitOfWork) *IngestService {
 		{Timestamp: dataOSStart.Add(5 * time.Minute), MeasuringPointID: 11556, MetricID: 12, Value: 50, Source: "dataos"},
 		{Timestamp: dataOSStart.Add(10 * time.Minute), MeasuringPointID: 11556, MetricID: 12, Value: 51, Source: "dataos"},
 	}
-	return NewIngestService(fakeDataProvider{measurements: measurements}, uow.states, fakeDeviceRepository{}, uow, log, NewIngestionValidator(log), nil)
+	return NewIngestService(fakeDataProvider{measurements: measurements}, uow.states, fakeDeviceRepository{}, uow, log, NewIngestionValidator(log))
 }
 
 func TestIngestDataOs_SavesStateBeforeMeasurementsAndLinksThem(t *testing.T) {

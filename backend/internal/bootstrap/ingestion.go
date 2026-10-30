@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/services"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/events"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/auth"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/dashboard"
@@ -96,8 +95,7 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 	}, nil
 }
 
-// NewIngestionModule migra el esquema de Ingestion y cablea sus servicios
-// publicando eventos en el bus de la Platform. No conoce a sus consumidores.
+// NewIngestionModule migra el esquema de Ingestion y cablea sus servicios.
 func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
 	logIngestion := logger.New("Ingestion", "Info")
@@ -159,7 +157,6 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 		repositories.NewUnitOfWork(db, logIngestion),
 		logIngestion,
 		services.NewIngestionValidator(logIngestion),
-		events.NewBusEventPublisher(platform.EventBus),
 	)
 
 	return &IngestionModule{

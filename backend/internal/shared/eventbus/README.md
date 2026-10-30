@@ -36,12 +36,12 @@ Los eventos son **pistas**, no mensajes garantizados: la base de datos es la fue
 
 | Elemento | Convención | Ejemplo |
 |---|---|---|
-| Tópico | `"<modulo>.<hecho_en_pasado_snake_case>"` | `"ingestion.measurements_ingested"` |
-| Constante del tópico | `Topic<Hecho>` en `contract/topics.go` | `TopicMeasurementsIngested` |
-| Tipo del evento | Hecho en pasado, PascalCase | `MeasurementsIngested` |
-| Tipo propio del consumidor | `<Evento>Notice` | `MeasurementsIngestedNotice` |
-| Subscriber | `<Evento>Subscriber` en `infrastructure/events/` del consumidor | `MeasurementsIngestedSubscriber` |
-| Nombre de suscripción (`WithName`) | `"<consumidor>.<evento>"` | `"processing.measurements_ingested"` |
+| Tópico | `"<modulo>.<hecho_en_pasado_snake_case>"` | `"processing.indicator_evaluated"` |
+| Constante del tópico | `Topic<Hecho>` en `contract/topics.go` | `TopicIndicatorEvaluated` |
+| Tipo del evento | Hecho en pasado, PascalCase | `IndicatorEvaluated` |
+| Tipo propio del consumidor | `<Evento>Notice` | `IndicatorEvaluatedNotice` |
+| Subscriber | `<Evento>Subscriber` en `infrastructure/events/` del consumidor | `IndicatorEvaluatedSubscriber` |
+| Nombre de suscripción (`WithName`) | `"<consumidor>.<evento>"` | `"rule_engine.indicator_evaluated"` |
 
 ### Evolución del contrato
 
@@ -183,7 +183,6 @@ Tres detalles que se olvidan seguido:
 
 | Tópico | Publicador | Evento (`contract/`) | Consumidores | Suscripción |
 |---|---|---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (`IngestService.IngestDataOs`, post-commit, si `Inserted > 0`) | `MeasurementsIngested` | Ninguno cableado hoy | — |
 | `processing.indicator_evaluated` | Processing (`EvaluationService.EvaluatePending`, post-commit, uno por ventana 24 h/6 h, solo si el lote se insertó completo; no en `Backfill`) | `IndicatorEvaluated` | Rule Engine (`EvaluateIndicator`) | `rule_engine.indicator_evaluated` |
 | `rule_engine.level_evaluated` | Rule Engine (`EvaluationService`, post-commit, cada hora de 24 h `CALCULATED` —incluida NORMAL— y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | `LevelEvaluated` (`SchemaVersion = 2`) | Ninguno hoy (Alert Management) | — |
 
