@@ -23,10 +23,10 @@ services:
       - .env
 
     environment:
-      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine, alert_management
+      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine,alert_management
 
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
 
     # Deja tiempo al apagado ordenado (servidor, schedulers y drenado del bus: 10 s).
     stop_grace_period: 15s
