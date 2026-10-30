@@ -136,7 +136,7 @@ Logs cortos y en español; el prefijo `[Ingestion]`/`[IngestionCallback]` ya lo 
 
 ## Tablas sin lógica activa
 
-`ingestion_gap_models` (`IngestionGapModel`) y `metric_definitions` (`MetricDefinitionModel`) se siguen migrando para conservar las tablas, pero el módulo ya no tiene entidad, repositorio ni mapper para ellas (se eliminaron el 2026-10-29 por no tener uso). `IngestionUnitOfWork.Execute` entrega solo `MeasurementRepository` e `IngestionStateRepository`.
+`metric_definitions` (`MetricDefinitionModel`) se sigue migrando porque el Dashboard la lee, pero el módulo no tiene entidad, repositorio ni mapper para ella (se eliminaron el 2026-10-29 por no tener uso). `ingestion_gap_models` (un reconciliador de huecos que nunca se implementó) se eliminó por completo el 2026-10-30: ni modelo ni migración. `IngestionUnitOfWork.Execute` entrega solo `MeasurementRepository` e `IngestionStateRepository`.
 
 ## Errores (`domain/errors.go`)
 

@@ -178,15 +178,14 @@ func loadIngestionLocation() (*time.Location, error) {
 }
 
 // migrateIngestionSchema crea/actualiza las tablas de Ingestion. La comparten
-// la ingesta por DataOS y el callback de Dataflow Labs. IngestionGapModel y
-// MetricDefinitionModel se conservan solo para mantener sus tablas.
+// la ingesta por DataOS y el callback de Dataflow Labs. MetricDefinitionModel se
+// conserva solo para mantener su tabla (el Dashboard la lee).
 func migrateIngestionSchema(db *gorm.DB, logDB *logger.Logger) error {
 	if err := db.AutoMigrate(
 		&models.DeviceModel{},
 		&models.MetricDefinitionModel{},
 		&models.RawMeasurementModel{},
 		&models.IngestionStateModel{},
-		&models.IngestionGapModel{},
 	); err != nil {
 		logDB.Error("falló la migración de Ingestion", "error", err)
 		return err
