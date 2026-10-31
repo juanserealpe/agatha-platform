@@ -4,9 +4,20 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
 )
+
+// Clock da la hora actual (fija en las pruebas).
+type Clock interface {
+	Now() time.Time
+}
+
+// ClockFunc adapta una función a Clock.
+type ClockFunc func() time.Time
+
+func (f ClockFunc) Now() time.Time { return f() }
 
 // NoticeChannel entrega un aviso por un canal (web: el hub SSE; móvil: FCM).
 type NoticeChannel interface {

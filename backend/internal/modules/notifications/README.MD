@@ -2,7 +2,9 @@
 
 Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1, contrato en `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas: eso es de Alert Management. Plan completo y estado en `docs/PLAN.md`.
 
-> En construcción. El canal web ya funciona (`GET /api/notifications/stream`); el push FCM llega en los próximos commits y, mientras tanto, los avisos para móvil no tienen suscripción.
+> En construcción. El canal web ya funciona (`GET /api/notifications/stream`) y la app ya puede registrar su token (`PUT /api/devices/push-token`); el envío por FCM llega en los próximos commits y, mientras tanto, los avisos para móvil no tienen suscripción.
+
+**Para los clientes (web y app)**: endpoints, eventos, reglas para aplicar el estado y reconexión en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD). Este README describe cómo está hecho el módulo por dentro.
 
 > **Foto = estado actual de la alerta.** Cuando este README, el plan o el código dicen "foto" (`alert_changed`), se refieren al estado completo de la alerta justo después de un cambio. No son las evidencias fotográficas de la especificación (RN-09).
 
@@ -14,10 +16,11 @@ notifications/
 │   ├── entities/      # AlertNotice, AlertChange (vista propia de los eventos), PushMessage, PushDevice + enums del contrato FCM
 │   └── policies/      # ChannelPolicy (Strategy): MobilePushPolicy, WebPolicy
 ├── application/
-│   ├── ports/         # NoticeChannel, ChangeChannel, PushTokenRepository (los implementa infrastructure)
-│   └── services/      # NoticeDispatcher: política + canal
+│   ├── ports/         # NoticeChannel, ChangeChannel, PushTokenRepository, Clock (los implementa infrastructure)
+│   └── services/      # NoticeDispatcher: política + canal; PushTokenService: registro de tokens
 └── infrastructure/
     ├── events/        # AlertNotificationSubscriber, AlertChangedSubscriber
+    ├── http/          # PushTokenHandler (PUT /api/devices/push-token)
     ├── persistence/   # Tabla push_devices: Migrate, modelo, mapper, repositorio GORM y store en memoria (pruebas)
     └── realtime/      # Hub SSE (canal web) + StreamHandler (GET /api/notifications/stream)
 ```
@@ -79,7 +82,7 @@ Un celular (`device_id`, el `CEL-XXXXXX` de la app) tiene un solo token FCM vige
 | `platform` | Solo `ANDROID` |
 | `created_at`, `updated_at` | `updated_at` cambia en cada registro |
 
-- **Registro (upsert)**: un token nuevo reemplaza al anterior del mismo celular; si el token era de otro `device_id`, pasa a este. Es idempotente, porque la app reintenta hasta recibir 2xx.
+- **Registro (upsert)**: `PUT /api/devices/push-token` → `204` (detalle en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD)). Un token nuevo reemplaza al anterior del mismo celular; si el token era de otro `device_id`, pasa a este. Es idempotente, porque la app reintenta hasta recibir 2xx.
 - **Limpieza**: cuando FCM responde `UNREGISTERED` o `404`, se borra ese token. Si el celular ya registró otro, no se toca.
 - **Migración**: `persistence.Migrate` corre al arrancar el módulo. Es idempotente y solo aditiva (`CREATE TABLE IF NOT EXISTS` y un índice), porque corre contra la base del piloto. No usa `AutoMigrate`.
 
@@ -96,6 +99,7 @@ Un celular (`device_id`, el `CEL-XXXXXX` de la app) tiene un solo token FCM vige
 ## Riesgos conocidos
 
 - **Stream sin autenticación** (aceptado para el piloto): cualquiera que llegue al backend puede abrirlo. El tope de clientes limita el abuso.
+- **Registro de tokens sin autenticación** (aceptado para el piloto): cualquiera podría registrar un token y recibir los push. Lo acotan el cuerpo de 4 KB, `token` ≤ 4096, `deviceId` ≤ 128 y `platform = ANDROID`.
 - Con HTTP/1.1 el navegador abre como máximo 6 conexiones por origen, y cada pestaña ocupa una con el stream.
 
 - El bus es en memoria: un aviso se pierde si el proceso cae entre el commit y la publicación. La fuente de verdad es `alert_messages` (`kind = NOTIFICACION`).

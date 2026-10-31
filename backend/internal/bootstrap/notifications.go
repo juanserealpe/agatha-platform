@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -12,7 +13,9 @@ import (
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/policies"
 	notificationEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/events"
+	notificationHTTP "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/http"
 	notificationPersistence "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/persistence"
+	notificationRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/persistence/repositories"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/realtime"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -43,6 +46,8 @@ type NotificationsModule struct {
 	log      *logger.Logger
 	// hub es el canal web (avisos y cambios) y expone el stream SSE.
 	hub *realtime.Hub
+	// pushTokens expone el registro de tokens FCM de los celulares.
+	pushTokens *notificationHTTP.PushTokenHandler
 }
 
 // MigrateNotifications crea push_devices (idempotente y solo aditivo).
@@ -66,6 +71,11 @@ func NewNotificationsModule(platform *Platform) (*NotificationsModule, error) {
 	}, log)
 	m := wireNotifications(platform.EventBus, notificationChannels{webNotices: hub, webChanges: hub}, log)
 	m.hub = hub
+	m.pushTokens = notificationHTTP.NewPushTokenHandler(
+		notificationServices.NewPushTokenService(notificationRepositories.NewPushDeviceRepository(platform.DB),
+			notificationPorts.ClockFunc(time.Now), log),
+		log,
+	)
 	return m, nil
 }
 
@@ -99,10 +109,13 @@ func (m *NotificationsModule) Subscribe() (unsubscribe func()) {
 	}
 }
 
-// RegisterRoutes expone GET /api/notifications/stream.
+// RegisterRoutes expone GET /api/notifications/stream y PUT /api/devices/push-token.
 func (m *NotificationsModule) RegisterRoutes(mux *http.ServeMux) {
 	if m.hub != nil {
 		realtime.NewStreamHandler(m.hub, m.log).RegisterRoutes(mux)
+	}
+	if m.pushTokens != nil {
+		m.pushTokens.RegisterRoutes(mux)
 	}
 }
 
