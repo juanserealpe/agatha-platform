@@ -7,6 +7,7 @@ import {
     type AlertNotificationEvent,
     type StreamStatus,
 } from "@/services/realtime";
+import { installAlertSoundUnlock, playAlertSound } from "../lib/alertSound";
 import { showBrowserNotification } from "../lib/browserNotification";
 import { applyToActive, applyToPending, isNewerEvaluation } from "../lib/streamCache";
 import { alertKeys } from "./alertKeys";
@@ -79,6 +80,7 @@ export function useAlertStream() {
     useEffect(() => {
         const onNotification = (notice: AlertNotificationEvent) => {
             if (!receiveNotification(notice)) return;
+            playAlertSound(notice);
             showBrowserNotification(notice, () => {
                 dismissNotification(notice.alert_code);
                 openRef.current(String(notice.alert_id));
@@ -97,6 +99,11 @@ export function useAlertStream() {
             },
         });
         stream.connect();
-        return () => stream.close();
+        // El navegador bloquea el audio hasta que el usuario interactúa con la página.
+        const removeSoundUnlock = installAlertSoundUnlock();
+        return () => {
+            stream.close();
+            removeSoundUnlock();
+        };
     }, [queryClient]);
 }

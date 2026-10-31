@@ -214,7 +214,7 @@ Los dos tópicos los publica `alert_management`, siempre después del commit:
 - **Un aviso por alerta en pantalla**: el banner agrupa por `alertCode`, y un aviso nuevo de la misma alerta reemplaza al anterior en vez de apilarse. La notificación del navegador usa `tag = alertCode` para que el sistema operativo haga lo mismo. Se muestran como máximo 3 banners a la vez.
 - **Sonido**: un tono corto al llegar un aviso, más insistente en Rojo.
   - Los navegadores bloquean el audio hasta que el usuario interactúa con la página. El botón del indicador que activa las notificaciones también habilita el sonido, y tiene un control para silenciarlo (se recuerda en `localStorage`).
-  - Suena una sola vez por `messageId` y en una sola pestaña (coordinadas con `BroadcastChannel`).
+  - Suena una sola vez por `messageId` y en una sola pestaña. Se coordina con la Web Locks API, con un lock por `messageId` que gana una sola pestaña, en vez de `BroadcastChannel`: todas las pestañas reciben el aviso casi en el mismo milisegundo y con mensajes todas creerían ser la primera (cambio del commit 22).
   - El tono se genera con la Web Audio API, sin archivos de audio.
   - En el celular, el sonido lo decide la app con su canal de notificación (el mensaje es solo de datos). Se anota en el contrato FCM.
 - **Avisos atrasados (`late`)**: en la web se avisan igual que los demás (banner, sonido y notificación del navegador), con la etiqueta "Atrasado" para que no se ignoren. No van al push (decisión de la pregunta 7).
@@ -305,7 +305,7 @@ sequenceDiagram
 | `features/alerts/lib/streamCache.ts` (+test) | N | Reducers puros: `applyAlertChanged(active)`, `applyAlertChanged(pending)`, reglas de "más nuevo" |
 | `features/alerts/lib/newAlerts.ts` (+test) | M | El banner se alimenta del stream, con clave `messageId` (cubre `LEVEL_UP`) |
 | `features/alerts/lib/browserNotification.ts` | N | Notification API: solo con permiso, con la pestaña oculta y `tag = alertCode` |
-| `features/alerts/lib/alertSound.ts` (+test) | N | Tono con Web Audio API (más insistente en Rojo), silencio recordado en `localStorage`, una vez por `messageId` y una sola pestaña (`BroadcastChannel`) |
+| `features/alerts/lib/alertSound.ts` (+test) | N | Tono con Web Audio API (más insistente en Rojo), silencio recordado en `localStorage`, una vez por `messageId` y una sola pestaña (Web Locks) |
 | `features/alerts/components/{NewAlertToast,RecentAlertsPanel,AlertListItem}.tsx` | M | Pasan al modelo `AlertItem`/`AlertLevel` |
 | `features/alerts/components/RealtimeStatus.tsx` | N | Indicador de conexión (En vivo / Reconectando / Sin conexión) + botón para activar las notificaciones del navegador |
 | `features/alerts/config/alertDisplay.ts` (+test) | M | `SEVERITY_STYLES` indexado por `AlertLevel` |
