@@ -349,16 +349,23 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 - Verificar en la pestaña Network del navegador, con el front de Vercel, que tras cortar el stream la reconexión no falle por CORS.
 
 **Fase 4: frontend**
-- [ ] 15. `feat(alerts): add active and pending endpoints to alert management service`
-- [ ] 16. `refactor(alerts): migrate map and alert panel to alert management API`
-- [ ] 17. `refactor(alerts): remove temporary alerts service`
-- [ ] 18. `feat(realtime): add alert stream client with reconnection and watchdog`
-- [ ] 19. `feat(alerts): apply stream events to query cache and pause polling while live`
-- [ ] 20. `feat(alerts): drive new alert banner from stream notifications`
-- [ ] 20b. `feat(alerts): add active alerts tab to the alert panel`. Agregado el 2026-10-31: una alerta clasificada sigue ACTIVA y puede subir de nivel (mismo `id`, avisa), pero sale del panel "Sin clasificar" y deja de titilar. La pestaña "Activas" (datos de `/active`, sin cambios en el backend) la mantiene visible, con su nivel actual y su estado de gestión, hasta que finaliza. "Sin clasificar" sigue siendo la pestaña por defecto
-- [ ] 21. `feat(alerts): show browser notifications when tab is hidden`
-- [ ] 22. `feat(alerts): play a sound for new and escalated alerts`
-- [ ] 23. `feat(layout): add realtime connection indicator`
+- [x] 15. `feat(alerts): add active and pending endpoints to alert management service`
+- [x] 16. `refactor(alerts): migrate map and alert panel to alert management API`
+- [x] 17. `refactor(alerts): remove temporary alerts service`
+- [x] 18. `feat(realtime): add alert stream client with reconnection and watchdog`
+- [x] 19. `feat(alerts): apply stream events to query cache and pause polling while live`
+- [x] 20. `feat(alerts): drive new alert banner from stream notifications`
+- [x] 20b. `feat(alerts): add active alerts tab to the alert panel`. Agregado el 2026-10-31: una alerta clasificada sigue ACTIVA y puede subir de nivel (mismo `id`, avisa), pero sale del panel "Sin clasificar" y deja de titilar. La pestaña "Activas" (datos de `/active`, sin cambios en el backend) la mantiene visible, con su nivel actual y su estado de gestión, hasta que finaliza. "Sin clasificar" sigue siendo la pestaña por defecto
+- [x] 21. `feat(alerts): show browser notifications when tab is hidden`
+- [x] 22. `feat(alerts): play a sound for new and escalated alerts`
+- [x] 23. `feat(layout): add realtime connection indicator`
+
+Commits extra de la fase 4 (2026-10-31), surgidos al revisar con el usuario:
+- [x] `style(alerts): mute finished alerts in the pending panel`
+- [x] `feat(alerts): open pending panel alerts in their pending management step`
+- [x] `fix(notifications): send SSE heartbeat as a named ping event`: `EventSource` no entrega los comentarios `: ping` a JavaScript, así que el watchdog del commit 18 no los veía
+
+**Demo de punta a punta (pendiente, después de la fase 5)**: planear con el usuario una demo que recorra todo lo construido (stream, mapa, panel, banner, notificación del navegador, sonido, indicador y push), sobre la prueba manual de la sección 6.3.
 
 **Fase 5: pruebas y documentación**
 - [ ] 24. `test(bootstrap): cover alert to web and push delivery end to end`

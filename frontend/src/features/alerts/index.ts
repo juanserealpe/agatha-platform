@@ -2,6 +2,7 @@ export { AlertHistoryFilters } from "./components/filters/AlertHistoryFilters";
 export { AlertHistorySection } from "./components/history/AlertHistorySection";
 export { AlertDetailHost } from "./components/AlertDetailHost";
 export { NewAlertToast } from "./components/NewAlertToast";
+export { RealtimeStatus } from "./components/RealtimeStatus";
 export { RecentAlertsPanel } from "./components/RecentAlertsPanel";
 export { useActiveAlerts, usePendingAlerts } from "./hooks/useAlerts";
 export { useAlertStream, useAlertStreamStatus } from "./hooks/useAlertStream";
