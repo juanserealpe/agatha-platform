@@ -6,7 +6,7 @@ Falta lo del lado del backend: guardar el token de cada celular y enviar los men
 Código de referencia en la app: `push/AlertPush.kt`, `push/AgathaMessagingService.kt`,
 `push/PushTokenStore.kt`, `core/device/DeviceOriginProvider.kt`.
 
-## 1. Registro del token (propuesta, por acordar)
+## 1. Registro del token (implementado en el backend)
 
 La app no tiene login: cada celular se identifica con un `deviceId` propio (`CEL-XXXXXX`,
 el mismo que firma el origen "App móvil" de sus registros, RN-10). Proponemos:
@@ -18,10 +18,20 @@ PUT /api/devices/push-token
 ```
 
 - **Upsert por `deviceId`**: un celular tiene un solo token vigente; un token nuevo
-  reemplaza al anterior. Debe ser idempotente (la app reintenta desde su cola de
-  sincronización hasta recibir 2xx).
-- La app lo llama al obtener o renovar el token. Ruta, verbo y nombres se pueden cambiar;
-  avísennos cómo queda.
+  reemplaza al anterior. Es idempotente: repetir el mismo registro siempre da `204`.
+- **Cuándo reintentar** (acordado por el backend; pedimos ajustar la cola de la app):
+  - **Sí**, con backoff exponencial y tope (p. ej. 30 s, 1 min, 2 min… hasta 1 h): fallas
+    de red, timeouts, `5xx` y `429` (respetando `Retry-After` si viene).
+  - **No**: cualquier otro `4xx` (`400`, `404`, `405`, `413`). Son definitivos: el mismo
+    cuerpo va a fallar siempre. Sacar el registro de la cola y dejarlo en el log. Se
+    vuelve a intentar solo cuando cambie algo (token nuevo, actualización de la app).
+  - Así un dato inválido no deja a la app reintentando para siempre ni cargando al servidor.
+- **Respuestas**: `204` guardado; `400 INVALID_INPUT` con `{ "code", "message" }` si el JSON
+  es inválido, pasa de 4 KB, falta un campo, `deviceId` supera 128 caracteres, `token`
+  supera 4096 o `platform` no es `ANDROID` (sin distinguir mayúsculas); `500` si no se
+  pudo guardar. Los campos extra se ignoran.
+- La app lo llama al obtener o renovar el token. Ruta, verbo y nombres quedaron como se
+  propusieron.
 
 ## 2. Envío
 

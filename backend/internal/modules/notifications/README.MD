@@ -16,10 +16,11 @@ notifications/
 │   ├── entities/      # AlertNotice, AlertChange (vista propia de los eventos), PushMessage, PushDevice + enums del contrato FCM
 │   └── policies/      # ChannelPolicy (Strategy): MobilePushPolicy, WebPolicy
 ├── application/
-│   ├── ports/         # NoticeChannel, ChangeChannel, PushTokenRepository, Clock (los implementa infrastructure)
+│   ├── ports/         # NoticeChannel, ChangeChannel, PushTokenRepository, PushSender (+ errores), Clock
 │   └── services/      # NoticeDispatcher: política + canal; PushTokenService: registro de tokens
 └── infrastructure/
     ├── events/        # AlertNotificationSubscriber, AlertChangedSubscriber
+    ├── fcm/           # HTTPV1Sender (Adapter de FCM HTTP v1 + OAuth2 de la cuenta de servicio), NoopSender
     ├── http/          # PushTokenHandler (PUT /api/devices/push-token)
     ├── persistence/   # Tabla push_devices: Migrate, modelo, mapper, repositorio GORM y store en memoria (pruebas)
     └── realtime/      # Hub SSE (canal web) + StreamHandler (GET /api/notifications/stream)
@@ -85,6 +86,28 @@ Un celular (`device_id`, el `CEL-XXXXXX` de la app) tiene un solo token FCM vige
 - **Registro (upsert)**: `PUT /api/devices/push-token` → `204` (detalle en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD)). Un token nuevo reemplaza al anterior del mismo celular; si el token era de otro `device_id`, pasa a este. Es idempotente, porque la app reintenta hasta recibir 2xx.
 - **Limpieza**: cuando FCM responde `UNREGISTERED` o `404`, se borra ese token. Si el celular ya registró otro, no se toca.
 - **Migración**: `persistence.Migrate` corre al arrancar el módulo. Es idempotente y solo aditiva (`CREATE TABLE IF NOT EXISTS` y un índice), porque corre contra la base del piloto. No usa `AutoMigrate`.
+
+## Envío por FCM (`infrastructure/fcm`)
+
+`HTTPV1Sender` implementa `ports.PushSender`: un `POST` a `https://fcm.googleapis.com/v1/projects/<id>/messages:send` por token.
+
+- **Autenticación**: OAuth2 con la cuenta de servicio (`golang.org/x/oauth2/google`, permiso `firebase.messaging`). El token de acceso se pide en el primer envío y se reutiliza hasta que vence. No se usa el Firebase Admin SDK ni la "server key" legacy.
+- **Credencial**: archivo montado (`FCM_SERVICE_ACCOUNT_FILE`) o, de respaldo, base64 (`FCM_SERVICE_ACCOUNT_JSON_BASE64`); si están los dos, gana el archivo. Solo se acepta el tipo `service_account`. Ni el JSON ni partes de él van al log o a los errores.
+- **Mensaje** (contrato §3): solo datos, `android.priority = HIGH`, valores string, opcionales vacíos omitidos y `startedAt` con offset de Colombia (`-05:00`). Con `ValidateOnly`, FCM valida sin entregar.
+- **Cada envío tiene un plazo de 10 s**, incluido pedir el token.
+
+Cómo clasifica las respuestas (los reintentos y la limpieza los hace el servicio del canal móvil):
+
+| Respuesta | Error devuelto | Qué significa |
+|---|---|---|
+| `200` | ninguno | Entregado (o validado) |
+| `errorCode = UNREGISTERED` | `ports.ErrPushTokenUnregistered` | Borrar el token |
+| `429`, `5xx`, falla de red | `*ports.RetryablePushError` (con `Retry-After` si vino) | Reintentar |
+| Google rechaza la credencial, `400`, `401`, `403`, `404` sin `UNREGISTERED` | error definitivo | No reintentar; revisar configuración |
+
+**Un `404` sin `UNREGISTERED` no borra el token.** FCM también responde `404` si el id del proyecto está mal, y borrar por eso dejaría sin push a todos los celulares del piloto.
+
+Sin credencial se usa `NoopSender`: no envía y lo deja en el log. El canal web no depende del push.
 
 ## Habilitación
 

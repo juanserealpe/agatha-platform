@@ -152,7 +152,7 @@ Content-Type: application/json
 | `token` | Obligatorio, hasta 4096 caracteres |
 | `platform` | `ANDROID` (no distingue mayúsculas) |
 
-- **Upsert e idempotente**: un celular tiene un solo token; uno nuevo reemplaza al anterior. Repetir el mismo registro siempre da `204`, así que la app puede reintentar hasta recibir 2xx.
+- **Upsert e idempotente**: un celular tiene un solo token; uno nuevo reemplaza al anterior. Repetir el mismo registro siempre da `204`.
 - Si el token ya era de otro `deviceId`, pasa al nuevo.
 - Los campos extra se ignoran, para que una versión nueva de la app no quede reintentando por un campo que el backend no conoce.
 - Cuerpo de hasta 4 KB. Los espacios al inicio y al final de los valores se quitan.
@@ -163,6 +163,8 @@ Content-Type: application/json
 | 204 | — | Guardado |
 | 400 | `INVALID_INPUT` | JSON inválido, cuerpo de más de 4 KB, campo faltante o demasiado largo, plataforma distinta de `ANDROID` |
 | 405 | — | Método distinto de `PUT` |
-| 500 | `INTERNAL_ERROR` | No se pudo guardar. La app reintenta |
+| 500 | `INTERNAL_ERROR` | No se pudo guardar |
+
+**Reintentos del cliente**: reintentar con backoff exponencial y tope solo ante fallas de red, timeouts, `5xx` y `429` (respetando `Retry-After`). Cualquier otro `4xx` es definitivo: el mismo cuerpo siempre va a fallar, así que se descarta y se registra en el log. Reintentar un `400` dejaría a la app en un bucle infinito.
 
 No está pensado para el navegador: CORS solo permite `GET`.

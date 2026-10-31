@@ -4,6 +4,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
@@ -28,6 +29,27 @@ type NoticeChannel interface {
 type ChangeChannel interface {
 	DeliverChange(ctx context.Context, c entities.AlertChange) error
 }
+
+// PushSender envía un mensaje a un celular (en producción, FCM HTTP v1).
+// Errores: ErrPushTokenUnregistered (borrar el token), *RetryablePushError
+// (reintentar) o cualquier otro (definitivo para ese mensaje).
+type PushSender interface {
+	Send(ctx context.Context, token string, m entities.PushMessage) error
+}
+
+// ErrPushTokenUnregistered: FCM ya no reconoce el token (UNREGISTERED o 404):
+// la app se desinstaló o el token caducó. Hay que borrarlo.
+var ErrPushTokenUnregistered = errors.New("FCM ya no reconoce el token de push")
+
+// RetryablePushError: el envío falló por algo pasajero (429, 5xx, red).
+// RetryAfter es lo que pidió FCM con la cabecera Retry-After (0 si no pidió).
+type RetryablePushError struct {
+	RetryAfter time.Duration
+	Err        error
+}
+
+func (e *RetryablePushError) Error() string { return e.Err.Error() }
+func (e *RetryablePushError) Unwrap() error { return e.Err }
 
 // PushTokenRepository guarda el token FCM vigente de cada celular
 // (push_devices). Un celular tiene un solo token y un token es de un solo

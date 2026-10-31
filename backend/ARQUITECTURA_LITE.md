@@ -236,9 +236,13 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 **Reglas por canal** (Strategy, `domain/policies`): el push solo envía alertas nuevas y subidas en Amarillo, Naranja o Rojo, nunca horas atrasadas (`late`) ni falsas alertas; la web recibe todo (los atrasados marcados). Cada canal es una suscripción propia del bus: si FCM se atrasa, la web no lo nota.
 
+**Endpoints** (detalle para clientes en `modules/notifications/NOTIFICATIONS_API.MD`): `GET /api/notifications/stream` (SSE: `alert.changed`, `alert.notification`, `resync`; reconexión con `Last-Event-ID` o `?last_event_id=`) y `PUT /api/devices/push-token` (registro del token FCM de la app, `204`; los `4xx` son definitivos y el cliente no los reintenta).
+
+**Push**: Adapter `infrastructure/fcm` sobre FCM HTTP v1 con OAuth2 de la cuenta de servicio (`golang.org/x/oauth2`, sin Firebase Admin SDK). Sin credencial, `NoopSender`. Un token se borra solo con `errorCode = UNREGISTERED`.
+
 **Aislamiento**: define su propio `AlertNotice`/`AlertChange`; no importa `alert_management` (ni su `contract/`), `ingestion` ni `shared/eventbus` (`depguard` `notifications-isolation`). La traducción y las suscripciones viven en `internal/bootstrap/notifications.go`.
 
-**Inicialización**: habilitar `notifications` en `AGATHA_MODULES`. No exige `alert_management` (sin él no recibe eventos): así se puede levantar solo en local sin la cadena de schedulers.
+**Inicialización**: habilitar `notifications` en `AGATHA_MODULES`. Al arrancar crea `push_devices` (solo aditivo, sin `AutoMigrate`). No exige `alert_management` (sin él no recibe eventos): así se puede levantar solo en local sin la cadena de schedulers.
 
 ---
 
@@ -380,4 +384,8 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 - `alerts`: `code` GENERATED (`ALR-` + id con 6 dígitos), `state` `ACTIVA|FINALIZADA` (índice único parcial `ux_alerts_one_active` por punto y evento), `started_at`/`opened_at`/`ended_at`, `current_level`/`max_level`, `opening_indicator_value`/`last_indicator_value`/`max_indicator_value` (el máximo lo citan los mensajes del catálogo v4), contadores (`hours_calculated`, `hours_no_data`, `below_level_hours`), `runtime` (jsonb, memoria de las reglas de mensaje), trazabilidad (`policy_version_id`, `threshold_version_id_at_open`, `opened_by_rule_evaluation_id`), gestión (`management_status`, `classification*`, `label*`, con `*_client_record_id`) con CHECK de coherencia y trigger de inmutabilidad, `source` `LIVE|CATCH_UP|BACKFILL`.
 - `alert_level_segments` (colores: `seq`, `opened_by` `OPEN|UP|DOWN|REACTIVATION`, `level`, vigencia), `alert_messages` (solo se agrega; `UNIQUE (alert_id, evaluated_at, code)`; `kind`, texto renderizado, `params`, `catalog_version`; índice `ix_alert_messages_kind`: las `NOTIFICACION` son la fuente de verdad de `alert_management.alert_notification`), `alert_observations` (solo se agrega; `client_record_id` uuid único). FK con `ON DELETE CASCADE` (solo la usa `-rebuild`).
 - `alert_processing_state` (PK punto + evento: `last_evaluated_at`, `pending_run_started_at`, `last_alert_id`, `last_status`), `alert_policy_versions` (patrón de `rule_threshold_versions`: global con `measuring_point_id` NULL, `EXCLUDE` por `COALESCE(punto, 0)`). Sin FK a tablas de otros módulos.
+
+### 11. Notifications (`push_devices`)
+
+- `push_devices`: token FCM vigente por celular. `device_id` text PK (≤ 128, el `CEL-XXXXXX` de la app), `token` text (≤ 4096, único por `md5(token)` porque un índice btree no admite entradas tan largas), `platform` (`ANDROID`), `created_at`, `updated_at`. La crea `notifications` con `CREATE TABLE IF NOT EXISTS`. Sin FK.
 
