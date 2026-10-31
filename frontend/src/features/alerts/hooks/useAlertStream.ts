@@ -1,10 +1,17 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ActiveResponse, AlertId, PendingResponse } from "@/services/alertManagement";
-import { createAlertStream, type AlertChangedEvent, type StreamStatus } from "@/services/realtime";
+import {
+    createAlertStream,
+    type AlertChangedEvent,
+    type AlertNotificationEvent,
+    type StreamStatus,
+} from "@/services/realtime";
+import { showBrowserNotification } from "../lib/browserNotification";
 import { applyToActive, applyToPending, isNewerEvaluation } from "../lib/streamCache";
 import { alertKeys } from "./alertKeys";
-import { receiveNotification } from "./useNewAlerts";
+import { useAlertDetailParam } from "./useAlertDetailParam";
+import { dismissNotification, receiveNotification } from "./useNewAlerts";
 
 // Estado de la conexión a nivel de módulo: hay un solo stream para toda la app y varios lectores
 // (el polling de las consultas y el indicador de conexión).
@@ -62,12 +69,26 @@ function applyAlertChanged(queryClient: QueryClient, event: AlertChangedEvent) {
  */
 export function useAlertStream() {
     const queryClient = useQueryClient();
+    const { open } = useAlertDetailParam();
+    // El stream vive mientras dure la app; la notificación usa siempre el `open` más reciente.
+    const openRef = useRef(open);
+    useEffect(() => {
+        openRef.current = open;
+    }, [open]);
 
     useEffect(() => {
+        const onNotification = (notice: AlertNotificationEvent) => {
+            if (!receiveNotification(notice)) return;
+            showBrowserNotification(notice, () => {
+                dismissNotification(notice.alert_code);
+                openRef.current(String(notice.alert_id));
+            });
+        };
+
         const stream = createAlertStream({
             handlers: {
                 onChanged: (event) => applyAlertChanged(queryClient, event),
-                onNotification: receiveNotification,
+                onNotification,
                 onResync: () => {
                     void queryClient.invalidateQueries({ queryKey: alertKeys.active() });
                     void queryClient.invalidateQueries({ queryKey: alertKeys.pending() });

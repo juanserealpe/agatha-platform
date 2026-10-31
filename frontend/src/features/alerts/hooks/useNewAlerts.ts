@@ -18,17 +18,24 @@ function subscribe(listener: () => void) {
     return () => listeners.delete(listener);
 }
 
-/** Entrada de los avisos `alert.notification` del stream (la llama useAlertStream). */
-export function receiveNotification(notice: AlertNotificationEvent) {
-    setState(ingestNotification(state, notice));
+/**
+ * Entrada de los avisos `alert.notification` del stream (la llama useAlertStream). Devuelve false si el aviso
+ * ya se había recibido (reenvío tras una reconexión), para no repetir notificación ni sonido.
+ */
+export function receiveNotification(notice: AlertNotificationEvent): boolean {
+    const previous = state;
+    setState(ingestNotification(previous, notice));
+    // ingestNotification devuelve el mismo estado solo si el message_id ya se había visto.
+    return state !== previous;
+}
+
+/** Quita el banner de la alerta (descartado, o ya abierto desde el banner o la notificación del navegador). */
+export function dismissNotification(alertCode: string) {
+    setState(dismissNotice(state, alertCode));
 }
 
 /** Avisos de alerta nueva o de subida de nivel que el usuario aún no ha visto ni descartado. */
 export function useNewAlerts() {
     const current = useSyncExternalStore(subscribe, () => state);
-
-    return {
-        notices: current.notices,
-        dismiss: (alertCode: string) => setState(dismissNotice(state, alertCode)),
-    };
+    return { notices: current.notices, dismiss: dismissNotification };
 }
