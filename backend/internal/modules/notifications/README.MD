@@ -133,6 +133,8 @@ El handler valida el pedido (`entities.NewTestEvent`) y llama al puerto `TestEve
 
 ## Variables de entorno
 
+Plantilla con valores seguros por defecto en [`backend/.env.example`](../../../.env.example).
+
 | Variable | Por defecto | Uso |
 |---|---|---|
 | `NOTIFICATIONS_SSE_MAX_CLIENTS` | `200` | Tope de streams abiertos a la vez (un valor inválido usa el de por defecto) |

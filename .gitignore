@@ -3,6 +3,7 @@
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # Go build artifacts
 /bin/
