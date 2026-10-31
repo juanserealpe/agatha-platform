@@ -35,7 +35,7 @@ source.addEventListener('alert.notification', (e) => showNotice(JSON.parse(e.dat
 source.addEventListener('resync', () => refetchActiveAndPending());
 ```
 
-`EventSource` no permite cabeceras propias. Con CORS basta que el origen esté permitido, porque es un `GET` simple.
+`EventSource` no permite cabeceras propias. El origen del frontend tiene que estar en `AGATHA_CORS_ALLOWED_ORIGINS`. CORS también permite `Last-Event-ID`, que el navegador agrega al reconectar y que puede disparar un preflight; si igual falla, el parámetro `?last_event_id=` no depende de CORS.
 
 ### Eventos
 
@@ -170,7 +170,7 @@ Content-Type: application/json
 
 **Registro en cada arranque**: la app vuelve a llamar este endpoint cada vez que arranca, además de cuando obtiene o renueva el token. Así recupera lo que se haya descartado por un `4xx` (por ejemplo, un `404` mientras el backend no tenga `notifications` habilitado) sin reintentar en bucle.
 
-No está pensado para el navegador: CORS solo permite `GET`.
+Lo usa la app, donde CORS no aplica. CORS permite `PUT` igual, por si algún cliente web lo necesitara.
 
 ---
 

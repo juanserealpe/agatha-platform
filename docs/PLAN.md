@@ -105,7 +105,7 @@ La base de datos es la del piloto, la misma que usa el backend del VPS.
 ### Riesgos e inconsistencias que afectan este trabajo
 1. **El `ReadTimeout: 15s` de `cmd/platform`** cancela el contexto de una conexión larga a los 15 s, por la lectura de fondo de `net/http`. El handler del stream debe limpiar los deadlines con `http.ResponseController`.
    - **Verificado en el commit 7 (Go 1.25.7):** el `ReadTimeout` ya no corta el stream, con o sin la limpieza. Se deja igual, porque un `WriteTimeout` futuro sí lo cortaría, y la prueba `TestStreamHandler_SurvivesServerTimeouts` lo vigila.
-2. **CORS solo permite `GET`**. Lo corrige el usuario en un commit aparte (ver "Commit C" en la sección 5). El móvil no se ve afectado, porque CORS no aplica fuera del navegador.
+2. **CORS solo permitía `GET`** (resuelto en el Commit C: `GET, POST, PUT` y la cabecera `Last-Event-ID`). El móvil no se ve afectado, porque CORS no aplica fuera del navegador.
 3. **HTTPS**: el certificado es de Let's Encrypt para la IP (`129.213.118.230`), válido para el navegador, y el nginx del VPS ya tiene `proxy_buffering off` y `proxy_read_timeout 3600s` en `location /`. No hay que tocarlo. Conviene confirmar que la renovación automática esté activa: los certificados de IP de Let's Encrypt son de vida corta.
 4. **HTTP/2 no está activo** (`listen 443 ssl` sin `http2`). Con HTTP/1.1 el navegador permite 6 conexiones por origen, y cada pestaña abierta ocupa una con el stream. Se le sugiere al responsable del backend como mejora. Mitigación en el cliente: el stream se cierra cuando la pestaña lleva un rato oculta y se reabre al volver.
 5. **El bus pierde eventos si el proceso se cae** entre el commit y la publicación. En la web lo cubre la resincronización por REST. En el push, ese aviso se perdería. La fuente de verdad sigue siendo `alert_messages` (`kind = NOTIFICACION`), que funciona como un outbox natural para conciliar más adelante.
@@ -343,8 +343,8 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 - [x] 13. `chore(backend): add env example with notification settings`
 - [x] 14. `chore(docker): enable notifications module and mount FCM credential`
 
-**Commit C (lo hace el usuario, aparte): CORS.** Va antes de la fase 4, porque el frontend desplegado en Vercel lo necesita.
-- Métodos: `GET, POST, PUT, OPTIONS`. Cabeceras: `Content-Type` y `Last-Event-ID`.
+- [x] **Commit C: CORS** (`fix(cors): allow POST, PUT and Last-Event-ID for the web client`). Va antes de la fase 4, porque el frontend desplegado en Vercel lo necesita.
+- Métodos: `GET, POST, PUT` (`OPTIONS` no hace falta: el navegador nunca lo pide en un preflight). Cabeceras: `Accept`, `Content-Type` y `Last-Event-ID`. `Authorization` sigue sin permitirse y no hay credenciales.
 - `Last-Event-ID`: el navegador la agrega solo en la reconexión nativa de `EventSource`. No es una cabecera "segura" de CORS, así que según el navegador puede disparar un preflight; si el preflight falla, la reconexión falla del todo. Se permite por seguridad, y el servidor además acepta `?last_event_id=`, que no depende de CORS.
 - Verificar en la pestaña Network del navegador, con el front de Vercel, que tras cortar el stream la reconexión no falle por CORS.
 

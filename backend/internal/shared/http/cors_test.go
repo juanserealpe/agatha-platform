@@ -153,8 +153,8 @@ func TestCORS_Preflight(t *testing.T) {
 		}
 		want := map[string]string{
 			"Access-Control-Allow-Origin":  allowedOrigin,
-			"Access-Control-Allow-Methods": "GET",
-			"Access-Control-Allow-Headers": "Accept, Content-Type",
+			"Access-Control-Allow-Methods": "GET, POST, PUT",
+			"Access-Control-Allow-Headers": "Accept, Content-Type, Last-Event-ID",
 			"Access-Control-Max-Age":       "600",
 		}
 		for header, value := range want {
@@ -171,7 +171,9 @@ func TestCORS_Preflight(t *testing.T) {
 		name, origin, method, headers string
 	}{
 		{name: "origen no autorizado", origin: forbiddenOrigin, method: http.MethodGet},
-		{name: "método no permitido", origin: allowedOrigin, method: http.MethodPost},
+		{name: "método DELETE no permitido", origin: allowedOrigin, method: http.MethodDelete},
+		{name: "método PATCH no permitido", origin: allowedOrigin, method: http.MethodPatch},
+		{name: "Authorization no permitido en POST", origin: allowedOrigin, method: http.MethodPost, headers: "authorization, content-type"},
 		{name: "encabezado no permitido", origin: allowedOrigin, method: http.MethodGet, headers: "Authorization"},
 	}
 	for _, tt := range rejected {
@@ -192,6 +194,44 @@ func TestCORS_Preflight(t *testing.T) {
 			}
 		})
 	}
+
+	// Lo que usa el frontend: gestión de alertas (POST con JSON), registro de
+	// tokens (PUT) y la reconexión nativa del stream SSE (Last-Event-ID).
+	allowed := []struct {
+		name, path, method, headers string
+	}{
+		{name: "POST con JSON (clasificar una alerta)", path: "/api/alerts/123/classification", method: http.MethodPost, headers: "content-type"},
+		{name: "PUT con JSON (token de push)", path: "/api/devices/push-token", method: http.MethodPut, headers: "Content-Type"},
+		{name: "GET con Last-Event-ID (reconexión del stream)", path: "/api/notifications/stream", method: http.MethodGet, headers: "last-event-id"},
+	}
+	for _, tt := range allowed {
+		t.Run(tt.name+" responde 204", func(t *testing.T) {
+			var called bool
+			h := CORS([]string{allowedOrigin}, okHandler(&called))
+
+			rec := serve(h, preflight(tt.path, allowedOrigin, tt.method, tt.headers))
+
+			if called || rec.Code != http.StatusNoContent {
+				t.Fatalf("handler llamado = %v, status = %d; se esperaba 204 sin llegar al handler", called, rec.Code)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != allowedOrigin {
+				t.Fatalf("Access-Control-Allow-Origin = %q", got)
+			}
+		})
+	}
+
+	t.Run("POST real de un origen autorizado llega al handler con CORS", func(t *testing.T) {
+		var called bool
+		h := CORS([]string{allowedOrigin}, okHandler(&called))
+
+		req := httptest.NewRequest(http.MethodPost, "/api/alerts/123/classification", nil)
+		req.Header.Set("Origin", allowedOrigin)
+		rec := serve(h, req)
+
+		if !called || rec.Header().Get("Access-Control-Allow-Origin") != allowedOrigin {
+			t.Fatalf("handler llamado = %v, Access-Control-Allow-Origin = %q", called, rec.Header().Get("Access-Control-Allow-Origin"))
+		}
+	})
 
 	t.Run("OPTIONS que no es preflight pasa al handler", func(t *testing.T) {
 		var called bool
