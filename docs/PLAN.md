@@ -156,6 +156,7 @@ Los dos tópicos los publica `alert_management`, siempre después del commit:
 | **`alert_management.alert_changed`** (nuevo, v1) | Cualquier cambio visible de una alerta. `change` ∈ `OPENED`, `LEVEL_RAISED`, `LEVEL_LOWERED`, `REACTIVATED`, `FINISHED`, `NO_DATA_STARTED`, `NO_DATA_ENDED`, `CLASSIFIED`, `LABELED` | Canal web (mapa y panel) |
 
 - **Payload de `alert_changed`**: es una foto del estado.
+  > **Foto = estado actual de la alerta.** En este plan, en el código y en los README, "foto" siempre significa eso: el estado completo de la alerta justo después del cambio. No tiene que ver con las evidencias fotográficas de la especificación (RN-09), que quedan fuera del MVP.
   - Campos: `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `change`, `state`, `current_level`, `max_level`, `blinking`, `management_status`, `classification` y `started_at`.
   - Además, `evaluated_at` (el reloj del procesamiento), `occurred_at` y `schema_version`.
 - **Por qué un tópico con discriminador y no 9 tópicos**:
@@ -237,7 +238,7 @@ sequenceDiagram
     BUS->>AM: LevelEvaluatedSubscriber → ProcessingService.Process
     AM->>DB: TX: alerta + color + mensajes + estado
     DB-->>AM: COMMIT
-    AM->>BUS: alert_changed (foto) + alert_notification (si es NOTIFICACION)
+    AM->>BUS: alert_changed (foto = estado actual) + alert_notification (si es NOTIFICACION)
     par cola propia
         BUS->>WEB: WebChannelPolicy → evento SSE (id epoch-seq)
         WEB-->>FE: event: alert.changed / alert.notification
