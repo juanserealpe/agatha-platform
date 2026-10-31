@@ -22,7 +22,7 @@ type Application struct {
 // NewApplication cablea los módulos habilitados en orden de arranque: Baseline,
 // Processing, Rule Engine (suscripción + HTTP de umbrales + catch-up horario),
 // Alert Management (migración antes de Baseline; suscripción, /api/alerts, catch-up y publicación de avisos),
-// Notifications (suscripciones por canal, stream SSE y su heartbeat), DataOS, Callback y Dashboard. Cada constructor migra su propio
+// Notifications (push_devices, suscripciones por canal, stream SSE y su heartbeat), DataOS, Callback y Dashboard. Cada constructor migra su propio
 // esquema (Baseline antes que Processing, que lee sus tablas).
 func NewApplication(platform *Platform, modules ModuleSet) (*Application, error) {
 	app := &Application{Modules: modules}
@@ -72,7 +72,10 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 	}
 
 	if modules.Has(ModuleNotifications) {
-		m := NewNotificationsModule(platform)
+		m, err := NewNotificationsModule(platform)
+		if err != nil {
+			return nil, fmt.Errorf("módulo %s: %w", ModuleNotifications, err)
+		}
 		if !modules.Has(ModuleAlertManagement) {
 			m.log.Warn("notifications sin alert_management: no recibirá eventos de alertas")
 		}

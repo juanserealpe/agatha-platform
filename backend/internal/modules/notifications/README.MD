@@ -11,13 +11,14 @@ Entrega los eventos de Alert Management por dos canales: **web en tiempo real** 
 ```
 notifications/
 ├── domain/
-│   ├── entities/      # AlertNotice, AlertChange (vista propia de los eventos), PushMessage + enums del contrato FCM
+│   ├── entities/      # AlertNotice, AlertChange (vista propia de los eventos), PushMessage, PushDevice + enums del contrato FCM
 │   └── policies/      # ChannelPolicy (Strategy): MobilePushPolicy, WebPolicy
 ├── application/
-│   ├── ports/         # NoticeChannel, ChangeChannel (los implementa infrastructure)
+│   ├── ports/         # NoticeChannel, ChangeChannel, PushTokenRepository (los implementa infrastructure)
 │   └── services/      # NoticeDispatcher: política + canal
 └── infrastructure/
     ├── events/        # AlertNotificationSubscriber, AlertChangedSubscriber
+    ├── persistence/   # Tabla push_devices: Migrate, modelo, mapper, repositorio GORM y store en memoria (pruebas)
     └── realtime/      # Hub SSE (canal web) + StreamHandler (GET /api/notifications/stream)
 ```
 
@@ -66,6 +67,21 @@ Responde `text/event-stream` y deja la conexión abierta. Sin cuerpo ni autentic
 | Nivel normal o código desconocido | No | Sí |
 
 Mapeo al push (`entities.NewPushMessage`): `alertId` = código de la alerta (`ALR-000142`); niveles `AMARILLO/NARANJA/ROJO` → `YELLOW/ORANGE/RED`; `FUGA/MOVIMIENTO` → `LEAK/MOVEMENT`; `OPEN` y `NEW_AFTER_CLASSIFIED` → `NEW`; subidas y reactivación → `LEVEL_UP`; `pk` sale de `devices.name` (`PK34-470` → `34+470`) o se omite.
+
+## Tokens de los celulares: `push_devices`
+
+Un celular (`device_id`, el `CEL-XXXXXX` de la app) tiene un solo token FCM vigente, y un token es de un solo celular.
+
+| Columna | Regla |
+|---|---|
+| `device_id` | Clave primaria, 1 a 128 caracteres |
+| `token` | 1 a 4096 caracteres. Único por `md5(token)`: un índice btree directo no admite entradas tan largas |
+| `platform` | Solo `ANDROID` |
+| `created_at`, `updated_at` | `updated_at` cambia en cada registro |
+
+- **Registro (upsert)**: un token nuevo reemplaza al anterior del mismo celular; si el token era de otro `device_id`, pasa a este. Es idempotente, porque la app reintenta hasta recibir 2xx.
+- **Limpieza**: cuando FCM responde `UNREGISTERED` o `404`, se borra ese token. Si el celular ya registró otro, no se toca.
+- **Migración**: `persistence.Migrate` corre al arrancar el módulo. Es idempotente y solo aditiva (`CREATE TABLE IF NOT EXISTS` y un índice), porque corre contra la base del piloto. No usa `AutoMigrate`.
 
 ## Habilitación
 

@@ -4,12 +4,15 @@ import (
 	"context"
 	"net/http"
 
+	"gorm.io/gorm"
+
 	alertContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
 	notificationPorts "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/application/ports"
 	notificationServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/application/services"
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/policies"
 	notificationEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/events"
+	notificationPersistence "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/persistence"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/realtime"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -42,16 +45,28 @@ type NotificationsModule struct {
 	hub *realtime.Hub
 }
 
-// NewNotificationsModule cablea Notifications. Consume los eventos de Alert
-// Management, pero no lo exige: sin él no recibe nada (ver ParseModules).
-func NewNotificationsModule(platform *Platform) *NotificationsModule {
+// MigrateNotifications crea push_devices (idempotente y solo aditivo).
+func MigrateNotifications(db *gorm.DB) error {
+	if err := notificationPersistence.Migrate(db); err != nil {
+		logger.New("DataBaseInit", "Info").Error("falló la migración de Notifications", "error", err)
+		return err
+	}
+	return nil
+}
+
+// NewNotificationsModule migra y cablea Notifications. Consume los eventos de
+// Alert Management, pero no lo exige: sin él no recibe nada (ver ParseModules).
+func NewNotificationsModule(platform *Platform) (*NotificationsModule, error) {
 	log := logger.New("Notifications", "Info")
+	if err := MigrateNotifications(platform.DB); err != nil {
+		return nil, err
+	}
 	hub := realtime.NewHub(realtime.HubConfig{
 		MaxClients: envInt(log, NotificationsSSEMaxClientsEnv, realtime.DefaultMaxClients),
 	}, log)
 	m := wireNotifications(platform.EventBus, notificationChannels{webNotices: hub, webChanges: hub}, log)
 	m.hub = hub
-	return m
+	return m, nil
 }
 
 func wireNotifications(bus eventbus.Bus, channels notificationChannels, log *logger.Logger) *NotificationsModule {
