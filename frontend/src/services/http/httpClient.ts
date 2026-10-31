@@ -34,6 +34,11 @@ export function apiPath(...segments: QueryScalar[]): string {
     return `/${segments.map((segment) => encodeURIComponent(String(segment))).join("/")}`;
 }
 
+/** URL completa de una ruta de la API, con la misma base que `httpClient` (p. ej. para `EventSource`). */
+export function apiUrl(path: string, query?: QueryParams): string {
+    return `${BASE_URL}${path}${buildQueryString(query)}`;
+}
+
 function isList(value: QueryValue): value is readonly QueryScalar[] {
     return Array.isArray(value);
 }
@@ -82,7 +87,7 @@ async function toApiError(response: Response, fallbackMessage = DEFAULT_ERROR_ME
 async function send(method: "GET" | "POST", path: string, options: RequestOptions, body?: unknown): Promise<Response> {
     let response: Response;
     try {
-        response = await fetch(`${BASE_URL}${path}${buildQueryString(options.query)}`, {
+        response = await fetch(apiUrl(path, options.query), {
             method,
             headers: buildHeaders(body !== undefined),
             body: body === undefined ? undefined : JSON.stringify(body),
