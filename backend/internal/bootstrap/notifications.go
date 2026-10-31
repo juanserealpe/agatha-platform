@@ -70,6 +70,8 @@ type NotificationsModule struct {
 	hub *realtime.Hub
 	// pushTokens expone el registro de tokens FCM de los celulares.
 	pushTokens *notificationHTTP.PushTokenHandler
+	// testEvents es el endpoint de eventos de prueba (nil si no está habilitado).
+	testEvents *notificationHTTP.TestEventHandler
 }
 
 // MigrateNotifications crea push_devices (idempotente y solo aditivo).
@@ -100,6 +102,10 @@ func NewNotificationsModule(platform *Platform) (*NotificationsModule, error) {
 		notificationServices.NewPushTokenService(tokens, notificationPorts.ClockFunc(time.Now), log),
 		log,
 	)
+	if testEndpointEnabled(log) {
+		m.testEvents = notificationHTTP.NewTestEventHandler(
+			newBusTestEventEmitter(platform.EventBus, notificationPorts.ClockFunc(time.Now)), log)
+	}
 	return m, nil
 }
 
@@ -192,13 +198,17 @@ func (m *NotificationsModule) Subscribe() (unsubscribe func()) {
 	}
 }
 
-// RegisterRoutes expone GET /api/notifications/stream y PUT /api/devices/push-token.
+// RegisterRoutes expone GET /api/notifications/stream, PUT /api/devices/push-token
+// y, si está habilitado, POST /api/notifications/test-event.
 func (m *NotificationsModule) RegisterRoutes(mux *http.ServeMux) {
 	if m.hub != nil {
 		realtime.NewStreamHandler(m.hub, m.log).RegisterRoutes(mux)
 	}
 	if m.pushTokens != nil {
 		m.pushTokens.RegisterRoutes(mux)
+	}
+	if m.testEvents != nil {
+		m.testEvents.RegisterRoutes(mux)
 	}
 }
 

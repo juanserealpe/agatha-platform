@@ -2,7 +2,7 @@
 
 Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1, contrato en `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas: eso es de Alert Management. Plan completo y estado en `docs/PLAN.md`.
 
-> En construcción. El canal web ya funciona (`GET /api/notifications/stream`) y la app ya puede registrar su token (`PUT /api/devices/push-token`); y el canal móvil envía por FCM cuando hay credencial. Falta el endpoint de eventos de prueba.
+> En construcción. El canal web ya funciona (`GET /api/notifications/stream`) y la app ya puede registrar su token (`PUT /api/devices/push-token`); y el canal móvil envía por FCM cuando hay credencial. Para desarrollo hay un endpoint que simula eventos de alerta.
 
 **Para los clientes (web y app)**: endpoints, eventos, reglas para aplicar el estado y reconexión en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD). Este README describe cómo está hecho el módulo por dentro.
 
@@ -22,7 +22,7 @@ notifications/
     ├── events/        # AlertNotificationSubscriber, AlertChangedSubscriber
     ├── fcm/           # HTTPV1Sender (Adapter de FCM HTTP v1 + OAuth2 de la cuenta de servicio), NoopSender
     │   └── fcmtest/   # FakeSender: graba los envíos y devuelve errores programados (pruebas)
-    ├── http/          # PushTokenHandler (PUT /api/devices/push-token)
+    ├── http/          # PushTokenHandler (PUT /api/devices/push-token), TestEventHandler (POST /api/notifications/test-event)
     ├── persistence/   # Tabla push_devices (Migrate, modelo, mapper, repositorio GORM, store en memoria) y lector de devices
     └── realtime/      # Hub SSE (canal web) + StreamHandler (GET /api/notifications/stream)
 ```
@@ -123,6 +123,10 @@ Implementa `NoticeChannel` para la suscripción `notifications.alert_notificatio
 
 La suscripción del push tiene un plazo de 3 min (las demás, 30 s): alcanza para los reintentos de los celulares del piloto. Si se acaba, los reintentos pendientes se cortan y quedan en el log.
 
+## Eventos de prueba (`POST /api/notifications/test-event`)
+
+El handler valida el pedido (`entities.NewTestEvent`) y llama al puerto `TestEventEmitter`. Lo implementa `internal/bootstrap` (`busTestEventEmitter`), que publica los mismos contratos de Alert Management en el bus. Así el evento recorre el pipeline real sin que este módulo importe esos contratos y sin escribir en la base. Los ids son negativos y el código es `ALR-PRUEBA-…`, para que nunca se confundan con una alerta real. Uso y ejemplos en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD) §3.
+
 ## Habilitación
 
 `notifications` en `AGATHA_MODULES`. No exige `alert_management`: sin él no recibe eventos, y así se puede levantar solo en local sin la cadena de schedulers que procesa la base del piloto.
@@ -137,6 +141,7 @@ La suscripción del push tiene un plazo de 3 min (las demás, 30 s): alcanza par
 | `FCM_SERVICE_ACCOUNT_JSON_BASE64` | — | Respaldo: el mismo JSON en base64 |
 | `FCM_VALIDATE_ONLY` | `false` | FCM valida los mensajes sin entregarlos (para probar desde local) |
 | `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` | — | `deviceId` separados por coma: solo se envía a esos. Vacía = todos |
+| `NOTIFICATIONS_TEST_ENDPOINT` | `false` | Habilita `POST /api/notifications/test-event` si `AGATHA_ENV` no es `production`. **Nunca en el VPS** |
 
 ## Riesgos conocidos
 

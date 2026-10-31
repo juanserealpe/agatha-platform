@@ -51,6 +51,23 @@ type RetryablePushError struct {
 func (e *RetryablePushError) Error() string { return e.Err.Error() }
 func (e *RetryablePushError) Unwrap() error { return e.Err }
 
+// TestEventEmitter publica un evento de prueba por el mismo camino que los
+// eventos reales de Alert Management, sin escribir alertas. Lo implementa
+// internal/bootstrap (es quien conoce el bus y los contratos).
+type TestEventEmitter interface {
+	Emit(ctx context.Context, e entities.TestEvent) (TestEventResult, error)
+}
+
+// TestEventResult identifica lo publicado, para repetir sobre la misma alerta
+// (por ejemplo, una subida de nivel) o reconocerlo en el cliente.
+type TestEventResult struct {
+	AlertID   int64
+	AlertCode string
+	// MessageID es 0 si el evento no incluía aviso.
+	MessageID int64
+	Change    string
+}
+
 // DeviceDirectory lee el nombre del dispositivo de un punto (devices, de
 // Ingestion, solo lectura). De ahí salen sensorId y pk del push. Vacío si no
 // se conoce.

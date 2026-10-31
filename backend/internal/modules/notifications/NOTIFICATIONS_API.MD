@@ -12,6 +12,7 @@ El módulo no guarda ni consulta alertas. La fuente de verdad sigue siendo la AP
 |---|---|---|
 | Recibir alertas en tiempo real | `GET /api/notifications/stream` | Web |
 | Registrar el token FCM del celular | `PUT /api/devices/push-token` | App Android |
+| Simular un evento de alerta (solo desarrollo) | `POST /api/notifications/test-event` | Desarrollador (curl) |
 
 ## Convenciones
 
@@ -170,3 +171,55 @@ Content-Type: application/json
 **Registro en cada arranque**: la app vuelve a llamar este endpoint cada vez que arranca, además de cuando obtiene o renueva el token. Así recupera lo que se haya descartado por un `4xx` (por ejemplo, un `404` mientras el backend no tenga `notifications` habilitado) sin reintentar en bucle.
 
 No está pensado para el navegador: CORS solo permite `GET`.
+
+---
+
+## 3. Eventos de prueba: `POST /api/notifications/test-event` (solo desarrollo)
+
+Publica un evento de alerta **inventado** por el mismo camino que los reales: las suscripciones del bus, las políticas de cada canal, el stream SSE y el push. **No escribe nada en la base.** Sirve para probar el mapa, el banner, el sonido, la notificación del navegador y el push sin esperar una alerta real.
+
+**Solo existe si** el backend arrancó con `NOTIFICATIONS_TEST_ENDPOINT=true` y `AGATHA_ENV` distinto de `production`. Si no, responde `404`.
+
+> **Nunca habilitarlo en el VPS.** El evento llega a los canales reales: a todos los navegadores conectados y, por push, a todos los celulares registrados. En local, usar `FCM_VALIDATE_ONLY=true` o `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST`.
+
+```
+POST /api/notifications/test-event
+Content-Type: application/json
+
+{ "measuring_point_id": 11556, "level": "ROJO" }
+
+→ 202 Accepted
+{ "alert_id": -1, "alert_code": "ALR-PRUEBA-000001", "message_id": -2, "change": "OPENED" }
+```
+
+| Campo | Obligatorio | Valores |
+|---|---|---|
+| `measuring_point_id` | sí | `id` de un dispositivo (el marcador del mapa) |
+| `level` | sí | `AMARILLO`, `NARANJA`, `ROJO` |
+| `code` | no (por defecto `OPEN`) | Aviso del catálogo: `OPEN`, `NEW_AFTER_CLASSIFIED`, `UP_NARANJA_PERSIST`, `UP_NARANJA_FAST`, `UP_ROJO`, `REACTIVATED`. Publica `alert.notification` y su `alert.changed` |
+| `change` | no | Cambio silencioso, sin aviso: `LEVEL_LOWERED`, `FINISHED`, `NO_DATA_STARTED`, `NO_DATA_ENDED`, `CLASSIFIED`, `LABELED`. Excluyente con `code` |
+| `alert_id` | no | Negativo, devuelto por un evento anterior: repite sobre la **misma** alerta. Sin él se crea una nueva |
+| `event_type` | no (por defecto `FUGA`) | `FUGA`, `MOVIMIENTO` |
+| `classification` | no (obligatoria con `CLASSIFIED`/`LABELED`) | `CONFIRMADA`, `FALSA_ALERTA` |
+| `late` | no | `true` para probar un aviso atrasado (va a la web, no al push) |
+
+- Los valores no distinguen mayúsculas. **Cuerpo estricto**: un campo desconocido da `400`, para que se note un error de tipeo.
+- **Ids negativos**: `alert_id` y `message_id` siempre son negativos y el código es `ALR-PRUEBA-…`. Así nunca pisan una alerta real en la caché del frontend, y el endpoint no acepta un `alert_id` positivo. Al resincronizar con `/active` y `/pending` desaparecen, porque no existen en la base.
+- `202` porque la entrega a cada canal es asíncrona.
+
+Una secuencia típica para probar el frontend:
+
+```bash
+curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"level":"AMARILLO"}'
+# → alert_id -1: el marcador se pone amarillo, banner "nueva"
+curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":-1,"level":"ROJO","code":"UP_ROJO"}'
+# → misma alerta en rojo y titilando, banner "subió"
+curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":-1,"level":"ROJO","change":"CLASSIFIED","classification":"CONFIRMADA"}'
+# → deja de titilar, sin banner
+```
+
+| HTTP | `code` | Cuándo |
+|---|---|---|
+| 202 | — | Publicado |
+| 400 | `INVALID_INPUT` | JSON inválido, campo desconocido o valor fuera de las listas |
+| 404 | — | El endpoint no está habilitado |
