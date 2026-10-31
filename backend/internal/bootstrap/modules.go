@@ -96,7 +96,8 @@ func (s ModuleSet) Has(m Module) bool { return s[m] }
 
 // HasHTTP indica si algún módulo habilitado expone rutas HTTP.
 func (s ModuleSet) HasHTTP() bool {
-	return s.Has(ModuleCallback) || s.Has(ModuleDashboard) || s.Has(ModuleRuleEngine) || s.Has(ModuleAlertManagement)
+	return s.Has(ModuleCallback) || s.Has(ModuleDashboard) || s.Has(ModuleRuleEngine) || s.Has(ModuleAlertManagement) ||
+		s.Has(ModuleNotifications)
 }
 
 // String devuelve los módulos habilitados en orden de arranque.

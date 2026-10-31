@@ -2,7 +2,7 @@
 
 Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1, contrato en `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas: eso es de Alert Management. Plan completo y estado en `docs/PLAN.md`.
 
-> En construcción. Hoy existen el modelo, las reglas por canal, las suscripciones y el hub SSE (aún sin endpoint ni cableado); el stream HTTP y el envío FCM llegan en los próximos commits. Mientras no haya canales configurados, el módulo arranca y descarta los avisos (lo advierte en el log).
+> En construcción. El canal web ya funciona (`GET /api/notifications/stream`); el push FCM llega en los próximos commits y, mientras tanto, los avisos para móvil no tienen suscripción.
 
 > **Foto = estado actual de la alerta.** Cuando este README, el plan o el código dicen "foto" (`alert_changed`), se refieren al estado completo de la alerta justo después de un cambio. No son las evidencias fotográficas de la especificación (RN-09).
 
@@ -18,7 +18,7 @@ notifications/
 │   └── services/      # NoticeDispatcher: política + canal
 └── infrastructure/
     ├── events/        # AlertNotificationSubscriber, AlertChangedSubscriber
-    └── realtime/      # Hub SSE (canal web): ids epoch-seq, buffer de reenvío, heartbeat
+    └── realtime/      # Hub SSE (canal web) + StreamHandler (GET /api/notifications/stream)
 ```
 
 ## Eventos que consume
@@ -31,7 +31,15 @@ notifications/
 
 Cada canal es una suscripción propia del bus, con su cola y su worker: si FCM se atrasa, la web no lo nota. La traducción contrato → `AlertNotice`/`AlertChange` y las suscripciones viven en `internal/bootstrap/notifications.go`; este módulo no importa a Alert Management ni al bus (`depguard` `notifications-isolation`).
 
-## Canal web: hub SSE
+## Canal web: `GET /api/notifications/stream`
+
+Responde `text/event-stream` y deja la conexión abierta. Sin cuerpo ni autenticación (ver riesgos).
+
+- **Reconexión**: el primer bloque es `retry: 3000`. Para retomar, el navegador manda la cabecera `Last-Event-ID` (reconexión nativa) o el cliente agrega `?last_event_id=<id>` (reconexión manual con un `EventSource` nuevo).
+- **Errores**: `503` con `Retry-After: 30` si se llegó al tope de clientes o la plataforma se está apagando.
+- **Plazos**: el handler limpia los deadlines de lectura y escritura del servidor, así que el stream no se corta por `ReadTimeout`/`WriteTimeout`. Envía `X-Accel-Buffering: no` para que un proxy no acumule los eventos.
+- **Apagado**: el hub corre como `Runner` ("hub SSE de notificaciones"). Al cancelarse cierra los streams, para que `server.Shutdown` no los espere.
+
 
 `realtime.Hub` implementa `NoticeChannel` y `ChangeChannel`. Publica dos eventos SSE con `data` en JSON (`snake_case`, `null` cuando no hay valor, como la API de alertas):
 
@@ -45,7 +53,7 @@ Cada canal es una suscripción propia del bus, con su cola y su worker: si FCM s
 - **Reenvío**: guarda los últimos 256 eventos. Al reconectar con `Last-Event-ID` (o `?last_event_id=`) reenvía lo que faltó; si el id ya salió del buffer, es de otro epoch o no se entiende, manda `resync`.
 - **Heartbeat**: `: ping` cada 25 s (no se guarda ni se reenvía).
 - **Clientes lentos**: cada cliente tiene un buffer de 32 frames; si se llena, el hub lo desconecta sin frenar a los demás, y el cliente se resincroniza al volver.
-- **Tope**: 200 clientes simultáneos por defecto (`ErrTooManyClients`).
+- **Tope**: 200 clientes simultáneos por defecto; se cambia con `NOTIFICATIONS_SSE_MAX_CLIENTS`.
 - Al apagarse (`Run` termina), cierra todos los clientes.
 
 ## Reglas por canal
@@ -63,7 +71,16 @@ Mapeo al push (`entities.NewPushMessage`): `alertId` = código de la alerta (`AL
 
 `notifications` en `AGATHA_MODULES`. No exige `alert_management`: sin él no recibe eventos, y así se puede levantar solo en local sin la cadena de schedulers que procesa la base del piloto.
 
+## Variables de entorno
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `NOTIFICATIONS_SSE_MAX_CLIENTS` | `200` | Tope de streams abiertos a la vez (un valor inválido usa el de por defecto) |
+
 ## Riesgos conocidos
+
+- **Stream sin autenticación** (aceptado para el piloto): cualquiera que llegue al backend puede abrirlo. El tope de clientes limita el abuso.
+- Con HTTP/1.1 el navegador abre como máximo 6 conexiones por origen, y cada pestaña ocupa una con el stream.
 
 - El bus es en memoria: un aviso se pierde si el proceso cae entre el commit y la publicación. La fuente de verdad es `alert_messages` (`kind = NOTIFICACION`).
 - Mejora futura: la abscisa debería ser una columna propia del dispositivo, no deducirse del nombre.

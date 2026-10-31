@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"net/http"
 
 	alertContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
 	notificationPorts "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/application/ports"
@@ -9,9 +10,13 @@ import (
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/policies"
 	notificationEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/events"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/realtime"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
+
+// NotificationsSSEMaxClientsEnv es el tope de streams SSE abiertos a la vez.
+const NotificationsSSEMaxClientsEnv = "NOTIFICATIONS_SSE_MAX_CLIENTS"
 
 // Nombres de las suscripciones de Notifications: una por canal, cada una con
 // su cola y su worker (si FCM se atrasa, la web no lo nota).
@@ -33,12 +38,20 @@ type NotificationsModule struct {
 	channels notificationChannels
 	bus      eventbus.Bus
 	log      *logger.Logger
+	// hub es el canal web (avisos y cambios) y expone el stream SSE.
+	hub *realtime.Hub
 }
 
 // NewNotificationsModule cablea Notifications. Consume los eventos de Alert
 // Management, pero no lo exige: sin él no recibe nada (ver ParseModules).
 func NewNotificationsModule(platform *Platform) *NotificationsModule {
-	return wireNotifications(platform.EventBus, notificationChannels{}, logger.New("Notifications", "Info"))
+	log := logger.New("Notifications", "Info")
+	hub := realtime.NewHub(realtime.HubConfig{
+		MaxClients: envInt(log, NotificationsSSEMaxClientsEnv, realtime.DefaultMaxClients),
+	}, log)
+	m := wireNotifications(platform.EventBus, notificationChannels{webNotices: hub, webChanges: hub}, log)
+	m.hub = hub
+	return m
 }
 
 func wireNotifications(bus eventbus.Bus, channels notificationChannels, log *logger.Logger) *NotificationsModule {
@@ -69,6 +82,22 @@ func (m *NotificationsModule) Subscribe() (unsubscribe func()) {
 			u()
 		}
 	}
+}
+
+// RegisterRoutes expone GET /api/notifications/stream.
+func (m *NotificationsModule) RegisterRoutes(mux *http.ServeMux) {
+	if m.hub != nil {
+		realtime.NewStreamHandler(m.hub, m.log).RegisterRoutes(mux)
+	}
+}
+
+// Runners devuelve el heartbeat del hub. Al apagarse cierra los streams
+// abiertos, para que el apagado del servidor HTTP no los espere.
+func (m *NotificationsModule) Runners() []Runner {
+	if m.hub == nil {
+		return nil
+	}
+	return []Runner{{Name: "hub SSE de notificaciones", Start: m.hub.Run}}
 }
 
 // subscribeAlertNotification traduce el contrato de Alert Management al Notice

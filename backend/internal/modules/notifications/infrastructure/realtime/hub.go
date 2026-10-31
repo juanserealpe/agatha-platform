@@ -14,8 +14,12 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// ErrTooManyClients: el hub llegó al tope de clientes simultáneos.
-var ErrTooManyClients = errors.New("realtime: demasiados clientes conectados")
+var (
+	// ErrTooManyClients: el hub llegó al tope de clientes simultáneos.
+	ErrTooManyClients = errors.New("realtime: demasiados clientes conectados")
+	// ErrHubClosed: la plataforma se está apagando.
+	ErrHubClosed = errors.New("realtime: el hub está cerrado")
+)
 
 // Valores por defecto de HubConfig.
 const (
@@ -69,6 +73,7 @@ type Hub struct {
 	seq     uint64
 	replay  []Frame // buffer circular; replay[(seq-1) % ReplaySize] es el último
 	clients map[*Client]struct{}
+	closed  bool
 }
 
 var (
@@ -104,6 +109,9 @@ func (c *Client) Frames() <-chan Frame { return c.frames }
 func (h *Hub) Connect(lastEventID string) (c *Client, pending []Frame, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.closed {
+		return nil, nil, ErrHubClosed
+	}
 	if len(h.clients) >= h.cfg.MaxClients {
 		return nil, nil, ErrTooManyClients
 	}
@@ -127,7 +135,8 @@ func (h *Hub) Clients() int {
 }
 
 // Run manda el heartbeat hasta que ctx termina; al terminar suelta a todos los
-// clientes para que sus respuestas se cierren.
+// clientes para que sus respuestas se cierren (si no, el apagado del servidor
+// HTTP esperaría a los streams abiertos) y rechaza conexiones nuevas.
 func (h *Hub) Run(ctx context.Context) {
 	ticker := time.NewTicker(h.cfg.HeartbeatInterval)
 	defer ticker.Stop()
@@ -135,6 +144,7 @@ func (h *Hub) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			h.mu.Lock()
+			h.closed = true
 			for c := range h.clients {
 				h.drop(c)
 			}

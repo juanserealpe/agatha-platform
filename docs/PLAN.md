@@ -104,6 +104,7 @@ La base de datos es la del piloto, la misma que usa el backend del VPS.
 
 ### Riesgos e inconsistencias que afectan este trabajo
 1. **El `ReadTimeout: 15s` de `cmd/platform`** cancela el contexto de una conexión larga a los 15 s, por la lectura de fondo de `net/http`. El handler del stream debe limpiar los deadlines con `http.ResponseController`.
+   - **Verificado en el commit 7 (Go 1.25.7):** el `ReadTimeout` ya no corta el stream, con o sin la limpieza. Se deja igual, porque un `WriteTimeout` futuro sí lo cortaría, y la prueba `TestStreamHandler_SurvivesServerTimeouts` lo vigila.
 2. **CORS solo permite `GET`**. Lo corrige el usuario en un commit aparte (ver "Commit C" en la sección 5). El móvil no se ve afectado, porque CORS no aplica fuera del navegador.
 3. **HTTPS**: el certificado es de Let's Encrypt para la IP (`129.213.118.230`), válido para el navegador, y el nginx del VPS ya tiene `proxy_buffering off` y `proxy_read_timeout 3600s` en `location /`. No hay que tocarlo. Conviene confirmar que la renovación automática esté activa: los certificados de IP de Let's Encrypt son de vida corta.
 4. **HTTP/2 no está activo** (`listen 443 ssl` sin `http2`). Con HTTP/1.1 el navegador permite 6 conexiones por origen, y cada pestaña abierta ocupa una con el stream. Se le sugiere al responsable del backend como mejora. Mitigación en el cliente: el stream se cierra cuando la pestaña lleva un rato oculta y se reabre al volver.
@@ -330,8 +331,8 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 - [x] 5. `feat(bootstrap): wire notifications module and event subscriptions`
 
 **Fase 2: canal web**
-- [ ] 6. `feat(notifications): add SSE hub with heartbeat and replay buffer`
-- [ ] 7. `feat(notifications): expose realtime alert stream endpoint`
+- [x] 6. `feat(notifications): add SSE hub with heartbeat and replay buffer`
+- [x] 7. `feat(notifications): expose realtime alert stream endpoint`
 
 **Fase 3: canal FCM**
 - [ ] 8. `feat(notifications): persist push device tokens`

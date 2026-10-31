@@ -1,13 +1,18 @@
 package bootstrap
 
 import (
+	"bufio"
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	alertContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/realtime"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
@@ -111,8 +116,7 @@ func TestNotifications_DeliversEachChannelThroughTheBus(t *testing.T) {
 	}
 }
 
-// Sin canales (antes de los commits del hub y de FCM) no hay suscripciones:
-// publicar sigue siendo un no-op.
+// Sin canales no hay suscripciones: publicar sigue siendo un no-op.
 func TestNotifications_WithoutChannelsSubscribesNothing(t *testing.T) {
 	bus := eventbus.NewInMemory(nil)
 	unsubscribe := wireNotifications(bus, notificationChannels{}, logger.New("NotificationsTest", "Error")).Subscribe()
@@ -122,4 +126,58 @@ func TestNotifications_WithoutChannelsSubscribesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	closeBus(t, bus)
+}
+
+// Del bus al navegador: un alert_changed publicado por Alert Management sale
+// por GET /api/notifications/stream.
+func TestNotifications_StreamsBusEventsOverSSE(t *testing.T) {
+	log := logger.New("NotificationsTest", "Error")
+	bus := eventbus.NewInMemory(nil)
+	defer closeBus(t, bus)
+	hub := realtime.NewHub(realtime.HubConfig{}, log)
+	m := wireNotifications(bus, notificationChannels{webNotices: hub, webChanges: hub}, log)
+	m.hub = hub
+	defer m.Subscribe()()
+
+	mux := http.NewServeMux()
+	m.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/api/notifications/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	lines := make(chan string, 16)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+	for hub.Clients() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if err := (busAlertChangePublisher{bus: bus}).PublishAlertChanged(context.Background(),
+		alertContract.AlertChanged{AlertCode: "ALR-000142", Change: alertContract.ChangeClassified}); err != nil {
+		t.Fatal(err)
+	}
+
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatal("el stream se cerró")
+			}
+			if strings.HasPrefix(line, "data: ") && strings.Contains(line, `"change":"CLASSIFIED"`) {
+				return
+			}
+		case <-timeout:
+			t.Fatal("el cambio no llegó al stream")
+		}
+	}
 }

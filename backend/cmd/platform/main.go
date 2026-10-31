@@ -5,7 +5,7 @@
 //	processing  evaluación horaria del índice I (requiere baseline)
 //	rule_engine interpreta processing.indicator_evaluated con umbrales versionados (requiere processing)
 //	alert_management alertas desde rule_engine.level_evaluated: /api/alerts, catch-up y avisos al bus (requiere rule_engine)
-//	notifications entrega los avisos de alert_management por la web y por push (sin alert_management no recibe nada)
+//	notifications entrega los avisos de alert_management por la web (GET /api/notifications/stream) y por push (sin alert_management no recibe nada)
 //	dataos      ingesta de contingencia: consulta programada a DataOS
 //	callback    ingesta principal: POST /ingestion/callback (excluyente con dataos)
 //	dashboard   API HTTP de solo lectura: GET /api/dashboard/*

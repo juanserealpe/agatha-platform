@@ -116,6 +116,8 @@ func TestModuleSetHasHTTP(t *testing.T) {
 		// rule_engine y alert_management exponen /api/rule-engine y /api/alerts.
 		{"baseline,processing,rule_engine", true},
 		{"baseline,processing,rule_engine,alert_management", true},
+		// notifications expone /api/notifications/stream.
+		{"notifications", true},
 	}
 
 	for _, tt := range tests {
