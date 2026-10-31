@@ -4,10 +4,12 @@ import { RelativeTime } from "@/shared/components/RelativeTime";
 import { cn } from "@/lib/utils";
 import { displayLevel, EVENT_LABEL, IN_PROGRESS_LABEL, levelStyle } from "../config/alertManagementDisplay";
 import { devicePkLabel } from "../lib/deviceLabel";
+import { primaryManagementMode, type ManagementMode } from "../lib/managementMode";
 
 interface AlertListItemProps {
     alert: AlertItem;
-    onSelect: (alertId: string) => void;
+    /** Se abre directo en la gestión pendiente (p. ej. clasificar), no en lectura. */
+    onSelect: (alertId: string, mode: ManagementMode) => void;
 }
 
 export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
@@ -20,7 +22,7 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
     return (
         <button
             type="button"
-            onClick={() => onSelect(String(alert.id))}
+            onClick={() => onSelect(String(alert.id), primaryManagementMode(alert.available_actions))}
             style={{ "--glow-color": severity.hex } as CSSProperties}
             aria-label={`Alerta ${alert.code}, ${severity.label}, ${EVENT_LABEL[alert.event]}, ${stateLabel}`}
             className={cn(
