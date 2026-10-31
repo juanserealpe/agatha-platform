@@ -4,6 +4,7 @@ export { AlertDetailHost } from "./components/AlertDetailHost";
 export { NewAlertToast } from "./components/NewAlertToast";
 export { RecentAlertsPanel } from "./components/RecentAlertsPanel";
 export { useActiveAlerts, usePendingAlerts } from "./hooks/useAlerts";
+export { useAlertStream, useAlertStreamStatus } from "./hooks/useAlertStream";
 export { alertKeys } from "./hooks/alertKeys";
 export { SEVERITY_STYLES } from "./config/alertDisplay";
 export { displayLevel, EVENT_LABEL, levelStyle, MANAGEMENT_STATUS_STYLES } from "./config/alertManagementDisplay";

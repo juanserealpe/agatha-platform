@@ -1,9 +1,12 @@
 import { Outlet } from "react-router";
 import { Header } from "@/components/layout/Header";
 import { NavTabs } from "@/components/layout/NavTabs";
-import { AlertDetailHost } from "@/features/alerts";
+import { AlertDetailHost, useAlertStream } from "@/features/alerts";
 
 export function RootLayout() {
+    // Una sola conexión de tiempo real para toda la app, en cualquier página.
+    useAlertStream();
+
     // Márgenes contenidos y ancho hasta 1600 px: en monitores grandes el espacio va al mapa, no a los costados.
     return (
         <div className="min-h-screen bg-tgi-fondo p-3 md:p-4">

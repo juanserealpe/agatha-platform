@@ -90,7 +90,7 @@ Es una **foto**: el estado completo de la alerta justo después del cambio. No h
 - Nivel y estado (`state`, `current_level`, `max_level`): solo si `evaluated_at` es **mayor** que el que ya está en caché para esa alerta.
 - Gestión (`management_status`, `classification`): solo si `management_status` **avanzó**, porque la gestión nunca retrocede.
 - `blinking`: recalcularlo en el cliente como `state = ACTIVA` y `current_level = ROJO` y `management_status = SIN_CLASIFICAR`, para que salga coherente tras mezclar las dos reglas anteriores.
-- Una alerta `FINALIZADA` o clasificada sale de "pendientes" según las mismas reglas de `/api/alerts/pending`.
+- Mismas reglas que la API: una alerta sale de `/api/alerts/active` al pasar a `FINALIZADA`, y sale de `/api/alerts/pending` solo al clasificarse. Una `FINALIZADA` sin clasificar sigue pendiente.
 
 ### `alert.notification`: aviso para mostrar
 
