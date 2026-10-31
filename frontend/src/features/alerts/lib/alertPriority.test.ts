@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toAlertId, type AlertItem } from "@/services/alertManagement";
-import { mostUrgentAlert } from "./alertPriority";
+import { activeAlertsByPriority, mostUrgentAlert } from "./alertPriority";
 
 const item = (id: number, overrides: Partial<AlertItem> = {}): AlertItem => ({
     id: toAlertId(id),
@@ -44,5 +44,30 @@ describe("mostUrgentAlert", () => {
 
     it("null si no hay alertas", () => {
         expect(mostUrgentAlert([])).toBeNull();
+    });
+});
+
+describe("activeAlertsByPriority", () => {
+    it("junta las alertas de todos los puntos y las ordena por urgencia, clasificadas o no", () => {
+        const confirmedRed = item(1, {
+            current_level: "ROJO",
+            max_level: "ROJO",
+            management_status: "CLASIFICADA_SIN_ETIQUETA",
+            classification: "CONFIRMADA",
+        });
+        const yellow = item(2);
+        const orange = item(3, { current_level: "NARANJA", max_level: "NARANJA" });
+        const point = (id: number, alerts: AlertItem[]) => ({
+            measuring_point_id: id,
+            pk: `MP-${id}`,
+            level: alerts[0].current_level!,
+            blinking: false,
+            alerts,
+        });
+
+        const sorted = activeAlertsByPriority({ devices: [point(1, [yellow, orange]), point(2, [confirmedRed])] });
+
+        expect(sorted.map((alert) => alert.id)).toEqual([1, 3, 2]);
+        expect(activeAlertsByPriority(undefined)).toEqual([]);
     });
 });
