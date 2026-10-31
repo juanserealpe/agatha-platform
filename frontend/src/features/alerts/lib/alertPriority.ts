@@ -10,7 +10,7 @@ export function compareByPriority(a: AlertItem, b: AlertItem): number {
     );
 }
 
-/** La alerta a mostrar primero (aviso de alerta nueva, punto del mapa); null si no hay ninguna. */
+/** La alerta a mostrar primero (p. ej. al abrir un punto del mapa); null si no hay ninguna. */
 export function mostUrgentAlert(alerts: readonly AlertItem[]): AlertItem | null {
     return [...alerts].sort(compareByPriority)[0] ?? null;
 }

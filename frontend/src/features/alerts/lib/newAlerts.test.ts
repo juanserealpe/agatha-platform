@@ -1,39 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { toAlertId, type AlertItem } from "@/services/alertManagement";
-import { dismissAlert, ingestAlerts, INITIAL_NEW_ALERTS_STATE } from "./newAlerts";
+import { toAlertId } from "@/services/alertManagement";
+import type { AlertNotificationEvent } from "@/services/realtime";
+import { dismissNotice, ingestNotification, INITIAL_NEW_ALERTS_STATE, sortNotices } from "./newAlerts";
 
-// Solo importa el id: el resto de la fila no interviene en la detección de nuevas.
-const alert = (id: number) => ({ id: toAlertId(id) }) as AlertItem;
-const ids = (alerts: AlertItem[]) => alerts.map((a) => a.id);
+const notice = (messageId: number, overrides: Partial<AlertNotificationEvent> = {}): AlertNotificationEvent => ({
+    message_id: messageId,
+    alert_id: toAlertId(142),
+    alert_code: "ALR-000142",
+    measuring_point_id: 11556,
+    event_type: "FUGA",
+    code: "OPEN",
+    level: "AMARILLO",
+    max_level: "AMARILLO",
+    classification: null,
+    title: "Nueva alerta",
+    body: "Índice de ruido en 0,18.",
+    late: false,
+    started_at: "2026-10-30T12:00:00Z",
+    evaluated_at: "2026-10-30T14:00:00Z",
+    occurred_at: "2026-10-30T14:00:05Z",
+    ...overrides,
+});
 
-describe("ingestAlerts", () => {
-    it("la primera lista fija la línea base y no notifica", () => {
-        const state = ingestAlerts(INITIAL_NEW_ALERTS_STATE, [alert(1), alert(2)]);
-        expect(state.unseen).toEqual([]);
-        expect([...state.seenIds!]).toEqual([1, 2]);
+const ids = (notices: AlertNotificationEvent[]) => notices.map((n) => n.message_id);
+
+describe("ingestNotification", () => {
+    it("una subida de nivel de la misma alerta reemplaza al aviso anterior", () => {
+        const opened = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        const raised = ingestNotification(opened, notice(2, { code: "UP_ROJO", level: "ROJO" }));
+        expect(ids(raised.notices)).toEqual([2]);
     });
 
-    it("una lista vacía también fija la línea base", () => {
-        const state = ingestAlerts(INITIAL_NEW_ALERTS_STATE, []);
-        expect(ids(ingestAlerts(state, [alert(1)]).unseen)).toEqual([1]);
+    it("avisos de alertas distintas se acumulan", () => {
+        const first = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        const second = ingestNotification(first, notice(2, { alert_id: toAlertId(150), alert_code: "ALR-000150" }));
+        expect(ids(second.notices)).toEqual([1, 2]);
     });
 
-    it("notifica solo los ids que no había visto", () => {
-        const base = ingestAlerts(INITIAL_NEW_ALERTS_STATE, [alert(1)]);
-        const next = ingestAlerts(base, [alert(2), alert(1)]);
-        expect(ids(next.unseen)).toEqual([2]);
+    it("un aviso reenviado tras una reconexión no se repite, aunque se haya descartado", () => {
+        const once = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        expect(ingestNotification(once, notice(1))).toBe(once);
+
+        const dismissed = dismissNotice(once, "ALR-000142");
+        expect(ingestNotification(dismissed, notice(1)).notices).toEqual([]);
     });
 
-    it("no repite una alerta ya notificada aunque siga en la lista", () => {
-        const base = ingestAlerts(INITIAL_NEW_ALERTS_STATE, []);
-        const once = ingestAlerts(base, [alert(1)]);
-        const twice = ingestAlerts(once, [alert(1)]);
-        expect(twice).toBe(once);
+    it("tras descartar, un aviso nuevo de la misma alerta vuelve a mostrarse", () => {
+        const dismissed = dismissNotice(ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1)), "ALR-000142");
+        expect(ids(ingestNotification(dismissed, notice(2, { code: "UP_ROJO" })).notices)).toEqual([2]);
     });
+});
 
-    it("una alerta descartada no vuelve a aparecer", () => {
-        const base = ingestAlerts(INITIAL_NEW_ALERTS_STATE, []);
-        const dismissed = dismissAlert(ingestAlerts(base, [alert(1)]), toAlertId(1));
-        expect(ingestAlerts(dismissed, [alert(1)]).unseen).toEqual([]);
+describe("sortNotices", () => {
+    it("mayor nivel primero y, entre iguales, el más reciente", () => {
+        const yellow = notice(1, { alert_code: "A", occurred_at: "2026-10-30T16:00:00Z" });
+        const redOld = notice(2, { alert_code: "B", level: "ROJO", occurred_at: "2026-10-30T14:00:00Z" });
+        const redNew = notice(3, { alert_code: "C", level: "ROJO", occurred_at: "2026-10-30T15:00:00Z" });
+        expect(ids(sortNotices([yellow, redOld, redNew]))).toEqual([3, 2, 1]);
     });
 });

@@ -4,6 +4,7 @@ import type { ActiveResponse, AlertId, PendingResponse } from "@/services/alertM
 import { createAlertStream, type AlertChangedEvent, type StreamStatus } from "@/services/realtime";
 import { applyToActive, applyToPending, isNewerEvaluation } from "../lib/streamCache";
 import { alertKeys } from "./alertKeys";
+import { receiveNotification } from "./useNewAlerts";
 
 // Estado de la conexión a nivel de módulo: hay un solo stream para toda la app y varios lectores
 // (el polling de las consultas y el indicador de conexión).
@@ -66,8 +67,7 @@ export function useAlertStream() {
         const stream = createAlertStream({
             handlers: {
                 onChanged: (event) => applyAlertChanged(queryClient, event),
-                // Por ahora el aviso de alerta nueva se detecta por polling (useNewAlerts).
-                onNotification: () => {},
+                onNotification: receiveNotification,
                 onResync: () => {
                     void queryClient.invalidateQueries({ queryKey: alertKeys.active() });
                     void queryClient.invalidateQueries({ queryKey: alertKeys.pending() });

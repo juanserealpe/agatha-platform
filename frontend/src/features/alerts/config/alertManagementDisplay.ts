@@ -10,6 +10,7 @@ import type {
     ManagementStatus,
 } from "@/services/alertManagement";
 import { OTHER_LABEL } from "@/services/alertManagement";
+import type { NotificationCode } from "@/services/realtime";
 import type { RowAction } from "../lib/rowActions";
 import { SEVERITY_STYLES, type SeverityStyle } from "./alertDisplay";
 
@@ -102,6 +103,19 @@ export const ORIGIN_LABEL: Record<ManagementOrigin, string> = {
 export const EMPTY_CELL = "—";
 
 export const IN_PROGRESS_LABEL = "En curso";
+
+/** Encabezado del banner según el aviso del catálogo (`alert.notification`). */
+export const NOTICE_KIND_LABEL: Record<NotificationCode, string> = {
+    OPEN: "Nueva alerta",
+    NEW_AFTER_CLASSIFIED: "Nueva alerta",
+    UP_NARANJA_PERSIST: "Subió de nivel",
+    UP_NARANJA_FAST: "Subió de nivel",
+    UP_ROJO: "Subió de nivel",
+    REACTIVATED: "Alerta reactivada",
+};
+
+/** Aviso de una hora que llegó atrasada: se muestra igual, marcado para que no se ignore. */
+export const LATE_NOTICE_LABEL = "Atrasado";
 
 export const ROW_ACTION_LABEL: Record<RowAction, string> = {
     classify: "Clasificar",

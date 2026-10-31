@@ -355,6 +355,7 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 - [ ] 18. `feat(realtime): add alert stream client with reconnection and watchdog`
 - [ ] 19. `feat(alerts): apply stream events to query cache and pause polling while live`
 - [ ] 20. `feat(alerts): drive new alert banner from stream notifications`
+- [ ] 20b. `feat(alerts): add active alerts tab to the alert panel`. Agregado el 2026-10-31: una alerta clasificada sigue ACTIVA y puede subir de nivel (mismo `id`, avisa), pero sale del panel "Sin clasificar" y deja de titilar. La pestaña "Activas" (datos de `/active`, sin cambios en el backend) la mantiene visible, con su nivel actual y su estado de gestión, hasta que finaliza. "Sin clasificar" sigue siendo la pestaña por defecto
 - [ ] 21. `feat(alerts): show browser notifications when tab is hidden`
 - [ ] 22. `feat(alerts): play a sound for new and escalated alerts`
 - [ ] 23. `feat(layout): add realtime connection indicator`
