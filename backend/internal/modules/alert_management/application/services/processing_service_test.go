@@ -47,19 +47,44 @@ func (p *fakePublisher) PublishAlertNotification(_ context.Context, n contract.A
 	return nil
 }
 
+// fakeChangePublisher guarda las fotos publicadas (o falla si err != nil).
+type fakeChangePublisher struct {
+	published []contract.AlertChanged
+	err       error
+}
+
+func (p *fakeChangePublisher) PublishAlertChanged(_ context.Context, c contract.AlertChanged) error {
+	if p.err != nil {
+		return p.err
+	}
+	p.published = append(p.published, c)
+	return nil
+}
+
+func (p *fakeChangePublisher) changes() []string {
+	var out []string
+	for _, c := range p.published {
+		out = append(out, c.Change)
+	}
+	return out
+}
+
 type fixture struct {
 	store    *memory.AlertStore
 	policies *memory.PolicyStore
 	pub      *fakePublisher
+	changes  *fakeChangePublisher
 	now      time.Time
 	svc      *services.ProcessingService
 }
 
 func newFixture() *fixture {
-	f := &fixture{store: memory.NewAlertStore(), policies: memory.NewPolicyStore(), pub: &fakePublisher{}, now: h(0).Add(35 * time.Minute)}
+	f := &fixture{store: memory.NewAlertStore(), policies: memory.NewPolicyStore(), pub: &fakePublisher{},
+		changes: &fakeChangePublisher{}, now: h(0).Add(35 * time.Minute)}
 	f.svc = services.NewProcessingService(f.store, f.policies,
 		fakeDevices{pointA: {MeasuringPointID: pointA, PK: "PK34+500"}}, f.pub,
-		ports.ClockFunc(func() time.Time { return f.now }), testLogger())
+		ports.ClockFunc(func() time.Time { return f.now }), testLogger()).
+		WithChangePublisher(f.changes)
 	return f
 }
 

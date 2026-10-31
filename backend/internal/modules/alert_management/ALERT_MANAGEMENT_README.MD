@@ -12,7 +12,7 @@ Especificación vigente: `backend/AGATHA_Modulo_Alert_Management_v3.3.docx` (Bac
 
 ```
 alert_management/
-├── contract/                 # TopicAlertNotification + AlertNotification (solo stdlib; bootstrap lo traduce para Notification)
+├── contract/                 # TopicAlertNotification + AlertNotification, TopicAlertChanged + AlertChanged (solo stdlib; bootstrap lo traduce para Notification)
 ├── domain/
 │   ├── errors.go             # AppError del módulo
 │   ├── entities/             # Alert, Management, Runtime, Segment, Message, Observation, ProcessingState, Policy, LevelNotice, enums
@@ -92,6 +92,15 @@ Alert Management decide **qué** es una notificación (`kind = NOTIFICACION` en 
 - **Best-effort**: el bus es en memoria (un evento se pierde si el proceso cae entre el commit y la publicación). La fuente de verdad es `alert_messages` (`kind = 'NOTIFICACION'`, índice `ix_alert_messages_kind`): el módulo de notificaciones puede reconciliar por `id`.
 - El adaptador del puerto `NotificationPublisher` al bus es `busAlertNotificationPublisher` (`internal/bootstrap`); sin suscriptores, publicar es un no-op.
 
+### Cambios visibles: `alert_management.alert_changed`
+
+Para que el mapa y el panel se actualicen en tiempo real sin consultar la API.
+
+- **Evento**: `contract.AlertChanged` (`schema_version` 1), una **foto** de la alerta: `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `change`, `state`, `current_level`, `max_level`, `blinking`, `management_status`, `classification`, `started_at`, `evaluated_at` y `occurred_at`.
+- **`change`** (uno por hora, el más relevante): `OPENED`, `REACTIVATED`, `FINISHED`; si no, `LEVEL_RAISED` o `LEVEL_LOWERED` (incluidas las subidas silenciosas por intervención); si el nivel no cambió, `NO_DATA_STARTED` o `NO_DATA_ENDED`. Una hora sin cambio visible no publica nada.
+- **Cuándo**: igual que el aviso, después del commit, y nunca en el backfill. El puerto `AlertChangePublisher` es opcional (`ProcessingService.WithChangePublisher`); el adaptador al bus es `busAlertChangePublisher` (`internal/bootstrap`).
+- **Orden**: el consumidor aplica nivel y estado solo si `evaluated_at` es más nuevo que el que conoce.
+
 ## API (`/api/alerts`, sin autenticación todavía)
 
 | Método y ruta | Uso |
@@ -138,7 +147,7 @@ Sigue el patrón de `rule_threshold_versions`: solo se agregan versiones y nunca
 
 Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un duplicado o una hora vieja (`evaluated_at` ≤ `alert_processing_state.last_evaluated_at`) no hace nada.
 
-**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`, después del commit (ver "Notificaciones"). Hoy no tiene suscriptores. Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
+**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo y `alert_management.alert_changed` (v1) por cada cambio visible, de una hora `LIVE` o `CATCH_UP` y después del commit (ver "Notificaciones"). Hoy no tiene suscriptores. Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
 
 ## Catch-up y backfill (sección 9.2)
 

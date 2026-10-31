@@ -199,6 +199,24 @@ Los dos tópicos los publica `alert_management`, siempre después del commit:
 ### Decisión 6. Frontend
 - El permiso de notificaciones del navegador se pide **con un botón en el indicador de conexión**, nunca al cargar la app.
 
+**Qué se avisa en pantalla.** Solo los mensajes `NOTIFICACION` (`alert.notification`). Todo lo demás (`alert.changed`) actualiza el mapa y el panel en silencio.
+
+| Avisa (banner, notificación del navegador, sonido y push) | No avisa: solo actualiza mapa y panel |
+|---|---|
+| Alerta nueva: `OPEN`, `NEW_AFTER_CLASSIFIED` | Bajadas de nivel, fin de la alerta |
+| Subida de nivel: `UP_NARANJA_*`, `UP_ROJO` | Horas sin datos y su regreso (`NO_CALC_*`) |
+| Reactivación que supera el máximo anterior | Actualizaciones horarias (tendencia, cuenta regresiva, resumen…) |
+| | Subidas durante una intervención (la política las silencia), clasificación y etiqueta |
+
+- **Volumen**: la evaluación es horaria, así que hay como máximo un aviso por punto y hora. Una alerta típica genera de 1 a 3 avisos (abre, sube a Naranja, sube a Rojo). Volver a subir después de una bajada sí avisa otra vez, pero la bajada exige varias horas estables por debajo, así que no hay ping-pong.
+- **Un aviso por alerta en pantalla**: el banner agrupa por `alertCode`, y un aviso nuevo de la misma alerta reemplaza al anterior en vez de apilarse. La notificación del navegador usa `tag = alertCode` para que el sistema operativo haga lo mismo. Se muestran como máximo 3 banners a la vez.
+- **Sonido**: un tono corto al llegar un aviso, más insistente en Rojo.
+  - Los navegadores bloquean el audio hasta que el usuario interactúa con la página. El botón del indicador que activa las notificaciones también habilita el sonido, y tiene un control para silenciarlo (se recuerda en `localStorage`).
+  - Suena una sola vez por `messageId` y en una sola pestaña (coordinadas con `BroadcastChannel`).
+  - El tono se genera con la Web Audio API, sin archivos de audio.
+  - En el celular, el sonido lo decide la app con su canal de notificación (el mensaje es solo de datos). Se anota en el contrato FCM.
+- **Avisos atrasados (`late`)**: en la web se avisan igual que los demás (banner, sonido y notificación del navegador), con la etiqueta "Atrasado" para que no se ignoren. No van al push (decisión de la pregunta 7).
+
 ---
 
 ## 3. Flujo del evento
@@ -285,7 +303,8 @@ sequenceDiagram
 | `features/alerts/hooks/useAlertStream.ts` | N | Conexión única (singleton) + `useSyncExternalStore` para el estado; aplica los eventos a la caché |
 | `features/alerts/lib/streamCache.ts` (+test) | N | Reducers puros: `applyAlertChanged(active)`, `applyAlertChanged(pending)`, reglas de "más nuevo" |
 | `features/alerts/lib/newAlerts.ts` (+test) | M | El banner se alimenta del stream, con clave `messageId` (cubre `LEVEL_UP`) |
-| `features/alerts/lib/browserNotification.ts` | N | Notification API: solo con permiso y con la pestaña oculta |
+| `features/alerts/lib/browserNotification.ts` | N | Notification API: solo con permiso, con la pestaña oculta y `tag = alertCode` |
+| `features/alerts/lib/alertSound.ts` (+test) | N | Tono con Web Audio API (más insistente en Rojo), silencio recordado en `localStorage`, una vez por `messageId` y una sola pestaña (`BroadcastChannel`) |
 | `features/alerts/components/{NewAlertToast,RecentAlertsPanel,AlertListItem}.tsx` | M | Pasan al modelo `AlertItem`/`AlertLevel` |
 | `features/alerts/components/RealtimeStatus.tsx` | N | Indicador de conexión (En vivo / Reconectando / Sin conexión) + botón para activar las notificaciones del navegador |
 | `features/alerts/config/alertDisplay.ts` (+test) | M | `SEVERITY_STYLES` indexado por `AlertLevel` |
@@ -336,11 +355,12 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 - [ ] 19. `feat(alerts): apply stream events to query cache and pause polling while live`
 - [ ] 20. `feat(alerts): drive new alert banner from stream notifications`
 - [ ] 21. `feat(alerts): show browser notifications when tab is hidden`
-- [ ] 22. `feat(layout): add realtime connection indicator`
+- [ ] 22. `feat(alerts): play a sound for new and escalated alerts`
+- [ ] 23. `feat(layout): add realtime connection indicator`
 
 **Fase 5: pruebas y documentación**
-- [ ] 23. `test(bootstrap): cover alert to web and push delivery end to end`
-- [ ] 24. `docs(notifications): document module, event catalog and FCM contract`
+- [ ] 24. `test(bootstrap): cover alert to web and push delivery end to end`
+- [ ] 25. `docs(notifications): document module, event catalog and FCM contract`
 
 ---
 
@@ -420,7 +440,7 @@ Observaciones sobre su código. **No se corrigen aquí.**
 
 1. **Una falsa alerta sigue notificando**: `AlertNotification` no lleva la clasificación, y un test lo confirma. El commit 1 agrega el campo (aditivo) y el filtro queda en `notifications`. Hay que confirmar que ese es el comportamiento esperado en `alert_management`.
 2. **No se puede levantar la API de alertas sin la cadena de schedulers**: `alert_management` exige `rule_engine → processing → baseline`, y cada uno arranca su scheduler. No hay forma de levantar `/api/alerts` en solo lectura (por ejemplo, para desarrollo contra la base del piloto). Sugerencia: una variable que deshabilite los runners.
-3. **Catálogo del bus desactualizado**: en `shared/eventbus/README.md`, `rule_engine.level_evaluated` dice "Ninguno hoy (Alert Management)", pero `alert_management` ya está suscrito. El commit 24 actualiza el catálogo de los tópicos nuevos; esa fila se le deja a él.
+3. **Catálogo del bus desactualizado**: en `shared/eventbus/README.md`, `rule_engine.level_evaluated` dice "Ninguno hoy (Alert Management)", pero `alert_management` ya está suscrito. El commit 25 actualiza el catálogo de los tópicos nuevos; esa fila se le deja a él.
 4. **HTTP/2 en nginx** (`listen 443 ssl http2`), para el límite de conexiones del navegador (riesgo 4).
 
 ---
