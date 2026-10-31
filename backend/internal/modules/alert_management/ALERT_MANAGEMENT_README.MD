@@ -98,8 +98,9 @@ Para que el mapa y el panel se actualicen en tiempo real sin consultar la API.
 
 - **Evento**: `contract.AlertChanged` (`schema_version` 1), una **foto** de la alerta: `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `change`, `state`, `current_level`, `max_level`, `blinking`, `management_status`, `classification`, `started_at`, `evaluated_at` y `occurred_at`.
 - **`change`** (uno por hora, el más relevante): `OPENED`, `REACTIVATED`, `FINISHED`; si no, `LEVEL_RAISED` o `LEVEL_LOWERED` (incluidas las subidas silenciosas por intervención); si el nivel no cambió, `NO_DATA_STARTED` o `NO_DATA_ENDED`. Una hora sin cambio visible no publica nada.
-- **Cuándo**: igual que el aviso, después del commit, y nunca en el backfill. El puerto `AlertChangePublisher` es opcional (`ProcessingService.WithChangePublisher`); el adaptador al bus es `busAlertChangePublisher` (`internal/bootstrap`).
-- **Orden**: el consumidor aplica nivel y estado solo si `evaluated_at` es más nuevo que el que conoce.
+- **Gestión**: `ManagementService` publica `CLASSIFIED` y `LABELED` solo cuando el paso se guardó (`SAVED`); un conflicto, un reenvío (`ALREADY_RECEIVED`) o una observación libre no publican. Clasificar un rojo publica `blinking = false`: deja de titilar.
+- **Cuándo**: igual que el aviso, después del commit, y nunca en el backfill. El puerto `AlertChangePublisher` es opcional (`WithChangePublisher` en `ProcessingService` y `ManagementService`); el adaptador al bus es `busAlertChangePublisher` (`internal/bootstrap`).
+- **Orden**: el consumidor aplica nivel y estado solo si `evaluated_at` es más nuevo que el que conoce (en la gestión es la última hora procesada, no cambia); los campos de gestión, solo si `management_status` avanzó.
 
 ## API (`/api/alerts`, sin autenticación todavía)
 

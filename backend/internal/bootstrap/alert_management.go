@@ -82,7 +82,7 @@ func NewAlertManagementModule(platform *Platform) (*AlertManagementModule, error
 
 	handler := alertHTTP.NewAlertHandler(
 		alertServices.NewQueryService(alertRepositories.NewAlertQueries(platform.DB), alertExport.NewXLSXWriter(), clock, log),
-		alertServices.NewManagementService(store, clock, log),
+		alertServices.NewManagementService(store, clock, log).WithChangePublisher(busAlertChangePublisher{bus: platform.EventBus}),
 		alertServices.NewPolicyService(policies, clock, log),
 		log,
 	)

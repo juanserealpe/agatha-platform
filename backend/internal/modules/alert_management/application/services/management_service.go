@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/application/ports"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/messages"
@@ -80,13 +81,21 @@ type ManagementResult struct {
 // UPDATE solo afecta si el paso está vacío (y la BD lo impide con un
 // trigger). Clasificar o etiquetar NO cambia el estado de la alerta.
 type ManagementService struct {
-	store ports.AlertStore
-	clock ports.Clock
-	log   *logger.Logger
+	store   ports.AlertStore
+	changes ports.AlertChangePublisher
+	clock   ports.Clock
+	log     *logger.Logger
 }
 
 func NewManagementService(store ports.AlertStore, clock ports.Clock, log *logger.Logger) *ManagementService {
 	return &ManagementService{store: store, clock: clock, log: log}
+}
+
+// WithChangePublisher activa la publicación de alert_changed (CLASSIFIED y
+// LABELED). Es opcional.
+func (s *ManagementService) WithChangePublisher(p ports.AlertChangePublisher) *ManagementService {
+	s.changes = p
+	return s
 }
 
 // Classify (HU-2.2): solo con estado Sin clasificar.
@@ -109,7 +118,7 @@ func (s *ManagementService) Classify(ctx context.Context, cmd ClassifyCommand) (
 		ClassifiedDevice: cmd.DeviceIdentifier, ClassifiedRecordedAt: &recordedAt, ClassifiedClientRecordID: cmd.ClientRecordID,
 	}
 
-	return s.run(ctx, cmd.AlertID, cmd.ClientRecordID, func(tx ports.AlertTx, alert entities.Alert) (ManagementResult, error) {
+	result, err := s.run(ctx, cmd.AlertID, cmd.ClientRecordID, func(tx ports.AlertTx, alert entities.Alert) (ManagementResult, error) {
 		updated, err := tx.Classify(ctx, alert.ID, m)
 		if err != nil {
 			return ManagementResult{}, err
@@ -125,6 +134,10 @@ func (s *ManagementService) Classify(ctx context.Context, cmd ClassifyCommand) (
 			"clasificacion": messages.ClassificationName(cmd.Classification), "origen": originText(cmd.ActionOrigin),
 		}, now)
 	})
+	if err == nil {
+		s.publishChange(ctx, result, contract.ChangeClassified, now)
+	}
+	return result, err
 }
 
 // Label (HU-2.3, HU-2.4): solo con estado Clasificada sin etiqueta y con la
@@ -154,7 +167,7 @@ func (s *ManagementService) Label(ctx context.Context, cmd LabelCommand) (Manage
 		LabeledDevice: cmd.DeviceIdentifier, LabeledRecordedAt: &recordedAt, LabeledClientRecordID: cmd.ClientRecordID,
 	}
 
-	return s.run(ctx, cmd.AlertID, cmd.ClientRecordID, func(tx ports.AlertTx, alert entities.Alert) (ManagementResult, error) {
+	result, err := s.run(ctx, cmd.AlertID, cmd.ClientRecordID, func(tx ports.AlertTx, alert entities.Alert) (ManagementResult, error) {
 		if !alert.Management.Classified() {
 			return ManagementResult{}, domain.ErrNotClassified
 		}
@@ -176,6 +189,24 @@ func (s *ManagementService) Label(ctx context.Context, cmd LabelCommand) (Manage
 			"etiqueta": labelText(cmd.Label, otherText), "origen": originText(cmd.ActionOrigin),
 		}, now)
 	})
+	if err == nil {
+		s.publishChange(ctx, result, contract.ChangeLabeled, now)
+	}
+	return result, err
+}
+
+// publishChange publica la foto después del commit, solo si la gestión se
+// guardó (un conflicto o un reenvío no cambian la alerta). Un error se
+// registra y sigue: la gestión ya quedó guardada.
+func (s *ManagementService) publishChange(ctx context.Context, result ManagementResult, change string, now time.Time) {
+	if s.changes == nil || result.Outcome != OutcomeSaved {
+		return
+	}
+	a := result.Alert
+	if err := s.changes.PublishAlertChanged(ctx, toAlertChanged(a, change, a.LastEvaluatedAt, now)); err != nil {
+		s.log.Error("[ManagementService] No se pudo publicar el cambio de la alerta",
+			"alert", a.Code, "change", change, "error", err)
+	}
 }
 
 // AddObservation (RN-08): solo se agregan, nunca reemplazan.
