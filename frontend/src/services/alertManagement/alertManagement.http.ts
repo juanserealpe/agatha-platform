@@ -56,6 +56,19 @@ export const httpAlertManagementService: AlertManagementService = {
             errorMessage: "No fue posible cargar el detalle de la alerta. Intente nuevamente.",
         }),
 
+    getPending: (limit, signal) =>
+        httpClient.get(apiPath(...ALERTS_PATH, "pending"), {
+            query: { limit },
+            signal,
+            errorMessage: "No fue posible consultar las alertas sin clasificar. Intente nuevamente.",
+        }),
+
+    getActive: (signal) =>
+        httpClient.get(apiPath(...ALERTS_PATH, "active"), {
+            signal,
+            errorMessage: "No fue posible consultar las alertas activas. Intente nuevamente.",
+        }),
+
     classify: (id, request) => postManagement(apiPath(...ALERTS_PATH, id, "classification"), request),
 
     label: (id, request) => postManagement(apiPath(...ALERTS_PATH, id, "label"), request),

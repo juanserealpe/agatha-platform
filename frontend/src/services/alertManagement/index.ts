@@ -8,6 +8,8 @@ export type { AlertManagementService } from "./alertManagement.service";
 export { parseAlertId, toAlertId } from "./alertId";
 export { LABELS_BY_CLASSIFICATION, MANAGEMENT_LIMITS, OTHER_LABEL } from "./alertManagement.types";
 export type {
+    ActiveDevice,
+    ActiveResponse,
     AlertAction,
     AlertDetail,
     AlertEvent,
@@ -39,6 +41,7 @@ export type {
     ObservationKind,
     ObservationRequest,
     ObservationStep,
+    PendingResponse,
     TimelineMessage,
     TriggerVariable,
 } from "./alertManagement.types";
