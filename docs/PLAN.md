@@ -271,9 +271,8 @@ sequenceDiagram
 | `bootstrap/notifications.go` (+`_test.go`) | N | Wiring, traducción contrato→Notice, suscripciones con nombre, `TestEventEmitter` y prueba de punta a punta con el bus real |
 | `bootstrap/modules.go`, `application.go`, `modules_test.go` | M | `ModuleNotifications`, sin dependencia obligatoria (decisión 5) |
 | `cmd/platform/main.go` | M | Solo el comentario con la lista de módulos |
-| `notifications/domain/entities/*.go` | N | `AlertNotice`, `AlertChange`, `PushDevice`, enums `PushKind`, `PushLevel` |
+| `notifications/domain/entities/{enums,notice,push}.go` (+test) | N | `AlertNotice`, `AlertChange`, `PushMessage` (con `PKFromDeviceName`: `PK34-470` → `34+470`, igual que `extractPk`) y enums `PushKind`, `PushLevel`, `PushEvent`, `PushClassification`. `PushDevice` entra en el commit 8, junto con su tabla |
 | `notifications/domain/policies/*.go` (+tests) | N | **Strategy**: `ChannelPolicy` + `MobilePushPolicy`, `WebPolicy` |
-| `notifications/domain/pk.go` (+test) | N | Extrae la abscisa de `devices.name` (`PK34-470` → `34+470`), igual que `extractPk` |
 | `notifications/application/ports/*.go` | N | `PushTokenRepository`, `PushSender`, `RealtimeBroadcaster`, `DeviceDirectory`, `TestEventEmitter`, `Clock` |
 | `notifications/application/services/*.go` (+tests) | N | `PushTokenService` (upsert), `MobilePushService` (filtro → allowlist → envío a cada token → reintentos → limpieza), `WebRealtimeService` |
 | `notifications/infrastructure/events/*.go` | N | Subscribers + Notices propios (**Observer**) |
