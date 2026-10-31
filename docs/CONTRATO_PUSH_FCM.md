@@ -2,14 +2,17 @@
 
 HU-4.1 (Jira AGT-25). La app Android ya recibe y muestra push de alertas con Firebase Cloud
 Messaging (probado en un celular real con un mensaje de prueba de la consola de Firebase).
-Falta lo del lado del backend: guardar el token de cada celular y enviar los mensajes.
 Código de referencia en la app: `push/AlertPush.kt`, `push/AgathaMessagingService.kt`,
 `push/PushTokenStore.kt`, `core/device/DeviceOriginProvider.kt`.
+
+**Estado (2026-10-31): implementado en el backend** (módulo `notifications`, detalle en
+`backend/internal/modules/notifications/README.MD`). Este documento es el contrato final:
+lo que antes era propuesta quedó como se describe aquí.
 
 ## 1. Registro del token (implementado en el backend)
 
 La app no tiene login: cada celular se identifica con un `deviceId` propio (`CEL-XXXXXX`,
-el mismo que firma el origen "App móvil" de sus registros, RN-10). Proponemos:
+el mismo que firma el origen "App móvil" de sus registros, RN-10):
 
 ```
 PUT /api/devices/push-token
@@ -39,11 +42,13 @@ PUT /api/devices/push-token
 
 ## 2. Envío
 
-- Usar la **API FCM HTTP v1** (`POST https://fcm.googleapis.com/v1/projects/<id>/messages:send`)
-  autenticada con la **cuenta de servicio** del proyecto Firebase (OAuth2, p. ej. con el
-  Firebase Admin SDK). **No** usar la API legacy ni la "server key".
-- El JSON de la cuenta de servicio es un secreto: va en la configuración/secret manager del
-  servidor, **nunca** en un repositorio, chat o correo.
+- **API FCM HTTP v1** (`POST https://fcm.googleapis.com/v1/projects/agatha-5fe71/messages:send`),
+  autenticada con la **cuenta de servicio** del proyecto Firebase (OAuth2, sin el Admin SDK).
+  No se usa la API legacy ni la "server key".
+- El JSON de la cuenta de servicio es un secreto: en el VPS es un archivo montado en solo
+  lectura, **nunca** va al repositorio, a la imagen, a un chat o a un correo.
+- Un mensaje por celular registrado. Si FCM falla por algo pasajero (`429`, `5xx`, red), se
+  reintenta hasta 4 veces en total, respetando `Retry-After`. La app no tiene que hacer nada.
 
 ## 3. Formato del mensaje
 
@@ -56,16 +61,17 @@ PUT /api/devices/push-token
 
 | Clave | Obligatoria | Valores |
 |---|---|---|
-| `alertId` | sí | id de la alerta (abre `alert_detail/{alertId}` al tocar) |
+| `alertId` | sí | código de la alerta, `ALR-000142` (abre `alert_detail/{alertId}` al tocar) |
 | `level` | sí | `YELLOW` / `ORANGE` / `RED` (nivel actual) |
 | `kind` | no (por defecto `NEW`) | `NEW` (alerta generada) / `LEVEL_UP` (subió de nivel) |
-| `sensorId` | no | dispositivo |
-| `pk` | no | abscisa sin el prefijo "PK" (p. ej. `12+350`) |
-| `event` | no | `LEAK` / `MOVEMENT` / `LEAK_AND_MOVEMENT` |
-| `startedAt` | no | inicio de la alerta, RFC 3339 (`2026-10-18T14:32:00-05:00`) |
-| `classification` | no | `CONFIRMED` / `FALSE_ALARM`; omitir si está Sin clasificar |
+| `sensorId` | no | nombre del dispositivo (`devices.name`, p. ej. `Sensor PK34-470`) |
+| `pk` | no | abscisa sin el prefijo "PK" (p. ej. `34+470`), sacada del nombre del dispositivo |
+| `event` | no | `LEAK` / `MOVEMENT`. El backend hoy no envía `LEAK_AND_MOVEMENT` |
+| `startedAt` | no | inicio de la alerta, RFC 3339 con offset de Colombia (`2026-10-18T14:32:00-05:00`) |
+| `classification` | no | `CONFIRMED`; se omite si está Sin clasificar (`FALSE_ALARM` nunca se envía, §4) |
 
-Un mensaje sin `alertId` o sin `level` válido se descarta en la app.
+Los campos opcionales se omiten cuando no hay dato (p. ej. un nombre de dispositivo sin PK
+no lleva `pk`). Un mensaje sin `alertId` o sin `level` válido se descarta en la app.
 
 ## 4. Cuándo enviar (HU-4.1)
 
@@ -73,7 +79,11 @@ Un mensaje sin `alertId` o sin `level` válido se descarta en la app.
   (`kind=LEVEL_UP`, p. ej. Amarillo → Naranja), a todos los tokens registrados.
 - **Nunca:** por avisos **grises** (sin comunicación / indicador no calculable, RN-02), por
   el nivel **normal** (Verde), ni por alertas clasificadas o suprimidas como **Falsa alerta**.
-  La app también los descarta si llegan, pero el backend no debería enviarlos.
+  La app también los descarta si llegan, pero el backend no los envía.
+- **Tampoco** por horas que llegan atrasadas (se procesan tarde): el aviso ya no es actual.
+  La web sí las muestra, marcadas como atrasadas.
+- Mensajes de Alert Management que generan push: `OPEN` y `NEW_AFTER_CLASSIFIED` → `NEW`;
+  `UP_NARANJA_PERSIST`, `UP_NARANJA_FAST`, `UP_ROJO` y `REACTIVATED` → `LEVEL_UP`.
 
 ## 5. Limpieza de tokens
 
@@ -88,11 +98,11 @@ desinstaló o el token caducó. Cuando la app obtenga uno nuevo lo volverá a re
     "token": "<token FCM del celular>",
     "android": { "priority": "HIGH" },
     "data": {
-      "alertId": "ALR-0142",
+      "alertId": "ALR-000142",
       "level": "ORANGE",
       "kind": "LEVEL_UP",
-      "sensorId": "AGT-S-07",
-      "pk": "12+350",
+      "sensorId": "Sensor PK34-470",
+      "pk": "34+470",
       "event": "LEAK",
       "startedAt": "2026-10-18T14:32:00-05:00"
     }
@@ -100,5 +110,5 @@ desinstaló o el token caducó. Cuando la app obtenga uno nuevo lo volverá a re
 }
 ```
 
-Resultado en el celular: "La alerta ALR-0142 subió a Naranja", con dispositivo, PK, evento e
+Resultado en el celular: "La alerta ALR-000142 subió a Naranja", con dispositivo, PK, evento e
 inicio; al tocarla abre el detalle de la alerta.

@@ -185,6 +185,8 @@ Tres detalles que se olvidan seguido:
 |---|---|---|---|---|
 | `processing.indicator_evaluated` | Processing (`EvaluationService.EvaluatePending`, post-commit, uno por ventana 24 h/6 h, solo si el lote se insertó completo; no en `Backfill`) | `IndicatorEvaluated` | Rule Engine (`EvaluateIndicator`) | `rule_engine.indicator_evaluated` |
 | `rule_engine.level_evaluated` | Rule Engine (`EvaluationService`, post-commit, cada hora de 24 h `CALCULATED` —incluida NORMAL— y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | `LevelEvaluated` (`SchemaVersion = 2`) | Ninguno hoy (Alert Management) | — |
+| `alert_management.alert_notification` | Alert Management (`ProcessingService`, post-commit, uno por cada mensaje `NOTIFICACION` nuevo, de horas `LIVE` y `CATCH_UP`) | `AlertNotification` (`SchemaVersion = 1`) | Notifications: canal web (todos los avisos) y canal push (solo `NEW`/`LEVEL_UP` que no sean atrasados ni falsa alerta) | `notifications.alert_notification.web`, `notifications.alert_notification.push` (timeout de 3 min) |
+| `alert_management.alert_changed` | Alert Management (`ProcessingService` post-commit en cada cambio visible de la alerta; `ManagementService` al clasificar y etiquetar) | `AlertChanged` (`SchemaVersion = 1`) | Notifications: canal web (mapa y panel) | `notifications.alert_changed.web` |
 
 ---
 

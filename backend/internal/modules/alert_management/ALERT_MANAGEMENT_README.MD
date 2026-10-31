@@ -148,7 +148,7 @@ Sigue el patrón de `rule_threshold_versions`: solo se agregan versiones y nunca
 
 Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un duplicado o una hora vieja (`evaluated_at` ≤ `alert_processing_state.last_evaluated_at`) no hace nada.
 
-**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo y `alert_management.alert_changed` (v1) por cada cambio visible, de una hora `LIVE` o `CATCH_UP` y después del commit (ver "Notificaciones"). Hoy no tiene suscriptores. Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
+**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo y `alert_management.alert_changed` (v1) por cada cambio visible, de una hora `LIVE` o `CATCH_UP` y después del commit (ver "Notificaciones"). Los consume el módulo `notifications` (web y push). Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
 
 ## Catch-up y backfill (sección 9.2)
 

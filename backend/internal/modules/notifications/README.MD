@@ -2,7 +2,7 @@
 
 Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1, contrato en `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas: eso es de Alert Management. Plan completo y estado en `docs/PLAN.md`.
 
-> En construcción. El canal web ya funciona (`GET /api/notifications/stream`) y la app ya puede registrar su token (`PUT /api/devices/push-token`); y el canal móvil envía por FCM cuando hay credencial. Para desarrollo hay un endpoint que simula eventos de alerta.
+Estado: los dos canales están implementados. La web recibe el stream (`GET /api/notifications/stream`). La app registra su token (`PUT /api/devices/push-token`) y recibe push por FCM cuando el servidor tiene la credencial. Para desarrollo hay un endpoint que simula eventos de alerta.
 
 **Para los clientes (web y app)**: endpoints, eventos, reglas para aplicar el estado y reconexión en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD). Este README describe cómo está hecho el módulo por dentro.
 
@@ -151,11 +151,19 @@ Plantilla con valores seguros por defecto en [`backend/.env.example`](../../../.
 - **Credencial**: va en `backend/secrets/fcm-service-account.json` del VPS, que se monta en solo lectura en `/run/secrets/agatha/`. Git y `.dockerignore` ignoran `secrets/`, así que nunca llega al repositorio ni a la imagen. El contenedor corre con un usuario sin root, así que el archivo tiene que ser legible (`chmod 444`).
 - Si falta la credencial, el push queda deshabilitado (`NoopSender`, con el error en el log) y el resto de la plataforma arranca igual.
 
+## Pruebas
+
+Todas corren sin base de datos (stores en memoria y `fcmtest.FakeSender`), con `go test ./...`.
+
+- **Dominio**: `MobilePushPolicy` y `WebPolicy` (tabla de casos), extracción del `pk`, armado del `PushMessage` y validación del registro de tokens y de los eventos de prueba.
+- **Servicios**: `NoticeDispatcher`, `PushTokenService` y `MobilePushService` (reintentos con reloj falso, `Retry-After`, sin reintento en `400`, limpieza por `UNREGISTERED`, allowlist).
+- **Infraestructura**: hub SSE (reparto, cliente lento, tope de clientes, heartbeat, reenvío con `Last-Event-ID` y `resync`), `StreamHandler`, handlers HTTP, credencial y mensaje de FCM, y `HTTPV1Sender` contra un `httptest.Server`.
+- **Cableado** (`internal/bootstrap`): `notifications_test.go` prueba la traducción de los contratos, que cada canal reciba lo que su política permite y el paso del bus al stream SSE. `notifications_end_to_end_test.go` recorre la cadena completa con el bus real (Processing → Rule Engine → Alert Management → Notifications): el push solo recibe `NEW` y `LEVEL_UP`, y la web recibe todos los avisos y cambios, incluido `CLASSIFIED`.
+
 ## Riesgos conocidos
 
 - **Stream sin autenticación** (aceptado para el piloto): cualquiera que llegue al backend puede abrirlo. El tope de clientes limita el abuso.
 - **Registro de tokens sin autenticación** (aceptado para el piloto): cualquiera podría registrar un token y recibir los push. Lo acotan el cuerpo de 4 KB, `token` ≤ 4096, `deviceId` ≤ 128 y `platform = ANDROID`.
 - Con HTTP/1.1 el navegador abre como máximo 6 conexiones por origen, y cada pestaña ocupa una con el stream.
-
 - El bus es en memoria: un aviso se pierde si el proceso cae entre el commit y la publicación. La fuente de verdad es `alert_messages` (`kind = NOTIFICACION`).
 - Mejora futura: la abscisa debería ser una columna propia del dispositivo, no deducirse del nombre.

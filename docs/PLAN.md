@@ -368,8 +368,8 @@ Commits extra de la fase 4 (2026-10-31), surgidos al revisar con el usuario:
 **Demo de punta a punta (pendiente, después de la fase 5)**: planear con el usuario una demo que recorra todo lo construido (stream, mapa, panel, banner, notificación del navegador, sonido, indicador y push), sobre la prueba manual de la sección 6.3.
 
 **Fase 5: pruebas y documentación**
-- [ ] 24. `test(bootstrap): cover alert to web and push delivery end to end`
-- [ ] 25. `docs(notifications): document module, event catalog and FCM contract`
+- [x] 24. `test(bootstrap): cover alert to web and push delivery end to end`
+- [x] 25. `docs(notifications): document module, event catalog and FCM contract`
 
 ---
 
