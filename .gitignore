@@ -5,6 +5,9 @@
 .env.*
 !.env.example
 
+# Credenciales montadas en Docker (cuenta de servicio de FCM)
+backend/secrets/
+
 # Go build artifacts
 /bin/
 *.exe

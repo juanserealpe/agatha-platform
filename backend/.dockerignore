@@ -1,6 +1,7 @@
 # Secretos: se inyectan en runtime vía env_file, nunca dentro de la imagen.
 .env
 .env.*
+secrets
 
 # Documentación, tooling y artefactos que no participan del build.
 .claude

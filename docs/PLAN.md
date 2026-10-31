@@ -189,7 +189,7 @@ Los dos tópicos los publica `alert_management`, siempre después del commit:
 - **Archivo montado**: `FCM_SERVICE_ACCOUNT_FILE` (montado en solo lectura en Docker). Como respaldo, `FCM_SERVICE_ACCOUNT_JSON_BASE64`, que son ~10 líneas más; si hay archivo, tiene prioridad.
 - **Proyecto**: `FCM_PROJECT_ID=agatha-5fe71`, por variable (no se lee del JSON).
 - **Sin credencial** → `NoopSender`, que registra en el log que el push está deshabilitado. El canal web sigue funcionando.
-- **`FCM_VALIDATE_ONLY=true`** usa `validate_only` de FCM v1: valida el mensaje y el token sin entregarlo. Es para local.
+- **`FCM_VALIDATE_ONLY`** usa `validate_only` de FCM v1: valida el mensaje y el token sin entregarlo. **Es `true` por defecto**: los push reales se piden con `false`, y solo lo hace el `docker-compose.yml` del VPS (commit 14). Se descartó depender de `AGATHA_ENV=production`, porque el compose del VPS no la define y activarla cambiaría los bloqueos de `-rebuild` del backfill.
 - **`NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST`** (opcional, `deviceId` separados por coma): si está definida, solo se envía a esos dispositivos. Es para probar en un celular desde local sin llegar a los del piloto.
 - El backend nunca lee ni muestra el contenido del JSON en logs ni en errores.
 
@@ -335,13 +335,13 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 - [x] 7. `feat(notifications): expose realtime alert stream endpoint`
 
 **Fase 3: canal FCM**
-- [ ] 8. `feat(notifications): persist push device tokens`
-- [ ] 9. `feat(notifications): add push token registration endpoint`
-- [ ] 10. `feat(notifications): add FCM HTTP v1 sender with service account auth`
-- [ ] 11. `feat(notifications): deliver mobile push with retries and token cleanup`
-- [ ] 12. `feat(notifications): add dev-only endpoint to emit test events`
-- [ ] 13. `chore(backend): add env example with notification settings`
-- [ ] 14. `chore(docker): enable notifications module and mount FCM credential`
+- [x] 8. `feat(notifications): persist push device tokens`
+- [x] 9. `feat(notifications): add push token registration endpoint`
+- [x] 10. `feat(notifications): add FCM HTTP v1 sender with service account auth`
+- [x] 11. `feat(notifications): deliver mobile push with retries and token cleanup`
+- [x] 12. `feat(notifications): add dev-only endpoint to emit test events`
+- [x] 13. `chore(backend): add env example with notification settings`
+- [x] 14. `chore(docker): enable notifications module and mount FCM credential`
 
 **Commit C (lo hace el usuario, aparte): CORS.** Va antes de la fase 4, porque el frontend desplegado en Vercel lo necesita.
 - Métodos: `GET, POST, PUT, OPTIONS`. Cabeceras: `Content-Type` y `Last-Event-ID`.
@@ -443,7 +443,9 @@ Observaciones sobre su código. **No se corrigen aquí.**
 2. **No se puede levantar la API de alertas sin la cadena de schedulers**: `alert_management` exige `rule_engine → processing → baseline`, y cada uno arranca su scheduler. No hay forma de levantar `/api/alerts` en solo lectura (por ejemplo, para desarrollo contra la base del piloto). Sugerencia: una variable que deshabilite los runners.
 3. **Catálogo del bus desactualizado**: en `shared/eventbus/README.md`, `rule_engine.level_evaluated` dice "Ninguno hoy (Alert Management)", pero `alert_management` ya está suscrito. El commit 25 actualiza el catálogo de los tópicos nuevos; esa fila se le deja a él.
 4. **HTTP/2 en nginx** (`listen 443 ssl http2`), para el límite de conexiones del navegador (riesgo 4).
-5. **`ARQUITECTURA_LITE.md` desactualizado en Docker**: la sección "Docker" todavía dice `AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine` y `8080:8080`, pero desde el merge de `dev` el compose incluye `alert_management` y publica `127.0.0.1:8080:8080`. Se dejó sin tocar; el commit 14 agrega `notifications` al compose.
+5. **`ARQUITECTURA_LITE.md` desactualizado en Docker** (resuelto en el commit 14): la sección "Docker" decía `AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine` y `8080:8080`. El commit 14 la actualizó con el compose actual (`alert_management`, `notifications` y `127.0.0.1:8080:8080`).
+6. **`AGATHA_ENV` no está en el `docker-compose.yml`**: si el `.env` del VPS tampoco la define, los bloqueos de `-rebuild` para producción no se activan. No se tocó; conviene que él decida si la agrega.
+7. **Antes de desplegar `notifications`**: copiar la cuenta de servicio de FCM a `backend/secrets/fcm-service-account.json` en el VPS (con `chmod 444`). Sin ella, el push queda deshabilitado y el resto funciona.
 
 ---
 

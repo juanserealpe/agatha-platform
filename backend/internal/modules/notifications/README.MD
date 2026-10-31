@@ -141,9 +141,15 @@ Plantilla con valores seguros por defecto en [`backend/.env.example`](../../../.
 | `FCM_PROJECT_ID` | `agatha-5fe71` | Proyecto Firebase |
 | `FCM_SERVICE_ACCOUNT_FILE` | — | Ruta del JSON de la cuenta de servicio (montado en solo lectura). Tiene prioridad |
 | `FCM_SERVICE_ACCOUNT_JSON_BASE64` | — | Respaldo: el mismo JSON en base64 |
-| `FCM_VALIDATE_ONLY` | `false` | FCM valida los mensajes sin entregarlos (para probar desde local) |
+| `FCM_VALIDATE_ONLY` | `true` | FCM valida los mensajes sin entregarlos. Los push reales se piden con `false`, como hace el `docker-compose.yml` del VPS; así un backend local con la credencial no llega a los celulares del piloto |
 | `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` | — | `deviceId` separados por coma: solo se envía a esos. Vacía = todos |
 | `NOTIFICATIONS_TEST_ENDPOINT` | `false` | Habilita `POST /api/notifications/test-event` si `AGATHA_ENV` no es `production`. **Nunca en el VPS** |
+
+## Despliegue (Docker)
+
+- `docker-compose.yml` incluye `notifications` en `AGATHA_MODULES`, define `FCM_VALIDATE_ONLY=false` y fuerza `NOTIFICATIONS_TEST_ENDPOINT=false` (las variables de `environment` pisan las del `.env`).
+- **Credencial**: va en `backend/secrets/fcm-service-account.json` del VPS, que se monta en solo lectura en `/run/secrets/agatha/`. Git y `.dockerignore` ignoran `secrets/`, así que nunca llega al repositorio ni a la imagen. El contenedor corre con un usuario sin root, así que el archivo tiene que ser legible (`chmod 444`).
+- Si falta la credencial, el push queda deshabilitado (`NoopSender`, con el error en el log) y el resto de la plataforma arranca igual.
 
 ## Riesgos conocidos
 

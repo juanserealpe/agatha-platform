@@ -221,3 +221,21 @@ func TestEnvBool(t *testing.T) {
 		}
 	}
 }
+
+// Sin FCM_VALIDATE_ONLY no se entregan push reales: hay que pedirlo con false.
+func TestPushConfig_ValidateOnlyByDefault(t *testing.T) {
+	log := logger.New("NotificationsTest", "Error")
+	t.Setenv(FCMValidateOnlyEnv, "")
+	t.Setenv(FCMProjectIDEnv, "")
+	if cfg := pushConfig(log); !cfg.ValidateOnly || cfg.ProjectID != defaultFCMProjectID {
+		t.Fatalf("config = %+v", cfg)
+	}
+	t.Setenv(FCMValidateOnlyEnv, "false")
+	if pushConfig(log).ValidateOnly {
+		t.Fatal("con false se entregan los push")
+	}
+	t.Setenv(FCMValidateOnlyEnv, "tal vez")
+	if !pushConfig(log).ValidateOnly {
+		t.Fatal("un valor inválido debe quedar en validación")
+	}
+}

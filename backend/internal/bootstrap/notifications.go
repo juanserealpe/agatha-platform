@@ -109,19 +109,28 @@ func NewNotificationsModule(platform *Platform) (*NotificationsModule, error) {
 	return m, nil
 }
 
+// pushConfig lee la configuración de FCM. FCM_VALIDATE_ONLY es true si no se
+// define: para entregar push reales hay que pedirlo explícitamente con false
+// (lo hace el docker-compose del VPS). Así un backend local con la credencial
+// no llega por error a los celulares del piloto.
+func pushConfig(log *logger.Logger) fcm.Config {
+	cfg := fcm.Config{
+		ProjectID:                strings.TrimSpace(os.Getenv(FCMProjectIDEnv)),
+		ServiceAccountFile:       os.Getenv(FCMServiceAccountFileEnv),
+		ServiceAccountJSONBase64: os.Getenv(FCMServiceAccountBase64Env),
+		ValidateOnly:             envBool(log, FCMValidateOnlyEnv, true),
+	}
+	if cfg.ProjectID == "" {
+		cfg.ProjectID = defaultFCMProjectID
+	}
+	return cfg
+}
+
 // newPushSender arma el sender de FCM. Sin credencial, o si la credencial no
 // sirve, usa NoopSender: el push queda deshabilitado pero la plataforma (y el
 // canal web) arrancan igual.
 func newPushSender(log *logger.Logger) notificationPorts.PushSender {
-	cfg := fcm.Config{
-		ProjectID:                os.Getenv(FCMProjectIDEnv),
-		ServiceAccountFile:       os.Getenv(FCMServiceAccountFileEnv),
-		ServiceAccountJSONBase64: os.Getenv(FCMServiceAccountBase64Env),
-		ValidateOnly:             envBool(log, FCMValidateOnlyEnv, false),
-	}
-	if strings.TrimSpace(cfg.ProjectID) == "" {
-		cfg.ProjectID = defaultFCMProjectID
-	}
+	cfg := pushConfig(log)
 	if !cfg.HasCredential() {
 		log.Warn("push FCM deshabilitado: falta la credencial", "file_env", FCMServiceAccountFileEnv, "base64_env", FCMServiceAccountBase64Env)
 		return fcm.NewNoopSender(log)
@@ -131,11 +140,14 @@ func newPushSender(log *logger.Logger) notificationPorts.PushSender {
 		log.Error("push FCM deshabilitado: la credencial no sirve", "error", err)
 		return fcm.NewNoopSender(log)
 	}
-	log.Info("push FCM habilitado", "project_id", cfg.ProjectID, "validate_only", cfg.ValidateOnly)
-	if !cfg.ValidateOnly && os.Getenv(EnvironmentEnv) != "production" &&
-		strings.Trim(os.Getenv(NotificationsPushAllowlistEnv), " ,") == "" {
-		log.Warn("push FCM real fuera de producción y sin allowlist: los avisos llegarán a todos los celulares registrados",
-			"validate_only_env", FCMValidateOnlyEnv, "allowlist_env", NotificationsPushAllowlistEnv)
+	switch {
+	case cfg.ValidateOnly:
+		log.Info("push FCM en modo validación: FCM valida los mensajes y no los entrega", "project_id", cfg.ProjectID,
+			"enable_env", FCMValidateOnlyEnv+"=false")
+	case strings.Trim(os.Getenv(NotificationsPushAllowlistEnv), " ,") == "":
+		log.Warn("push FCM real habilitado para TODOS los celulares registrados", "project_id", cfg.ProjectID)
+	default:
+		log.Info("push FCM real habilitado solo para la allowlist", "project_id", cfg.ProjectID)
 	}
 	return sender
 }
