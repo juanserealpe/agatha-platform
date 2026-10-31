@@ -68,12 +68,12 @@ export function MapLegend() {
                         <h3 className="mb-1.5 font-semibold text-gray-900">Estado del punto</h3>
                         <ul className="flex flex-col gap-1.5">
                             {LEGEND_TONES.map((tone) => (
-                                <Row key={tone} symbol={<Dot color={NODE_TONE_STYLES[tone].hex} blink={tone === "red"} />}>
+                                <Row key={tone} symbol={<Dot color={NODE_TONE_STYLES[tone].hex} blink={tone === "ROJO"} />}>
                                     {NODE_TONE_STYLES[tone].label}
-                                    {tone === "red" && <span className="text-gray-500"> (titila mientras esté sin clasificar)</span>}
+                                    {tone === "ROJO" && <span className="text-gray-500"> (titila mientras esté sin clasificar)</span>}
                                 </Row>
                             ))}
-                            <Row symbol={<Dot color={NODE_TONE_STYLES.orange.hex} warning />}>
+                            <Row symbol={<Dot color={NODE_TONE_STYLES.NARANJA.hex} warning />}>
                                 Alerta + aviso <span className="text-gray-500">(conserva el color de la alerta)</span>
                             </Row>
                         </ul>

@@ -1,12 +1,12 @@
 import type { CSSProperties } from "react";
 import { ArrowRight, BellRing, X } from "lucide-react";
-import { formatPk } from "@/features/sensors";
 import { RelativeTime } from "@/shared/components/RelativeTime";
 import { cn } from "@/lib/utils";
-import { ALERT_TYPE_LABEL, SEVERITY_STYLES, shouldPulse } from "../config/alertDisplay";
+import { displayLevel, EVENT_LABEL, levelStyle } from "../config/alertManagementDisplay";
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
 import { useNewAlerts } from "../hooks/useNewAlerts";
-import { pickHeadline } from "../lib/newAlerts";
+import { mostUrgentAlert } from "../lib/alertPriority";
+import { devicePkLabel } from "../lib/deviceLabel";
 
 /**
  * Aviso de alerta nueva. No se cierra solo: en monitoreo una alerta no debe desaparecer sin que alguien la vea.
@@ -15,13 +15,14 @@ import { pickHeadline } from "../lib/newAlerts";
 export function NewAlertToast() {
     const { unseen, dismiss } = useNewAlerts();
     const { open } = useAlertDetailParam();
-    const alert = pickHeadline(unseen);
+    const alert = mostUrgentAlert(unseen);
 
     if (!alert) return null;
 
-    const severity = SEVERITY_STYLES[alert.severity];
+    const level = displayLevel(alert);
+    const severity = levelStyle(level);
     const others = unseen.length - 1;
-    const isUrgent = alert.severity === "red";
+    const isUrgent = level === "ROJO";
 
     return (
         <div
@@ -31,7 +32,7 @@ export function NewAlertToast() {
             className={cn(
                 "w-80 max-w-[calc(100%-1.5rem)] rounded-xl border-2 bg-white p-3 shadow-xl",
                 severity.borderClass,
-                shouldPulse(alert) && "alert-glow"
+                alert.blinking && "alert-glow"
             )}
         >
             <div className="flex items-center gap-2">
@@ -56,22 +57,21 @@ export function NewAlertToast() {
             </div>
 
             <p className="mt-1.5 text-sm text-gray-800">
-                <span className="font-semibold">{ALERT_TYPE_LABEL[alert.type]}</span>
+                <span className="font-semibold">{EVENT_LABEL[alert.event]}</span>
                 <span className="font-data-mono text-xs text-gray-500">
-                    {" "}· Disp. {alert.deviceId}
-                    {alert.pkMeters !== null && <> · {formatPk(alert.pkMeters)}</>}
+                    {" "}· {devicePkLabel(alert.device.pk)} · {alert.code}
                 </span>
             </p>
 
             <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
                 <span className="whitespace-nowrap">
-                    Detectada <RelativeTime value={alert.detectedAt} />
+                    Inició <RelativeTime value={alert.started_at} />
                 </span>
                 <button
                     type="button"
                     onClick={() => {
                         dismiss(alert.id);
-                        open(alert.id);
+                        open(String(alert.id));
                     }}
                     className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 font-semibold text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-gray-900"
                 >

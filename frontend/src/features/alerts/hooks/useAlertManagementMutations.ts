@@ -35,6 +35,9 @@ function applyManagementResult(queryClient: QueryClient, result: ManagementResul
         patchDetailManagement(detail, result.alert)
     );
     void queryClient.invalidateQueries({ queryKey: alertKeys.management(result.alert.id) });
+    // Clasificar la saca del panel "Sin clasificar" y apaga el titileo del mapa: se recargan ya.
+    void queryClient.invalidateQueries({ queryKey: alertKeys.pending() });
+    void queryClient.invalidateQueries({ queryKey: alertKeys.active() });
 }
 
 function useManagementMutation<TInput>(

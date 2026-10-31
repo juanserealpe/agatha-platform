@@ -18,7 +18,7 @@ interface LeakLevelStyle {
 // Misma escala que las alertas: el nivel que marca el indicador es el que verá el operador en la alerta.
 export const LEAK_LEVEL_STYLES: Record<LeakLevel, LeakLevelStyle> = {
     normal: { label: "Normal", badgeClass: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200", hex: "#10b981" },
-    amarillo: { label: "Amarillo", badgeClass: SEVERITY_STYLES.yellow.badgeClass, hex: SEVERITY_STYLES.yellow.hex },
-    naranja: { label: "Naranja", badgeClass: SEVERITY_STYLES.orange.badgeClass, hex: SEVERITY_STYLES.orange.hex },
-    rojo: { label: "Rojo", badgeClass: SEVERITY_STYLES.red.badgeClass, hex: SEVERITY_STYLES.red.hex },
+    amarillo: { label: "Amarillo", badgeClass: SEVERITY_STYLES.AMARILLO.badgeClass, hex: SEVERITY_STYLES.AMARILLO.hex },
+    naranja: { label: "Naranja", badgeClass: SEVERITY_STYLES.NARANJA.badgeClass, hex: SEVERITY_STYLES.NARANJA.hex },
+    rojo: { label: "Rojo", badgeClass: SEVERITY_STYLES.ROJO.badgeClass, hex: SEVERITY_STYLES.ROJO.hex },
 };

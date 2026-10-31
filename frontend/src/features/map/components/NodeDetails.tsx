@@ -1,5 +1,5 @@
 import { Activity, ArrowRight } from "lucide-react";
-import { ALERT_STATUS_LABEL, ALERT_TYPE_LABEL, SEVERITY_STYLES } from "@/features/alerts";
+import { displayLevel, EVENT_LABEL, levelStyle, MANAGEMENT_STATUS_STYLES } from "@/features/alerts";
 import { formatPk } from "@/features/sensors";
 import { RelativeTime } from "@/shared/components/RelativeTime";
 import { cn } from "@/lib/utils";
@@ -55,6 +55,7 @@ const ACTION_CLASS =
 /** Detalle del punto al hacer clic, con las acciones disponibles. */
 export function NodePopupContent({ node, onOpenAlert, onShowTelemetry }: NodePopupContentProps) {
     const { activeAlert, device } = node;
+    const alertStyle = activeAlert && levelStyle(displayLevel(activeAlert));
 
     return (
         <div className="flex w-60 flex-col gap-3 font-sans text-xs text-gray-700">
@@ -63,13 +64,11 @@ export function NodePopupContent({ node, onOpenAlert, onShowTelemetry }: NodePop
                 <p className="font-data-mono text-gray-500">{formatPk(node.pkMeters)}</p>
             </div>
 
-            {activeAlert && (
+            {activeAlert && alertStyle && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                    <span className={cn("rounded-full px-2 py-0.5 font-semibold", SEVERITY_STYLES[activeAlert.severity].badgeClass)}>
-                        {SEVERITY_STYLES[activeAlert.severity].label}
-                    </span>
-                    <span className="font-semibold text-gray-900">{ALERT_TYPE_LABEL[activeAlert.type]}</span>
-                    <span className="text-gray-500">· {ALERT_STATUS_LABEL[activeAlert.status]}</span>
+                    <span className={cn("rounded-full px-2 py-0.5 font-semibold", alertStyle.badgeClass)}>{alertStyle.label}</span>
+                    <span className="font-semibold text-gray-900">{EVENT_LABEL[activeAlert.event]}</span>
+                    <span className="text-gray-500">· {MANAGEMENT_STATUS_STYLES[activeAlert.management_status].label}</span>
                 </div>
             )}
 
@@ -84,7 +83,7 @@ export function NodePopupContent({ node, onOpenAlert, onShowTelemetry }: NodePop
                     {activeAlert && (
                         <button
                             type="button"
-                            onClick={() => onOpenAlert(activeAlert.id)}
+                            onClick={() => onOpenAlert(String(activeAlert.id))}
                             className={cn(ACTION_CLASS, "bg-gray-900 text-white hover:bg-gray-700")}
                         >
                             Ver detalle de la alerta <ArrowRight size={14} aria-hidden />

@@ -1,23 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
-import { alertsService } from "@/services/alerts";
+import { alertManagementService } from "@/services/alertManagement";
 import { alertKeys } from "./alertKeys";
 
 // Las alertas son lo más urgente de la pantalla: se consultan con más frecuencia que los dispositivos.
 const ALERTS_REFETCH_MS = 30_000;
-const DEFAULT_RECENT_LIMIT = 5;
+/** Filas del panel; el total de Sin clasificar llega aparte en la respuesta. */
+const PENDING_PANEL_LIMIT = 5;
 
-export function useRecentAlerts(limit = DEFAULT_RECENT_LIMIT) {
+/** Las Sin clasificar más recientes y cuántas hay en total. */
+export function usePendingAlerts() {
     return useQuery({
-        queryKey: alertKeys.recent(limit),
-        queryFn: () => alertsService.getRecent(limit),
+        queryKey: alertKeys.pending(),
+        queryFn: ({ signal }) => alertManagementService.getPending(PENDING_PANEL_LIMIT, signal),
         refetchInterval: ALERTS_REFETCH_MS,
     });
 }
 
-export function usePendingAlerts() {
+/** Alertas activas agrupadas por punto de medición, con el nivel mayor y si alguna titila. */
+export function useActiveAlerts() {
     return useQuery({
-        queryKey: alertKeys.pending(),
-        queryFn: () => alertsService.getPending(),
+        queryKey: alertKeys.active(),
+        queryFn: ({ signal }) => alertManagementService.getActive(signal),
         refetchInterval: ALERTS_REFETCH_MS,
     });
 }

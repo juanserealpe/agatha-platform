@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
+import type { AlertId } from "@/services/alertManagement";
 import { dismissAlert, ingestAlerts, INITIAL_NEW_ALERTS_STATE, type NewAlertsState } from "../lib/newAlerts";
-import { useRecentAlerts } from "./useAlerts";
+import { usePendingAlerts } from "./useAlerts";
 
 // Estado a nivel de módulo: sobrevive al cambio de pestaña, así una alerta que llega mientras el
 // usuario está en Historial se notifica al volver al mapa (en vez de entrar en la línea base).
@@ -18,17 +19,21 @@ function subscribe(listener: () => void) {
     return () => listeners.delete(listener);
 }
 
-/** Alertas que llegaron después de abrir la pantalla y que el usuario aún no ha visto ni descartado. */
+/**
+ * Alertas que llegaron después de abrir la pantalla y que el usuario aún no ha visto ni descartado.
+ * Por ahora se detectan como ids nuevos en la lista de Sin clasificar; una subida de nivel conserva el id
+ * y no se avisa hasta que el aviso se alimente del stream.
+ */
 export function useNewAlerts() {
-    const { data, isSuccess } = useRecentAlerts();
+    const { data, isSuccess } = usePendingAlerts();
     const current = useSyncExternalStore(subscribe, () => state);
 
     useEffect(() => {
-        if (isSuccess) setState(ingestAlerts(state, data));
+        if (isSuccess) setState(ingestAlerts(state, data.items));
     }, [data, isSuccess]);
 
     return {
         unseen: current.unseen,
-        dismiss: (alertId: string) => setState(dismissAlert(state, alertId)),
+        dismiss: (alertId: AlertId) => setState(dismissAlert(state, alertId)),
     };
 }

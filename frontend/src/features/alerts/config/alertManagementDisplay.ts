@@ -1,8 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import { CircleCheck, CircleDashed, CircleDot } from "lucide-react";
-import type { AlertSeverity } from "@/services/alerts";
 import type {
     AlertEvent,
+    AlertItem,
     AlertLabel,
     AlertLevel,
     Classification,
@@ -16,19 +16,18 @@ import { SEVERITY_STYLES, type SeverityStyle } from "./alertDisplay";
 // Único lugar donde los enums de Alert Management se traducen a textos y estilos. Los componentes no
 // comparan strings del backend: consultan estos catálogos.
 
-const LEVEL_SEVERITY: Record<AlertLevel, AlertSeverity> = {
-    AMARILLO: "yellow",
-    NARANJA: "orange",
-    ROJO: "red",
-};
-
 /** Estilo de criticidad de un nivel; reutiliza la escala amarillo/naranja/rojo de la app. */
 export function levelStyle(level: AlertLevel): SeverityStyle {
-    return SEVERITY_STYLES[LEVEL_SEVERITY[level]];
+    return SEVERITY_STYLES[level];
 }
 
 /** Orden de los niveles en filtros y leyendas: de menor a mayor criticidad. */
 export const LEVEL_ORDER: readonly AlertLevel[] = ["AMARILLO", "NARANJA", "ROJO"];
+
+/** Nivel de una alerta en listas y avisos: el actual o, si ya finalizó, el máximo que alcanzó. */
+export function displayLevel(alert: Pick<AlertItem, "current_level" | "max_level">): AlertLevel {
+    return alert.current_level ?? alert.max_level;
+}
 
 export const EVENT_LABEL: Record<AlertEvent, string> = {
     FUGA: "Fuga",
