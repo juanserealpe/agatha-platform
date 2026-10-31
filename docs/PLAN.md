@@ -456,3 +456,4 @@ Observaciones sobre su código. **No se corrigen aquí.**
 - **Conciliador de pushes** sobre `alert_messages` (`kind = NOTIFICACION`), para no perder avisos si el proceso cae entre el commit y la publicación.
 - **HTTP/2** en el nginx del VPS.
 - **Autenticación** del stream y del registro de tokens.
+- **Panel "Sin clasificar"**: hoy muestra las 5 más recientes, sin límite de fecha, para que ninguna se olvide; las finalizadas se ven atenuadas. Si se acumulan muchas en el piloto: (a) ordenar por urgencia (pedir ~20 a `/pending` y mostrar las 5 más urgentes con `mostUrgentAlert`) y (b) mostrar aparte el atraso ("N con más de 7 días") con enlace al historial filtrado por fechas.

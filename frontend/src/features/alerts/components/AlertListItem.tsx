@@ -15,6 +15,8 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
     const stateLabel = alert.in_progress ? IN_PROGRESS_LABEL : "Finalizada";
 
     // El pulso usa el color de la severidad (--glow-color) y solo anima la sombra, nunca la opacidad del texto.
+    // Las finalizadas siguen pendientes de clasificar, pero se atenúan (fondo gris, borde fino) para que
+    // resalten las que están en curso; el texto conserva su contraste.
     return (
         <button
             type="button"
@@ -22,9 +24,10 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
             style={{ "--glow-color": severity.hex } as CSSProperties}
             aria-label={`Alerta ${alert.code}, ${severity.label}, ${EVENT_LABEL[alert.event]}, ${stateLabel}`}
             className={cn(
-                "flex w-full flex-col gap-1 rounded-lg border-2 bg-white px-3 py-2 text-left transition-colors",
-                "hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900",
+                "flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-left transition-colors",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900",
                 severity.borderClass,
+                alert.in_progress ? "border-2 bg-white hover:bg-gray-50" : "border bg-gray-50 hover:bg-gray-100",
                 alert.blinking && "alert-glow"
             )}
         >
@@ -32,7 +35,9 @@ export function AlertListItem({ alert, onSelect }: AlertListItemProps) {
                 <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", severity.badgeClass)}>
                     {severity.label}
                 </span>
-                <span className="text-sm font-semibold text-gray-900">{EVENT_LABEL[alert.event]}</span>
+                <span className={cn("text-sm font-semibold", alert.in_progress ? "text-gray-900" : "text-gray-700")}>
+                    {EVENT_LABEL[alert.event]}
+                </span>
                 <RelativeTime value={alert.started_at} className="ml-auto shrink-0 font-data-mono text-xs text-gray-500" />
             </div>
 
