@@ -12,7 +12,7 @@ func TestMapper_HalvesVoltageBeforePersisting(t *testing.T) {
 	mapper := NewMapper(NewTimestampParser(time.UTC))
 	device := &entities.Device{MeasuringPointID: 11556}
 	series := dashboard.Series{
-		Name:       "Voltaje (mV)",
+		Name:       "Voltaje (V)",
 		DataPoints: []dashboard.DataPoint{{Timestamp: "2026-10-08T16:15:41Z", Value: 3700}},
 	}
 

@@ -186,6 +186,22 @@ func TestCallbackHandler_Authentication(t *testing.T) {
 	}
 }
 
+func TestCallbackHandler_NeverLogsToken(t *testing.T) {
+	var buf strings.Builder
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(io.Discard) })
+
+	serve(t, &fakeReceiver{}, testToken, newRequest(http.MethodPost, validBody))
+
+	r := newRequest(http.MethodPost, validBody)
+	r.Header.Set("Authorization", "Bearer otro-token")
+	serve(t, &fakeReceiver{}, testToken, r)
+
+	if strings.Contains(buf.String(), testToken) || strings.Contains(buf.String(), "otro-token") {
+		t.Fatalf("el log expone un token:\n%s", buf.String())
+	}
+}
+
 func TestCallbackHandler_RejectsNonJSONContentType(t *testing.T) {
 	for _, contentType := range []string{"", "text/plain", "application/x-www-form-urlencoded", "application/jsonx"} {
 		t.Run(contentType, func(t *testing.T) {

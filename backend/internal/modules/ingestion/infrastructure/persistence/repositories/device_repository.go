@@ -16,60 +16,20 @@ type DeviceRepository struct {
 }
 
 func NewDeviceRepository(db *gorm.DB) *DeviceRepository {
-	return &DeviceRepository{
-		db: db,
-	}
-}
-
-func (r *DeviceRepository) Save(ctx context.Context, entity entities.Device,
-) error {
-	model := mappers.ToDeviceModel(&entity)
-	return r.db.WithContext(ctx).Create(model).Error
+	return &DeviceRepository{db: db}
 }
 
 func (r *DeviceRepository) FindByMeasuringPointID(ctx context.Context, measuringPointID int64,
 ) (*entities.Device, error) {
-
 	var model models.DeviceModel
 
-	err := r.db.
-		WithContext(ctx).
-		Where("measuring_point_id = ?", measuringPointID).
-		First(&model).
-		Error
-
+	err := r.db.WithContext(ctx).Where("measuring_point_id = ?", measuringPointID).First(&model).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-
 		return nil, err
 	}
 
 	return mappers.ToDeviceEntity(&model), nil
-}
-
-func (r *DeviceRepository) List(ctx context.Context,
-) ([]entities.Device, error) {
-
-	var modelsList []models.DeviceModel
-
-	if err := r.db.
-		WithContext(ctx).
-		Find(&modelsList).
-		Error; err != nil {
-		return nil, err
-	}
-
-	result := make([]entities.Device, 0, len(modelsList))
-
-	for i := range modelsList {
-		entity := mappers.ToDeviceEntity(&modelsList[i])
-
-		if entity != nil {
-			result = append(result, *entity)
-		}
-	}
-
-	return result, nil
 }

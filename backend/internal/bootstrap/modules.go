@@ -43,7 +43,9 @@ type ModuleSet map[Module]bool
 //   - processing requiere baseline (lee sus tablas, que migra Baseline);
 //   - rule_engine requiere processing (sin él no le llega ningún evento);
 //   - alert_management requiere rule_engine (consume rule_engine.level_evaluated);
-//   - callback y dataos son excluyentes (duplicarían raw_measurements).
+//   - callback y dataos son excluyentes (una sola vía de ingesta: el índice
+//     único descarta las mediciones repetidas, pero cada vía crea sus propios
+//     lotes en ingestion_state_models).
 //
 // Una lista vacía equivale a DefaultModules.
 func ParseModules(raw string) (ModuleSet, error) {
@@ -76,7 +78,7 @@ func ParseModules(raw string) (ModuleSet, error) {
 		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleAlertManagement, ModuleRuleEngine)
 	}
 	if set.Has(ModuleCallback) && set.Has(ModuleDataOS) {
-		return nil, fmt.Errorf("%w: %s y %s no pueden correr a la vez (duplicarían raw_measurements)",
+		return nil, fmt.Errorf("%w: %s y %s no pueden correr a la vez (se usa una sola vía de ingesta)",
 			ErrInvalidModules, ModuleCallback, ModuleDataOS)
 	}
 

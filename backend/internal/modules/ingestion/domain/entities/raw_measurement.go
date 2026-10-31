@@ -2,7 +2,7 @@ package entities
 
 import "time"
 
-// VoltageMetricID es el id de "Voltaje (mV)" en el catálogo de métricas.
+// VoltageMetricID es el id de "Voltaje (V)" en el catálogo de métricas.
 const VoltageMetricID uint64 = 3
 
 type RawMeasurement struct {
@@ -11,6 +11,9 @@ type RawMeasurement struct {
 	MetricID         uint64
 	Value            float64
 	Source           string
+	// IngestionBatchID es el id de la fila de ingestion_state_models (batch_seq)
+	// del lote que trajo la medición. Nil en los datos anteriores al 2026-10-29.
+	IngestionBatchID *int64
 }
 
 // NormalizeMeasurementValue ajusta el valor que llega de la fuente antes de

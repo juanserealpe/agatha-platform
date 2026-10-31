@@ -1,10 +1,8 @@
 package bootstrap
 
 import (
-	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/services"
 	ingestionHTTP "github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/http"
@@ -22,7 +20,7 @@ type CallbackModule struct {
 }
 
 // NewCallbackModule migra el esquema de Ingestion y cablea el callback sobre su
-// persistencia (devices + ingestion_logs + raw_measurements). Si AGATHA_CALLBACK_TOKEN no está
+// persistencia (devices + ingestion_state_models + raw_measurements). Si AGATHA_CALLBACK_TOKEN no está
 // configurada, arranca igual pero rechaza todas las peticiones con 401.
 func NewCallbackModule(platform *Platform) (*CallbackModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
@@ -32,15 +30,14 @@ func NewCallbackModule(platform *Platform) (*CallbackModule, error) {
 		return nil, err
 	}
 
-	location, err := time.LoadLocation("America/Bogota")
+	location, err := loadIngestionLocation()
 	if err != nil {
-		return nil, fmt.Errorf("cargar ubicación: %w", err)
+		return nil, err
 	}
 
 	token := os.Getenv(callbackTokenEnv)
 	if token == "" {
-		logCallback.Error("la variable del token del callback no está configurada; se rechazarán todas las peticiones con 401",
-			"required_variable", callbackTokenEnv)
+		logCallback.Error("falta el token del callback; todas las peticiones responderán 401", "variable", callbackTokenEnv)
 	}
 
 	service := services.NewCallbackService(

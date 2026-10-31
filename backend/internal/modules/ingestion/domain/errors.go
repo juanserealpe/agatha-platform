@@ -3,7 +3,7 @@ package domain
 import "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 
 // CodePersistingIngestionState identifica el fallo al guardar la fila de
-// ingestion_logs. Se declara acá (no en shared/errors/codes.go) para no tocar
+// ingestion_state_models. Se declara acá (no en shared/errors/codes.go) para no tocar
 // shared; moverlo allá si otro módulo lo necesita.
 const CodePersistingIngestionState errors.ErrorCode = "PERSISTING_INGESTION_STATE"
 
@@ -54,21 +54,6 @@ var (
 	ErrPersistingIngestionState = &errors.AppError{
 		Code:    CodePersistingIngestionState,
 		Message: "error guardando el estado de ingesta",
-	}
-
-	ErrBeforeInitialDate = &errors.AppError{
-		Code:    errors.CodeBeforeInitialDate,
-		Message: "la fecha solicitada es anterior a la fecha inicial de ingesta",
-	}
-
-	ErrAlreadyIngested = &errors.AppError{
-		Code:    errors.CodeAlreadyIngested,
-		Message: "el rango solicitado ya fue ingerido",
-	}
-
-	ErrInvalidMeasuringPointID = &errors.AppError{
-		Code:    errors.CodeInvalidMeasuringPointID,
-		Message: "el punto de medición no es válido",
 	}
 
 	ErrConsultingLastState = &errors.AppError{

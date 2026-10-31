@@ -19,8 +19,7 @@ const (
 )
 
 // cmd/ingestion ejecuta SOLO el módulo de Ingestion (Platform + Ingestion),
-// sin Baseline ni Processing, para cargas históricas largas. Los eventos
-// MeasurementsIngested se publican en un bus sin suscriptores y se descartan.
+// sin Baseline ni Processing, para cargas históricas largas.
 func main() {
 	platform, err := bootstrap.NewPlatform()
 	if err != nil {

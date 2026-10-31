@@ -1,6 +1,6 @@
 # Módulo Ingestion
 
-**Responsabilidad**: recibir la telemetría de los puntos de medición y persistirla con control transaccional (Unit of Work). Es el único módulo que ESCRIBE telemetría (`raw_measurements`, `ingestion_logs`).
+**Responsabilidad**: recibir la telemetría de los puntos de medición y persistirla con control transaccional (Unit of Work). Es el único módulo que ESCRIBE telemetría (`raw_measurements`, `ingestion_state_models`).
 
 Hay dos vías de entrada:
 
@@ -9,9 +9,9 @@ Hay dos vías de entrada:
 | Callback HTTP de Dataflow Labs (`POST /ingestion/callback`) | **Principal** (default de Docker) | `cmd/platform` con `AGATHA_MODULES` incluyendo `callback` |
 | Consulta programada a DataOS (`IngestionScheduler`, cada 15 min) | **Contingencia** | `cmd/platform` con `AGATHA_MODULES` incluyendo `dataos`, `cmd/scheduler`, `cmd/ingestion` |
 
-No corras ambas a la vez: `raw_measurements` no tiene índice único y la consulta a DataOS duplicaría filas.
+Usá una sola vía a la vez (`modules.go` lo exige): el índice único de `raw_measurements` descarta las mediciones repetidas, pero cada vía crea sus propios lotes en `ingestion_state_models`.
 
-**Arquitectura**: hexagonal. `application/ports` define `DataProvider`, `IngestionUnitOfWork` y `EventPublisher`; `domain/` tiene entidades, repositorios y errores; `infrastructure/` implementa la persistencia (GORM), el cliente DataOS, el handler HTTP del callback (`infrastructure/http`) y la publicación de eventos. `contract/` es la superficie pública (solo stdlib).
+**Arquitectura**: hexagonal. `application/ports` define `DataProvider` e `IngestionUnitOfWork`; `domain/` tiene entidades, repositorios y errores; `infrastructure/` implementa la persistencia (GORM), el cliente DataOS y el handler HTTP del callback (`infrastructure/http`). No publica eventos.
 
 ## Endpoints / Entry Points
 
@@ -68,10 +68,10 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 
 ### Persistencia e idempotencia
 
-- Cada registro nuevo es **una fila en `ingestion_logs`** (`IngestionStateModel`) con `source = dataflow_callback`, `record_id`, `received_records = len(records)` y `last_ingested_at` = MAX(timestamp) de las variables.
+- Cada registro nuevo es **una fila en `ingestion_state_models`** (`IngestionStateModel`; la documentación vieja la llamaba `ingestion_logs`, pero `IngestionStateModel` no define `TableName()` y GORM usa ese nombre) con `source = dataflow_callback`, `record_id`, `received_records = len(records)` y `last_ingested_at` = MAX(timestamp) de las variables.
 - `record_id` tiene un índice único (`ux_ingestion_logs_record_id`; los lotes de DataOS lo dejan en NULL). `IngestionStateRepository.SaveIfAbsent` inserta con `ON CONFLICT (record_id) DO NOTHING`: si llegan dos peticiones concurrentes con el mismo `record_id`, la segunda espera el commit de la primera y responde `duplicate`. Si la primera se revierte, la segunda inserta.
-- **Mediciones en la misma TX**: dentro del `IngestionUnitOfWork` primero se reclama el `record_id` (`SaveIfAbsent`) y, solo si es nuevo, se escriben las mediciones con `MeasurementRepository.SaveBatch` (`source = dataflow_callback`, `timestamp` = el de cada variable). Un reintento (`duplicate`) no reescribe mediciones. Si `SaveBatch` falla, se revierte también el recibo y se responde 500 para que Dataflow Labs reintente.
-- **Todavía no publica** `ingestion.measurements_ingested` (el módulo `callback` no cablea `EventPublisher`).
+- **Mediciones en la misma TX**: dentro del `IngestionUnitOfWork` primero se reclama el `record_id` (`SaveIfAbsent`) y, solo si es nuevo, se escriben las mediciones con `MeasurementRepository.SaveBatch` (`source = dataflow_callback`, `timestamp` = el de cada variable). Cada medición lleva `ingestion_batch_id` = `id` de la fila del recibo (`SaveStateResult.BatchSeq`). Un reintento (`duplicate`) no reescribe mediciones. Si `SaveBatch` falla, se revierte también el recibo y se responde 500 para que Dataflow Labs reintente.
+- **Mediciones repetidas**: `SaveBatch` inserta con `ON CONFLICT (measuring_point_id, metric_id, timestamp) DO NOTHING` (índice único `ux_raw_measurements_point_metric_ts`) en tandas de 1000 filas. Una medición que ya existía se omite sin fallar y `Inserted` cuenta solo las nuevas. Si un registro nuevo trae mediciones ya guardadas, igual responde `stored` (el recibo es nuevo) y se registra el `WARN` `mediciones ya existentes; no se duplican` (`record_id`, `omitidas`).
 
 ### Mapeo de variables (`CallbackMapper`)
 
@@ -81,7 +81,7 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 |----------|-----------|---------|
 | `accel_pitch` | 1 | Pitch |
 | `accel_roll` | 2 | Roll |
-| `power_vbat_mv` | 3 | Voltaje (mV) |
+| `power_vbat_mv` | 3 | Voltaje (V) |
 | `power_ibat_ma` | 4 | Corriente (mA) |
 | `power_battery_pct` | 5 | Batería (%) |
 | `piezo_rms` | 6 | RMS (ADC) |
@@ -103,7 +103,7 @@ No corras ambas a la vez: `raw_measurements` no tiene índice único y la consul
 
 Criterio RMS/Actividad: en el análisis acústico del analista "RMS acústico" ronda 5 (= `pspec_rms`; `piezo_rms` ronda 56) y "Actividad" es la actividad piezoeléctrica en %.
 
-Todo lo que está fuera de las 21 métricas se **omite** (no se guarda): `accel_activity_avg`, `accel_movement`, `accel_shock`, `accel_{x,y,z}_{avg,min,max,std}`, `accel_vibration`, `accel_event`, `accel_drift_deg`, `accel_drift_alarm[_cloud]`, `accel_drift_run[_cloud]`, `accel_settle[_cloud]`, `accel_baseline_valid[_cloud]`, `piezo_peak`, `piezo_leak_{suspected,confirmed}`, `power_energy_mwh`, `power_modem_{ma_avg,duty_pct}`, `power_p_{in,out}`, `samples`, `pspec_centroid`, `pspec_leak_suspect`. Se informan en un único `WARN` por registro: `[Callback] variables sin mapeo; no se guardan` (`names`, `cantidad`); el registro igual se acepta. Cada variable recibida sigue registrándose en `[Callback] variable recibida`.
+Todo lo que está fuera de las 21 métricas se **omite** (no se guarda): `accel_activity_avg`, `accel_movement`, `accel_shock`, `accel_{x,y,z}_{avg,min,max,std}`, `accel_vibration`, `accel_event`, `accel_drift_deg`, `accel_drift_alarm[_cloud]`, `accel_drift_run[_cloud]`, `accel_settle[_cloud]`, `accel_baseline_valid[_cloud]`, `piezo_peak`, `piezo_leak_{suspected,confirmed}`, `power_energy_mwh`, `power_modem_{ma_avg,duty_pct}`, `power_p_{in,out}`, `samples`, `pspec_centroid`, `pspec_leak_suspect`. Se informan en un único `WARN` por registro: `variables sin mapeo; no se guardan` (`record_id`, `variables`); el registro igual se acepta.
 
 ### Normalización de valores (callback y DataOS)
 
@@ -111,7 +111,7 @@ Antes de persistir, ambos mappers pasan el valor por `entities.NormalizeMeasurem
 
 ## Flujo de ingesta DataOS (contingencia)
 
-`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `ProcessingService.Process` → `UnitOfWork.Execute` (guardar el lote y el estado en una TX) → **post-commit**: `EventPublisher.PublishMeasurementsIngested` (solo si `Inserted > 0`; un error se registra como `Warn` y no hace fallar la ingesta).
+`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `UnitOfWork.Execute` (en una TX: primero el estado, cuyo `id` es el `ingestion_batch_id` de cada medición, y después el lote; si falla el lote se revierte también el estado; `received_records` es el tamaño del lote pedido, no `Inserted`).
 
 ## DTOs clave
 
@@ -120,23 +120,27 @@ Antes de persistir, ambos mappers pasan el valor por `entities.NormalizeMeasurem
 | `DataRecordCallback` | `event`, `record_id`, `mp_id int64`, `serial_id`, `timestamp string`, `records []CallbackReading` |
 | `CallbackReading` | `device_id int64`, `timestamp string`, `name`, `readings Reading` (literal numérico) |
 | `CallbackResponse` | `status` (`stored`/`duplicate`), `record_id`, `received_records` |
-| `IngestRequest` | `device_id string`, `timestamp time.Time`, `payload map[string]any` |
-| `IngestResponse` | `status string`, `message string`, `timestamp time.Time` |
 
 ## Entidades de dominio
 
 - `Device`: `MeasuringPointID`, `Name`, `Active`
-- `RawMeasurement`: `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`
+- `RawMeasurement`: `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`, `IngestionBatchID *int64` (lote que la trajo; nil en datos anteriores al 2026-10-29)
 - `IngestionState`: `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`, `RecordID *string` (solo para el callback)
 - `CallbackRecord` / `CallbackReading`: registro del callback ya validado (timestamps parseados, `RawTimestamp` y `Value` literales)
-- `IngestionGap`, `MetricDefinition`, `SaveBatchResult`, `SaveStateResult`
+- `SaveBatchResult`, `SaveStateResult`
+
+## Logs
+
+Logs cortos y en español; el prefijo `[Ingestion]`/`[IngestionCallback]` ya lo pone el logger. El callback **nunca** registra el token ni el cuerpo crudo: un 401 se registra solo con `motivo` y `remote_addr`. Por registro queda una línea `registro guardado` (o `registro duplicado`) y, si aplica, el `WARN` de variables sin mapeo.
+
+## Tablas sin lógica activa
+
+`metric_definitions` (`MetricDefinitionModel`) se sigue migrando porque el Dashboard la lee, pero el módulo no tiene entidad, repositorio ni mapper para ella (se eliminaron el 2026-10-29 por no tener uso). `ingestion_gap_models` (un reconciliador de huecos que nunca se implementó) se eliminó por completo el 2026-10-30: ni modelo ni migración. `IngestionUnitOfWork.Execute` entrega solo `MeasurementRepository` e `IngestionStateRepository`.
 
 ## Errores (`domain/errors.go`)
 
-`ErrPersistingIngestionState` (`PERSISTING_INGESTION_STATE` → 500), `ErrConsultingDevice` (`CONSULTING_DEVICES` → 500), `NewInvalidCallbackPayloadError(detail)` (`INVALID_INPUT` → 400) y los códigos locales del callback: `UNAUTHORIZED`, `METHOD_NOT_ALLOWED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`. El handler responde estos últimos directamente porque `shared/http` no los mapea.
+`ErrPersistingIngestionState` (`PERSISTING_INGESTION_STATE` → 500), `ErrConsultingDevice` (`CONSULTING_DEVICES` → 500; también lo devuelve `IngestDataOs` si falla la consulta del punto), `ErrConsultingLastState`, `ErrGettingIngestedDataInDataOS`, `ErrRecivingIngestedData` (DataOS sin datos; `cmd/ingestion` lo salta), `NewInvalidCallbackPayloadError(detail)` (`INVALID_INPUT` → 400) y los códigos locales del callback: `UNAUTHORIZED`, `METHOD_NOT_ALLOWED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`. El handler responde estos últimos directamente porque `shared/http` no los mapea.
 
-## Eventos publicados
+## Eventos
 
-| Tópico | Evento (`contract/`) | Publicado por |
-|---|---|---|
-| `ingestion.measurements_ingested` | `MeasurementsIngested` | Solo la ingesta DataOS (post-commit, si se insertó al menos 1 medición). El callback ya escribe mediciones pero todavía no lo publica (sin `EventPublisher` cableado). |
+Ninguno. `ingestion.measurements_ingested` (con `contract/`, `ports.EventPublisher` e `infrastructure/events`) se eliminó el 2026-10-30: solo lo publicaba DataOS y nadie se suscribía. Processing y Baseline leen `raw_measurements` con sus propios schedulers.

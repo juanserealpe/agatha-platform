@@ -38,7 +38,7 @@ func (c *Client) Login(ctx context.Context) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal login request: %w", err)
+		return fmt.Errorf("serializar la petición de login: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -48,7 +48,7 @@ func (c *Client) Login(ctx context.Context) error {
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return fmt.Errorf("create login request: %w", err)
+		return fmt.Errorf("crear la petición de login: %w", err)
 	}
 
 	req.Header.Set("Accept", "*/*")
@@ -56,14 +56,14 @@ func (c *Client) Login(ctx context.Context) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("execute login request: %w", err)
+		return fmt.Errorf("ejecutar la petición de login: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK ||
 		resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf(
-			"DataOS login failed with status %d",
+			"el login de DataOS respondió %d",
 			resp.StatusCode,
 		)
 	}

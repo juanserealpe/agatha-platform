@@ -1,30 +1,20 @@
 # DataOS Adapter
 
-Adapter encargado de integrar el módulo de Ingestion de AGATHA con la plataforma externa DataOS.
+Adapter de **contingencia** del módulo Ingestion: implementa `ports.DataProvider` consultando DataOS. La ingesta principal es el callback de Dataflow Labs; este adapter se mantiene para el scheduler (`AGATHA_MODULES=dataos`, `cmd/scheduler`) y la carga histórica (`cmd/ingestion`).
 
-## Responsabilidad
+El resto del módulo no conoce endpoints, cookies ni JSON de DataOS.
 
-El adapter encapsula los detalles de comunicación con DataOS actualmente mientras se implementa el CallBack que también va a tener su adapter a parte, en DataOS maneja:
+## Estructura
 
-- Autenticación.
-- Manejo de sesión mediante cookies.
-- Consulta de datos de dispositivos.
-- Transformación de respuestas externas al modelo interno de AGATHA.
-
-El resto del módulo de Ingestion no debe depender directamente de endpoints, cookies,
-tokens ni estructuras JSON propias de DataOS.
-
-## Estructura Actual
-
+```
 dataos/
-├── auth/
-│   ├── client.go
-│   └── models.go
-│
-├── dashboard/
-│   ├── client.go
-│   └── models.go
-│
-├── mapper.go
-├── client.go
-└── README.md
+├── client.go               # Client.GetMeasurements: login → render → extraer → mapear
+├── auth/                   # POST /api/auth/login (sesión por cookie)
+├── dashboard/              # POST /api/v2/dashboard/configurations/10/render y sus modelos
+└── mapping/
+    ├── series_extractor.go # componentes del dashboard → series
+    ├── mapper.go           # serie → RawMeasurement (catálogo de 21 métricas)
+    └── timestamp_parser.go # RFC 3339 → America/Bogota
+```
+
+Las series fuera del catálogo se omiten y se informan en un único `WARN` (`series sin mapeo; no se guardan`).

@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/services"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/events"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/auth"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/dashboard"
@@ -23,6 +22,10 @@ import (
 )
 
 const dataOSBaseURL = "https://app.dataos.dataflowlabs.io"
+
+// ingestionTimezone es la zona con la que se interpretan los timestamps sin
+// offset de DataOS y del callback, y con la que se alinea el scheduler.
+const ingestionTimezone = "America/Bogota"
 
 // Configuración de la ingesta programada.
 const (
@@ -39,9 +42,9 @@ type IngestionModule struct {
 
 // NewScheduler crea el scheduler de ingesta periódica del módulo.
 func (m *IngestionModule) NewScheduler() (*scheduler.IngestionScheduler, error) {
-	location, err := time.LoadLocation("America/Bogota")
+	location, err := loadIngestionLocation()
 	if err != nil {
-		return nil, fmt.Errorf("cargar ubicación: %w", err)
+		return nil, err
 	}
 
 	return scheduler.NewIngestionScheduler(
@@ -92,11 +95,9 @@ func NewIngestionApplication() (*IngestionApplication, error) {
 	}, nil
 }
 
-// NewIngestionModule migra el esquema de Ingestion y cablea sus servicios
-// publicando eventos en el bus de la Platform. No conoce a sus consumidores.
+// NewIngestionModule migra el esquema de Ingestion y cablea sus servicios.
 func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
-	logAuthorization := logger.New("Authorization", "Info")
 	logIngestion := logger.New("Ingestion", "Info")
 
 	db := platform.DB
@@ -117,10 +118,7 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	password := os.Getenv("DATAOS_PASSWORD")
 
 	if username == "" || password == "" {
-		logAuthorization.Error(
-			"las credenciales de DataOS no están configuradas",
-			"required_variables", "DATAOS_USERNAME, DATAOS_PASSWORD",
-		)
+		logIngestion.Error("faltan las credenciales de DataOS", "variables", "DATAOS_USERNAME, DATAOS_PASSWORD")
 
 		return nil, fmt.Errorf("credenciales de DataOS no configuradas")
 	}
@@ -135,63 +133,30 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 		Timeout: 30 * time.Second,
 	}
 
-	authClient := auth.NewClient(httpClient, dataOSBaseURL, username, password)
-	dashboardClient := dashboard.NewClient(httpClient, dataOSBaseURL)
-	seriesExtractor := mapping.NewSeriesExtractor(logIngestion)
-
-	location, err := time.LoadLocation("America/Bogota")
+	location, err := loadIngestionLocation()
 	if err != nil {
-		return nil, fmt.Errorf("cargar ubicación: %w", err)
+		return nil, err
 	}
 
-	timestampParser := mapping.NewTimestampParser(location)
-	mapper := mapping.NewMapper(timestampParser)
-
 	dataOSClient := dataos.NewClient(
-		authClient,
-		dashboardClient,
-		seriesExtractor,
-		mapper,
+		auth.NewClient(httpClient, dataOSBaseURL, username, password),
+		dashboard.NewClient(httpClient, dataOSBaseURL),
+		mapping.NewSeriesExtractor(logIngestion),
+		mapping.NewMapper(mapping.NewTimestampParser(location)),
 		logIngestion,
 	)
 
 	// ---------------------------------------------------------
-	// Repositories
-	// ---------------------------------------------------------
-
-	deviceRepository := repositories.NewDeviceRepository(db)
-	ingestionStateRepository := repositories.NewIngestionStateRepository(db)
-
-	// ---------------------------------------------------------
-	// Services
-	// ---------------------------------------------------------
-
-	ingestionValidator := services.NewIngestionValidator(logIngestion)
-
-	// ---------------------------------------------------------
-	// Unit of Work
-	// ---------------------------------------------------------
-
-	unitOfWork := repositories.NewUnitOfWork(db, logIngestion)
-
-	// ---------------------------------------------------------
-	// Event Publisher
-	// ---------------------------------------------------------
-
-	eventPublisher := events.NewBusEventPublisher(platform.EventBus)
-
-	// ---------------------------------------------------------
-	// Ingestion Service
+	// Servicio
 	// ---------------------------------------------------------
 
 	ingestService := services.NewIngestService(
 		dataOSClient,
-		ingestionStateRepository,
-		deviceRepository,
-		unitOfWork,
+		repositories.NewIngestionStateRepository(db),
+		repositories.NewDeviceRepository(db),
+		repositories.NewUnitOfWork(db, logIngestion),
 		logIngestion,
-		ingestionValidator,
-		eventPublisher,
+		services.NewIngestionValidator(logIngestion),
 	)
 
 	return &IngestionModule{
@@ -200,17 +165,26 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	}, nil
 }
 
+// loadIngestionLocation carga ingestionTimezone.
+func loadIngestionLocation() (*time.Location, error) {
+	location, err := time.LoadLocation(ingestionTimezone)
+	if err != nil {
+		return nil, fmt.Errorf("cargar la zona horaria %s: %w", ingestionTimezone, err)
+	}
+	return location, nil
+}
+
 // migrateIngestionSchema crea/actualiza las tablas de Ingestion. La comparten
-// la ingesta por DataOS y el callback de Dataflow Labs.
+// la ingesta por DataOS y el callback de Dataflow Labs. MetricDefinitionModel se
+// conserva solo para mantener su tabla (el Dashboard la lee).
 func migrateIngestionSchema(db *gorm.DB, logDB *logger.Logger) error {
 	if err := db.AutoMigrate(
 		&models.DeviceModel{},
 		&models.MetricDefinitionModel{},
 		&models.RawMeasurementModel{},
 		&models.IngestionStateModel{},
-		&models.IngestionGapModel{},
 	); err != nil {
-		logDB.Error("falló la migración de la base de datos", "error", err)
+		logDB.Error("falló la migración de Ingestion", "error", err)
 		return err
 	}
 	return nil

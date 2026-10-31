@@ -13,7 +13,7 @@ import (
 var callbackMetricIDMap = map[string]uint64{
 	"accel_pitch":       1, // Pitch
 	"accel_roll":        2, // Roll
-	"power_vbat_mv":     3, // Voltaje (mV)
+	"power_vbat_mv":     3, // Voltaje (V)
 	"power_ibat_ma":     4, // Corriente (mA)
 	"power_battery_pct": 5, // Batería (%)
 	"piezo_rms":         6, // RMS (ADC)

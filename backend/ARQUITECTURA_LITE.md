@@ -37,15 +37,14 @@ sharedhttp.WriteJSON(w, http.StatusOK, payload)
 Bus en memoria, no bloqueante, cola acotada + worker FIFO por suscripción (overflow `DropOldest` por defecto). Best-effort: los eventos son pistas, la BD es la fuente de verdad. Se crea y se cierra (`Close` drena) solo en `internal/bootstrap`.
 
 ```go
-eventbus.PublishTyped(ctx, bus, contract.TopicMeasurementsIngested, event)
-eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("processing.measurements_ingested"))
+eventbus.PublishTyped(ctx, bus, contract.TopicIndicatorEvaluated, event)
+eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("rule_engine.indicator_evaluated"))
 ```
 
 **Catálogo de eventos**:
 
 | Tópico | Publicador | Consumidores |
 |---|---|---|
-| `ingestion.measurements_ingested` | Ingestion (post-commit, si se insertó ≥ 1 medición) | Ninguno hoy (Processing evalúa por scheduler, no por evento) |
 | `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta 24 h `CALCULATED`, reenvía 24 h `NO_CALCULABLE`) |
 | `rule_engine.level_evaluated` (v3, aditiva sobre v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Alert Management (suscripción `alert_management.level_evaluated` → `ProcessingService.Process`; duplicados por `(punto, evento, evaluated_at)` se ignoran) |
 | `alert_management.alert_notification` (v1) | Alert Management (post-commit; **cada** mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`; no en backfill ni reprocesos; `late` marca horas con más de `late_notification_max_hours` de atraso) | Ninguno todavía: lo consumirá el módulo de notificaciones (web, push), idempotente por `message_id`. Sin suscriptores es un no-op |
@@ -68,15 +67,15 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 # Modulo: Ingestion
 
-**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, módulo `callback` de `AGATHA_MODULES`). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (módulo `dataos`). No correr ambas a la vez (`raw_measurements` no tiene índice único). Detalle en `modules/ingestion/INGESTION_README.md`.
+**Responsabilidad**: Recibir telemetría y persistirla con control transaccional (Unit of Work). Vía **principal**: callback HTTP de Dataflow Labs (`POST /ingestion/callback`, módulo `callback` de `AGATHA_MODULES`). Vía de **contingencia**: consulta programada a DataOS vía `IngestionScheduler` (módulo `dataos`). Se usa una sola a la vez: el índice único de `raw_measurements` descarta mediciones repetidas, pero cada vía crea sus propios lotes en `ingestion_state_models`. Detalle en `modules/ingestion/INGESTION_README.md`.
 
-**Arquitectura**: Hexagonal — `application/ports` define interfaces (`DataProvider`, `IngestionUnitOfWork`, `EventPublisher`), `domain/` contiene entidades y repositorios, `infrastructure/` implementa persistencia, cliente externo DataOS y publicación de eventos (`infrastructure/events`). `contract/` es la superficie pública del módulo (solo stdlib).
+**Arquitectura**: Hexagonal — `application/ports` define interfaces (`DataProvider`, `IngestionUnitOfWork`), `domain/` contiene entidades y repositorios, `infrastructure/` implementa persistencia, cliente externo DataOS y el handler HTTP del callback. No publica eventos: los consumidores (Baseline, Processing) leen `raw_measurements` por su propio scheduler.
 
 ## Endpoints / Entry Points
 
 | Trigger | Accion | Servicio |
 |---------|--------|----------|
-| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, mapea sus variables a `metric_id` (`CallbackMapper`; las sin mapeo se avisan con WARN) y persiste en una sola TX el recibo en `ingestion_logs` (idempotente por `record_id`) y las mediciones en `raw_measurements`. Aún no publica `ingestion.measurements_ingested` | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
+| `POST /ingestion/callback` (Bearer `AGATHA_CALLBACK_TOKEN`) | Valida el registro de Dataflow Labs, mapea sus variables a `metric_id` (`CallbackMapper`; las sin mapeo se avisan con WARN) y persiste en una sola TX el recibo en `ingestion_state_models` (idempotente por `record_id`) y las mediciones en `raw_measurements` | `CallbackHandler.ReceiveRecord` → `CallbackService.Receive` |
 | `IngestionScheduler.Start()` | Ingesta periódica por intervalo configurable (contingencia) | `IngestService.IngestDataOs(ctx, measuringPointID, start, end)` |
 
 **Callback**: 200 `stored`/`duplicate`; 400 (JSON o campos inválidos), 401, 404 (`mp_id` no registrado), 405, 413 (> 1 MiB), 415, 500 (fallo de BD ⇒ Dataflow Labs reintenta). Timestamps sin zona **o con sufijo `Z`** se interpretan en `America/Bogota` (Dataflow Labs envía la hora local de Colombia marcada como UTC: la misma lectura llega `11:45:41Z` por callback y `16:45:41Z` por DataOS); un offset explícito (`-05:00`) se respeta; `readings` se conserva como literal JSON. Deduplicación: índice único `ux_ingestion_logs_record_id` + `ON CONFLICT (record_id) DO NOTHING` (seguro ante concurrencia).
@@ -87,35 +86,23 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 |-----|--------|
 | `DataRecordCallback` | `event`, `record_id`, `mp_id`, `serial_id`, `timestamp`, `records []{device_id, timestamp, name, readings}` |
 | `CallbackResponse` | `status` (`stored`\|`duplicate`), `record_id`, `received_records` |
-| `IngestRequest` | `device_id string`, `timestamp time.Time`, `payload map[string]any` |
-| `IngestResponse` | `status string`, `message string`, `timestamp time.Time` |
 
 ## Entidades de Dominio
 
 - `Device` — `MeasuringPointID`, `Name`, `Active`
-- `RawMeasurement` — `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`
+- `RawMeasurement` — `Timestamp`, `MeasuringPointID`, `MetricID`, `Value`, `Source`, `IngestionBatchID` (lote que la trajo)
 - `IngestionState` — `MeasuringPointID`, `Source`, `LastIngestedAt`, `ReceivedRecords`, `RecordID` (solo callback)
 - `CallbackRecord` / `CallbackReading` — registro del callback validado (timestamps parseados + literales originales)
-- `IngestionGap` — `MeasuringPointID`, `StartedAt`, `EndedAt`, `Status` (gap tracking)
-- `MetricDefinition` — `Key`, `Name`, `Unit`, `Category`
 - `SaveBatchResult` — `Inserted` (filas realmente insertadas por `MeasurementRepository.SaveBatch`)
 - `SaveStateResult` — `BatchSeq`, `LastIngestedAt` (devuelto por `IngestionStateRepository.Save`)
 
 ## Flujo de Ingesta
 
-`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar último estado → `DataProvider.GetMeasurements` → `ProcessingService.Process` → `UnitOfWork.Execute` (save batch + save state en TX) → **post-commit**: `EventPublisher.PublishMeasurementsIngested` (solo si `Inserted > 0`; un error se loguea como `Warn` y no falla la ingesta; publisher `nil` = no publica).
+`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar último estado → `DataProvider.GetMeasurements` → `UnitOfWork.Execute` (en TX: primero el estado, cuyo `id` es el `ingestion_batch_id` de cada medición, y después el lote).
 
-> `ProcessingService` es un servicio interno de Ingestion (normalización del lote), distinto del módulo `processing`.
+`last_ingested_at` = **MAX(timestamp) de las muestras del lote** (`getLatestMeasurementTimestamp` en `IngestService`), NO el fin del rango pedido a DataOS. Si falla el `Save` del estado o el lote, la TX completa se revierte (no quedan mediciones sin su fila de estado) y se devuelve `ErrPersistingIngestionState` (`PERSISTING_INGESTION_STATE`).
 
-## Eventos Publicados
-
-| Tópico | Evento (`contract/`) | Campos |
-|---|---|---|
-| `ingestion.measurements_ingested` | `MeasurementsIngested` | `measuring_point_id`, `source`, `from`/`to` (min/max timestamp del lote), `watermark` (`last_ingested_at`), `batch_seq`, `inserted_records`, `occurred_at`, `schema_version` — todos los tiempos en UTC |
-
-`batch_seq` = `id` de la fila insertada en `ingestion_logs` dentro de la misma transacción (la tabla es append-only: una fila por lote), por lo que es monótono y un rollback no lo consume.
-
-`watermark` = `last_ingested_at` = **MAX(timestamp) de las muestras del lote** (`getLatestMeasurementTimestamp` en `IngestService`), NO el fin del rango pedido a DataOS: `watermark ≥ t` garantiza que ya existe un registro con timestamp `≥ t` (supuesto de Processing). Coincide con `to`. Si falla el `Save` del estado, la TX completa se revierte (no quedan mediciones sin su fila de estado) y se devuelve `ErrPersistingIngestionState` (`PERSISTING_INGESTION_STATE`).
+Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se eliminó el 2026-10-30: no tenía suscriptores).
 
 ---
 
@@ -161,7 +148,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 
 **Responsabilidad**: mantener por dispositivo, versionada en el tiempo, la línea base estadística (señal: `mediana_B2`, `θ_D = P90_B2`, `P90_Planitud`; componentes: mediana y MAD de D, P, Ex en 6 h/24 h y C en 24 h) con estimación iterativa que excluye periodos anómalos (`I(24 h) ≥ 0,18`, tope 40 %, máx. 5 pasadas). Detalle en `modules/baseline/BASELINE_README.md`.
 
-**Eventos conocidos**: los intervalos de fugas/intervenciones conocidas se excluyen siempre del cálculo (además de lo que marca el barrido) y la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`. Los entrega el port `KnownEventsProvider`, que `internal/bootstrap/known_events.go` arma con `AlertEventsReader` (modelo de lectura propio de `alerts`: **todas** las alertas del punto, cualquiera sea su clasificación; solo `started_at`/`ended_at`, las activas hasta el fin del rango). El dominio amplía cada alerta con un margen de 2 h antes y después (`BASELINE_KNOWN_EVENT_MARGIN`). Sin tabla `alerts`, no se excluye nada. Alert Management no sabe que Baseline existe.
+**Eventos conocidos**: los intervalos de fugas/intervenciones conocidas se excluyen siempre del cálculo (además de lo que marca el barrido) y la versión lleva el flag `KNOWN_EVENTS_EXCLUDED`. Los entrega el port `KnownEventsProvider`, que `internal/bootstrap/baseline_alert_events.go` arma con `AlertEventsReader` (modelo de lectura propio de `alerts`: **todas** las alertas del punto, cualquiera sea su clasificación; solo `started_at`/`ended_at`, las activas hasta el fin del rango). El dominio amplía cada alerta con un margen de 2 h antes y después (`BASELINE_KNOWN_EVENT_MARGIN`). Sin tabla `alerts`, no se excluye nada. Alert Management no sabe que Baseline existe.
 
 **Contrato público**: ninguno por ahora. La fachada (`Facade.GetEffectiveBaseline`) y el `Replayer` se retiraron en el refactor de octubre de 2026; el módulo solo se usa desde su scheduler y `cmd/baseline`.
 
@@ -263,7 +250,6 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 | Binario | Qué ejecuta |
 |---|---|
 | `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `alert_management`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing`, `rule_engine` y `alert_management` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing`, que `alert_management` requiera `rule_engine` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Alert Management migra primero → Baseline → Processing → Rule Engine → Alert Management (suscripción) → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`, `dashboard`, `rule_engine`, `alert_management`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
-| `cmd/api` | Solo Dashboard (`:8080`). |
 | `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
 | `cmd/processing` | Evaluación a demanda de un punto (`-point`) o carga del histórico de evaluaciones (`-backfill`, `-from`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
@@ -287,7 +273,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
 - `id` (PK, int): Identificador único de la métrica (ej. `21` = humedad, `20` = temperatura).
 - `key` (string, unique): Clave para código/API (`humedad`, `temperatura`, `pitch`, `rms`).
 - `name` (string): Nombre descriptivo (`Humedad (%)`).
-- `unit` (string): Unidad de medida (`%`, `°`, `mV`, `g/s`).
+- `unit` (string): Unidad de medida (`%`, `°`, `V`, `g/s`).
 - `category` (string): Categoría (`energia`, `vibracion`, `orientation`, `espectral`).
 - `active` (boolean): Estado de la métrica.
 - `created_at`, `updated_at` (timestamptz).
@@ -297,7 +283,7 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
     ID,Key,Nombre,Unidad,Categoría
     1,pitch,Pitch,°,orientation
     2,roll,Roll,°,orientation
-    3,voltaje,Voltaje (mV),mV,energia
+    3,voltaje,Voltaje (V),V,energia
     4,corriente,Corriente (mA),mA,energia
     5,bateria,Batería (%),%,energia
     6,rms,RMS (ADC),ADC,vibracion
@@ -317,22 +303,27 @@ Fórmulas de línea base e índice I compartidas por Baseline y Processing: `Nor
     20,temperatura,Temperatura (°C),°,temperatura
     21,humedad,Humedad (%),%,humedad
 
-### 3. `measurements` (Serie de Tiempo de Mediciones)
+### 3. `raw_measurements` (Serie de Tiempo de Mediciones)
+- `id` (PK, `bigint GENERATED ALWAYS AS IDENTITY`): lo genera la BD; el backend nunca lo envía.
 - `measuring_point_id` (FK -> `measuring_points.measuring_point_id`): ID del sensor.
 - `metric_id` (FK -> `metrics.id`): Métrica asociada.
 - `timestamp` (timestamptz): Fecha/hora de la muestra.
 - `value` (numeric/float8): Valor numérico registrado (ej. `81.29`).
-- `source` (string): Fuente del dato (ej. `dataos`).
-*Índice Sugerido:* Composite PK (`measuring_point_id`, `metric_id`, `timestamp`).
+- `source` (string): Fuente del dato (`dataflow_callback` o `dataos`).
+- `ingestion_batch_id` (bigint, NULL, FK -> `ingestion_state_models.id`): lote que trajo la medición (= `batch_seq`; en el callback la une con su `record_id`). NULL en los datos anteriores al 2026-10-29.
+- Índice único `ux_raw_measurements_point_metric_ts (measuring_point_id, metric_id, timestamp)`: una medición por punto, métrica e instante; `SaveBatch` usa `ON CONFLICT (...) DO NOTHING`. Es también el índice de las lecturas por punto/métrica/rango (Processing, Baseline, Dashboard).
+- Índice `ix_raw_measurements_batch (ingestion_batch_id)`.
+- Migración `raw_measurements_pk_unique_batch` (2026-10-29), aplicada a mano en la BD; el modelo GORM replica sus nombres para que `AutoMigrate` no cree nada.
 
-### 4. `ingestion_logs` (Estado y Control de Ingestión)
+### 4. `ingestion_state_models` (Estado y Control de Ingestión)
+> Antes se documentaba como `ingestion_logs`; el nombre real lo genera GORM desde `IngestionStateModel` (sin `TableName()`). El índice conserva el nombre `ux_ingestion_logs_record_id`.
 - `id` (PK, int): ID del registro de sincronización.
 - `measuring_point_id` (FK -> `measuring_points.measuring_point_id`).
 - `source` (string): Origen del lote (ej. `dataos`).
 - `last_ingested_at` (timestamptz): Última fecha de datos procesados.
 - `received_records` (int): Cantidad de registros ingeridos en el lote.
 - `record_id` (varchar(128), NULL): `record_id` del callback de Dataflow Labs; índice único `ux_ingestion_logs_record_id` (NULL en lotes de DataOS). Deduplica reintentos.
-- *Append-only*: una fila por lote; el `id` se usa como `batch_seq` (cursor monótono) en el evento `MeasurementsIngested`.
+- *Append-only*: una fila por lote; el `id` es el `ingestion_batch_id` de cada medición del lote.
 - `created_at`, `updated_at` (timestamptz).
 
 ### 5. `baseline_versions` (Baseline — versiones de línea base)

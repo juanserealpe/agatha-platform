@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/persistence/mappers"
@@ -17,9 +16,7 @@ type IngestionStateRepository struct {
 }
 
 func NewIngestionStateRepository(db *gorm.DB) *IngestionStateRepository {
-	return &IngestionStateRepository{
-		db: db,
-	}
+	return &IngestionStateRepository{db: db}
 }
 
 func (r *IngestionStateRepository) FindLatestByMeasuringPointID(ctx context.Context, measuringPointID int64,
@@ -38,8 +35,6 @@ func (r *IngestionStateRepository) FindLatestByMeasuringPointID(ctx context.Cont
 			return nil, nil
 		}
 
-		fmt.Println("3.2 Error al obtener estado:", err)
-
 		return nil, err
 	}
 	return mappers.ToIngestionStateEntity(&model), nil
@@ -53,7 +48,7 @@ func (r *IngestionStateRepository) Save(ctx context.Context, state *entities.Ing
 		return entities.SaveStateResult{}, err
 	}
 
-	// ingestion_logs es append-only (una fila por lote): el id autoincremental
+	// ingestion_state_models es append-only (una fila por lote): el id autoincremental
 	// asignado dentro de la transacción es el cursor monótono del lote.
 	result := entities.SaveStateResult{BatchSeq: int64(model.ID)}
 	if model.LastIngestedAt != nil {
@@ -96,16 +91,4 @@ func (r *IngestionStateRepository) SaveIfAbsent(ctx context.Context, state *enti
 	}
 
 	return saved, true, nil
-}
-
-func (r *IngestionStateRepository) Update(ctx context.Context, state *entities.IngestionState,
-) error {
-	model := mappers.ToIngestionStateModel(state)
-
-	return r.db.
-		WithContext(ctx).
-		Model(&models.IngestionStateModel{}).
-		Where("id = ?", model.ID).
-		Updates(model).
-		Error
 }

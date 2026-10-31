@@ -18,7 +18,7 @@ linters:
             - $gostd
             - github.com/juanserealpe/agatha-platform/backend/internal/shared/logger
             - github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
-        # Ingestion: domain y application no conocen el bus (solo infrastructure/events y el composition root).
+        # Ingestion: domain y application no conocen el bus (hoy no publica eventos).
         ingestion-core-no-eventbus:
           list-mode: lax
           files:
@@ -26,14 +26,7 @@ linters:
             - "**/internal/modules/ingestion/application/**"
           deny:
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
-              desc: "domain/application no importan el bus; usar el port EventPublisher"
-        # Contrato público de Ingestion: solo stdlib (lo importan otros módulos).
-        ingestion-contract-stdlib-only:
-          list-mode: strict
-          files:
-            - "**/internal/modules/ingestion/contract/**"
-          allow:
-            - $gostd
+              desc: "domain/application no importan el bus; si se publica un evento, hacerlo por un port"
         # Processing no conoce a Ingestion: el composition root traduce los eventos.
         processing-no-ingestion:
           list-mode: lax

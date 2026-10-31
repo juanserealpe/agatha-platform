@@ -57,7 +57,7 @@ Además de lo que marca el barrido de I, **las alertas del punto nunca entran a 
 
 - **Fuente única**: `infrastructure/persistence/repositories.AlertEventsReader` lee `alerts` (tabla de Alert Management) con su propio modelo, solo lectura. Solo importan `started_at` y `ended_at`. Excluye **todas** las alertas del punto, cualquiera sea su clasificación (Confirmada, Falsa alerta o Sin clasificar); una alerta ACTIVA (`ended_at` NULL) se excluye desde su inicio hasta el fin del rango consultado. En cada recálculo se consulta de nuevo, así que las alertas nuevas entran solas.
 - **Margen**: cada alerta se excluye en `[started_at − 2 h, ended_at + 2 h)` (`Config.KnownEventMargin`, `BASELINE_KNOWN_EVENT_MARGIN`), para que la transición antes del disparo y después del cierre no sesgue la línea base. Lo aplica el dominio (`ExclusionPolicy`); los servicios consultan el rango ampliado con `Config.KnownEventsRange` para no perder una alerta cuyo margen cae dentro del histórico.
-- **Bootstrap**: `internal/bootstrap/known_events.go`. Si la tabla `alerts` no existe al arrancar, no hay alertas que excluir (Warn). Alert Management no sabe que Baseline existe.
+- **Bootstrap**: `internal/bootstrap/baseline_alert_events.go`. Si la tabla `alerts` no existe al arrancar, no hay alertas que excluir (Warn). Alert Management no sabe que Baseline existe.
 
 Reglas del cálculo (`RobustBaselineEstimator.EstimateExcluding`, `ExclusionPolicy.ApplyWithKnown`):
 
