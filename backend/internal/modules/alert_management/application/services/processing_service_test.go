@@ -118,7 +118,8 @@ func TestProcess_LiveOpenPublishesTheNotification(t *testing.T) {
 	n := f.pub.published[0]
 	if n.MessageID != msgs[0].ID || n.AlertID != alerts[0].ID || n.AlertCode != "ALR-000123" || n.Code != messages.CodeOpen ||
 		n.Level != "AMARILLO" || n.MaxLevel != "AMARILLO" || n.AlertState != "ACTIVA" || n.MeasuringPointID != pointA ||
-		n.EventType != "FUGA" || !n.EvaluatedAt.Equal(h(1)) || n.Title != msgs[0].Title || n.Body != msgs[0].Body ||
+		n.EventType != "FUGA" || !n.StartedAt.Equal(h(0)) || n.Classification != "" ||
+		!n.EvaluatedAt.Equal(h(1)) || n.Title != msgs[0].Title || n.Body != msgs[0].Body ||
 		n.Source != "LIVE" || n.Late || n.SchemaVersion != contract.SchemaVersion || !n.OccurredAt.Equal(f.now) {
 		t.Fatalf("aviso = %+v", n)
 	}
@@ -233,6 +234,23 @@ func TestProcess_DoesNotOverwriteManagement(t *testing.T) {
 	}
 	if segs := f.store.Segments(id); len(segs) != 2 || segs[0].EndedAt == nil || segs[1].Seq != 2 {
 		t.Fatalf("colores = %+v", segs)
+	}
+}
+
+// Una falsa alerta que sube de nivel sigue publicando su NOTIFICACION, ahora
+// con la clasificación: el módulo de notificaciones decide qué canal la omite.
+func TestProcess_NotificationCarriesTheClassification(t *testing.T) {
+	f := newFixture()
+	f.process(t, entities.SourceLive, opening()...)
+	id := f.store.Alerts()[0].ID
+	f.store.SetManagement(id, entities.Management{Status: entities.StatusClassifiedNoLabel, Classification: entities.ClassificationFalseAlarm})
+	f.process(t, entities.SourceLive, notice(2, 0.27, entities.LevelNaranja, entities.LevelNaranja, entities.EpisodeNone, 3))
+
+	if len(f.pub.published) != 2 {
+		t.Fatalf("publicados = %+v", f.pub.published)
+	}
+	if n := f.pub.published[1]; n.Classification != "FALSA_ALERTA" || n.Level != "NARANJA" || !n.StartedAt.Equal(h(0)) {
+		t.Fatalf("aviso = %+v", n)
 	}
 }
 
