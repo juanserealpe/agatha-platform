@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	alertContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/fcm"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/realtime"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -178,6 +180,44 @@ func TestNotifications_StreamsBusEventsOverSSE(t *testing.T) {
 			}
 		case <-timeout:
 			t.Fatal("el cambio no llegó al stream")
+		}
+	}
+}
+
+func TestPushAllowlist_ParsesTheEnv(t *testing.T) {
+	log := logger.New("NotificationsTest", "Error")
+	t.Setenv(NotificationsPushAllowlistEnv, " CEL-1, ,CEL-2 ")
+	if got, want := pushAllowlist(log), []string{"CEL-1", "CEL-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("allowlist = %v, se esperaba %v", got, want)
+	}
+	t.Setenv(NotificationsPushAllowlistEnv, "")
+	if got := pushAllowlist(log); got != nil {
+		t.Fatalf("sin variable = %v, se esperaba nil (todos)", got)
+	}
+}
+
+// Sin credencial, o con una que no sirve, el push queda deshabilitado y la
+// plataforma arranca igual.
+func TestNewPushSender_FallsBackToNoop(t *testing.T) {
+	log := logger.New("NotificationsTest", "Error")
+	t.Setenv(FCMServiceAccountFileEnv, "")
+	t.Setenv(FCMServiceAccountBase64Env, "")
+	if _, ok := newPushSender(log).(*fcm.NoopSender); !ok {
+		t.Fatal("sin credencial se esperaba NoopSender")
+	}
+	t.Setenv(FCMServiceAccountBase64Env, "bm8gZXMganNvbg==") // "no es json"
+	if _, ok := newPushSender(log).(*fcm.NoopSender); !ok {
+		t.Fatal("con credencial inválida se esperaba NoopSender")
+	}
+}
+
+func TestEnvBool(t *testing.T) {
+	log := logger.New("NotificationsTest", "Error")
+	cases := map[string]bool{"": false, "true": true, "1": true, "false": false, "quizás": false}
+	for raw, want := range cases {
+		t.Setenv(FCMValidateOnlyEnv, raw)
+		if got := envBool(log, FCMValidateOnlyEnv, false); got != want {
+			t.Errorf("envBool(%q) = %v, se esperaba %v", raw, got, want)
 		}
 	}
 }

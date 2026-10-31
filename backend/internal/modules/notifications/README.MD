@@ -2,7 +2,7 @@
 
 Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1, contrato en `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas: eso es de Alert Management. Plan completo y estado en `docs/PLAN.md`.
 
-> En construcción. El canal web ya funciona (`GET /api/notifications/stream`) y la app ya puede registrar su token (`PUT /api/devices/push-token`); el envío por FCM llega en los próximos commits y, mientras tanto, los avisos para móvil no tienen suscripción.
+> En construcción. El canal web ya funciona (`GET /api/notifications/stream`) y la app ya puede registrar su token (`PUT /api/devices/push-token`); y el canal móvil envía por FCM cuando hay credencial. Falta el endpoint de eventos de prueba.
 
 **Para los clientes (web y app)**: endpoints, eventos, reglas para aplicar el estado y reconexión en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD). Este README describe cómo está hecho el módulo por dentro.
 
@@ -17,12 +17,13 @@ notifications/
 │   └── policies/      # ChannelPolicy (Strategy): MobilePushPolicy, WebPolicy
 ├── application/
 │   ├── ports/         # NoticeChannel, ChangeChannel, PushTokenRepository, PushSender (+ errores), Clock
-│   └── services/      # NoticeDispatcher: política + canal; PushTokenService: registro de tokens
+│   └── services/      # NoticeDispatcher: política + canal; PushTokenService: registro; MobilePushService: canal móvil
 └── infrastructure/
     ├── events/        # AlertNotificationSubscriber, AlertChangedSubscriber
     ├── fcm/           # HTTPV1Sender (Adapter de FCM HTTP v1 + OAuth2 de la cuenta de servicio), NoopSender
+    │   └── fcmtest/   # FakeSender: graba los envíos y devuelve errores programados (pruebas)
     ├── http/          # PushTokenHandler (PUT /api/devices/push-token)
-    ├── persistence/   # Tabla push_devices: Migrate, modelo, mapper, repositorio GORM y store en memoria (pruebas)
+    ├── persistence/   # Tabla push_devices (Migrate, modelo, mapper, repositorio GORM, store en memoria) y lector de devices
     └── realtime/      # Hub SSE (canal web) + StreamHandler (GET /api/notifications/stream)
 ```
 
@@ -107,7 +108,20 @@ Cómo clasifica las respuestas (los reintentos y la limpieza los hace el servici
 
 **Un `404` sin `UNREGISTERED` no borra el token.** FCM también responde `404` si el id del proyecto está mal, y borrar por eso dejaría sin push a todos los celulares del piloto.
 
-Sin credencial se usa `NoopSender`: no envía y lo deja en el log. El canal web no depende del push.
+Sin credencial, o si la credencial no sirve, se usa `NoopSender`: no envía y lo deja en el log. La plataforma arranca igual y el canal web no depende del push.
+
+## Canal móvil (`MobilePushService`)
+
+Implementa `NoticeChannel` para la suscripción `notifications.alert_notification.push`, detrás de `MobilePushPolicy`. Por cada aviso:
+
+1. Lee `devices.name` del punto (solo lectura) para `sensorId` y `pk`. Si falla, envía sin ellos.
+2. Arma el `PushMessage` y lista los celulares de `push_devices`, filtrados por la allowlist si está definida.
+3. Envía a cada celular, hasta 4 en paralelo. Un celular que falla no frena a los demás.
+4. **Reintentos**: solo los errores reintentables (`429`, `5xx`, red). Hasta 4 intentos, con esperas de 1 s, 2 s y 4 s, o lo que pida `Retry-After` si es mayor (tope de 30 s).
+5. **Limpieza**: `UNREGISTERED` borra ese token y no cuenta como falla. Un error definitivo no borra nada.
+6. Deja un resumen en el log (entregados, tokens borrados, fallidos). Si alguno falló, devuelve error y el despachador lo registra. Los tokens nunca van al log: se identifican por `deviceId`.
+
+La suscripción del push tiene un plazo de 3 min (las demás, 30 s): alcanza para los reintentos de los celulares del piloto. Si se acaba, los reintentos pendientes se cortan y quedan en el log.
 
 ## Habilitación
 
@@ -118,6 +132,11 @@ Sin credencial se usa `NoopSender`: no envía y lo deja en el log. El canal web 
 | Variable | Por defecto | Uso |
 |---|---|---|
 | `NOTIFICATIONS_SSE_MAX_CLIENTS` | `200` | Tope de streams abiertos a la vez (un valor inválido usa el de por defecto) |
+| `FCM_PROJECT_ID` | `agatha-5fe71` | Proyecto Firebase |
+| `FCM_SERVICE_ACCOUNT_FILE` | — | Ruta del JSON de la cuenta de servicio (montado en solo lectura). Tiene prioridad |
+| `FCM_SERVICE_ACCOUNT_JSON_BASE64` | — | Respaldo: el mismo JSON en base64 |
+| `FCM_VALIDATE_ONLY` | `false` | FCM valida los mensajes sin entregarlos (para probar desde local) |
+| `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` | — | `deviceId` separados por coma: solo se envía a esos. Vacía = todos |
 
 ## Riesgos conocidos
 

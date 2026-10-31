@@ -167,4 +167,6 @@ Content-Type: application/json
 
 **Reintentos del cliente**: reintentar con backoff exponencial y tope solo ante fallas de red, timeouts, `5xx` y `429` (respetando `Retry-After`). Cualquier otro `4xx` es definitivo: el mismo cuerpo siempre va a fallar, así que se descarta y se registra en el log. Reintentar un `400` dejaría a la app en un bucle infinito.
 
+**Registro en cada arranque**: la app vuelve a llamar este endpoint cada vez que arranca, además de cuando obtiene o renueva el token. Así recupera lo que se haya descartado por un `4xx` (por ejemplo, un `404` mientras el backend no tenga `notifications` habilitado) sin reintentar en bucle.
+
 No está pensado para el navegador: CORS solo permite `GET`.

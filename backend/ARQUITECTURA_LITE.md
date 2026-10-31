@@ -238,7 +238,7 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 **Endpoints** (detalle para clientes en `modules/notifications/NOTIFICATIONS_API.MD`): `GET /api/notifications/stream` (SSE: `alert.changed`, `alert.notification`, `resync`; reconexión con `Last-Event-ID` o `?last_event_id=`) y `PUT /api/devices/push-token` (registro del token FCM de la app, `204`; los `4xx` son definitivos y el cliente no los reintenta).
 
-**Push**: Adapter `infrastructure/fcm` sobre FCM HTTP v1 con OAuth2 de la cuenta de servicio (`golang.org/x/oauth2`, sin Firebase Admin SDK). Sin credencial, `NoopSender`. Un token se borra solo con `errorCode = UNREGISTERED`.
+**Push**: Adapter `infrastructure/fcm` sobre FCM HTTP v1 con OAuth2 de la cuenta de servicio (`golang.org/x/oauth2`, sin Firebase Admin SDK). Sin credencial, `NoopSender`. `MobilePushService` envía a cada celular de `push_devices` (lee `devices.name` para el `pk`), reintenta `429`/`5xx`/red con backoff y `Retry-After`, y borra un token solo con `errorCode = UNREGISTERED`. La suscripción del push tiene plazo de 3 min. Variables: `FCM_*` y `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` (ver README del módulo).
 
 **Aislamiento**: define su propio `AlertNotice`/`AlertChange`; no importa `alert_management` (ni su `contract/`), `ingestion` ni `shared/eventbus` (`depguard` `notifications-isolation`). La traducción y las suscripciones viven en `internal/bootstrap/notifications.go`.
 

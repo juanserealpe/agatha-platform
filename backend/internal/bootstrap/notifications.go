@@ -3,6 +3,9 @@ package bootstrap
 import (
 	"context"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -13,6 +16,7 @@ import (
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/policies"
 	notificationEvents "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/events"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/fcm"
 	notificationHTTP "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/http"
 	notificationPersistence "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/persistence"
 	notificationRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/infrastructure/persistence/repositories"
@@ -21,8 +25,26 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// NotificationsSSEMaxClientsEnv es el tope de streams SSE abiertos a la vez.
-const NotificationsSSEMaxClientsEnv = "NOTIFICATIONS_SSE_MAX_CLIENTS"
+// Variables de entorno de Notifications. La credencial de FCM nunca va al log.
+const (
+	// NotificationsSSEMaxClientsEnv es el tope de streams SSE abiertos a la vez.
+	NotificationsSSEMaxClientsEnv = "NOTIFICATIONS_SSE_MAX_CLIENTS"
+	// NotificationsPushAllowlistEnv limita el push a esos deviceId (separados por coma).
+	NotificationsPushAllowlistEnv = "NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST"
+	FCMProjectIDEnv               = "FCM_PROJECT_ID"
+	FCMServiceAccountFileEnv      = "FCM_SERVICE_ACCOUNT_FILE"
+	FCMServiceAccountBase64Env    = "FCM_SERVICE_ACCOUNT_JSON_BASE64"
+	// FCMValidateOnlyEnv: FCM valida los mensajes sin entregarlos (local).
+	FCMValidateOnlyEnv = "FCM_VALIDATE_ONLY"
+)
+
+// defaultFCMProjectID es el proyecto Firebase de la app Android.
+const defaultFCMProjectID = "agatha-5fe71"
+
+// pushHandlerTimeout es el plazo de la suscripción del push: cubre los
+// reintentos (hasta 4 intentos de 10 s y esperas de hasta 30 s) de los
+// celulares del piloto. Es una cola propia: no frena a la web.
+const pushHandlerTimeout = 3 * time.Minute
 
 // Nombres de las suscripciones de Notifications: una por canal, cada una con
 // su cola y su worker (si FCM se atrasa, la web no lo nota).
@@ -69,14 +91,74 @@ func NewNotificationsModule(platform *Platform) (*NotificationsModule, error) {
 	hub := realtime.NewHub(realtime.HubConfig{
 		MaxClients: envInt(log, NotificationsSSEMaxClientsEnv, realtime.DefaultMaxClients),
 	}, log)
-	m := wireNotifications(platform.EventBus, notificationChannels{webNotices: hub, webChanges: hub}, log)
+	tokens := notificationRepositories.NewPushDeviceRepository(platform.DB)
+	push := notificationServices.NewMobilePushService(tokens, notificationRepositories.NewDeviceDirectory(platform.DB),
+		newPushSender(log), notificationServices.MobilePushConfig{Allowlist: pushAllowlist(log)}, log)
+	m := wireNotifications(platform.EventBus, notificationChannels{webNotices: hub, webChanges: hub, push: push}, log)
 	m.hub = hub
 	m.pushTokens = notificationHTTP.NewPushTokenHandler(
-		notificationServices.NewPushTokenService(notificationRepositories.NewPushDeviceRepository(platform.DB),
-			notificationPorts.ClockFunc(time.Now), log),
+		notificationServices.NewPushTokenService(tokens, notificationPorts.ClockFunc(time.Now), log),
 		log,
 	)
 	return m, nil
+}
+
+// newPushSender arma el sender de FCM. Sin credencial, o si la credencial no
+// sirve, usa NoopSender: el push queda deshabilitado pero la plataforma (y el
+// canal web) arrancan igual.
+func newPushSender(log *logger.Logger) notificationPorts.PushSender {
+	cfg := fcm.Config{
+		ProjectID:                os.Getenv(FCMProjectIDEnv),
+		ServiceAccountFile:       os.Getenv(FCMServiceAccountFileEnv),
+		ServiceAccountJSONBase64: os.Getenv(FCMServiceAccountBase64Env),
+		ValidateOnly:             envBool(log, FCMValidateOnlyEnv, false),
+	}
+	if strings.TrimSpace(cfg.ProjectID) == "" {
+		cfg.ProjectID = defaultFCMProjectID
+	}
+	if !cfg.HasCredential() {
+		log.Warn("push FCM deshabilitado: falta la credencial", "file_env", FCMServiceAccountFileEnv, "base64_env", FCMServiceAccountBase64Env)
+		return fcm.NewNoopSender(log)
+	}
+	sender, err := fcm.NewHTTPV1Sender(context.Background(), cfg)
+	if err != nil {
+		log.Error("push FCM deshabilitado: la credencial no sirve", "error", err)
+		return fcm.NewNoopSender(log)
+	}
+	log.Info("push FCM habilitado", "project_id", cfg.ProjectID, "validate_only", cfg.ValidateOnly)
+	if !cfg.ValidateOnly && os.Getenv(EnvironmentEnv) != "production" &&
+		strings.Trim(os.Getenv(NotificationsPushAllowlistEnv), " ,") == "" {
+		log.Warn("push FCM real fuera de producción y sin allowlist: los avisos llegarán a todos los celulares registrados",
+			"validate_only_env", FCMValidateOnlyEnv, "allowlist_env", NotificationsPushAllowlistEnv)
+	}
+	return sender
+}
+
+// pushAllowlist lee los deviceId permitidos (vacía = todos los celulares).
+func pushAllowlist(log *logger.Logger) []string {
+	var ids []string
+	for _, part := range strings.Split(os.Getenv(NotificationsPushAllowlistEnv), ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) > 0 {
+		log.Warn("push limitado a la allowlist", "devices", strings.Join(ids, ","))
+	}
+	return ids
+}
+
+func envBool(log *logger.Logger, key string, def bool) bool {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Warn("variable de entorno inválida; se usa el valor por defecto", "key", key, "value", raw, "default", def)
+		return def
+	}
+	return v
 }
 
 func wireNotifications(bus eventbus.Bus, channels notificationChannels, log *logger.Logger) *NotificationsModule {
@@ -97,7 +179,8 @@ func (m *NotificationsModule) Subscribe() (unsubscribe func()) {
 	}
 	if m.channels.push != nil {
 		unsubscribes = append(unsubscribes, subscribeAlertNotification(m.bus, noticePushSubscription,
-			notificationServices.NewNoticeDispatcher("push", policies.MobilePushPolicy{}, m.channels.push, m.log), m.log))
+			notificationServices.NewNoticeDispatcher("push", policies.MobilePushPolicy{}, m.channels.push, m.log), m.log,
+			eventbus.WithHandlerTimeout(pushHandlerTimeout)))
 	}
 	if len(unsubscribes) == 0 {
 		m.log.Warn("Notifications no tiene canales de entrega configurados; los avisos se descartan")
@@ -130,14 +213,15 @@ func (m *NotificationsModule) Runners() []Runner {
 
 // subscribeAlertNotification traduce el contrato de Alert Management al Notice
 // de Notifications (que no importa a Alert Management). El bus entrega en orden.
-func subscribeAlertNotification(bus eventbus.Bus, name string, dispatcher notificationEvents.NoticeDispatcher, log *logger.Logger) (unsubscribe func()) {
+func subscribeAlertNotification(bus eventbus.Bus, name string, dispatcher notificationEvents.NoticeDispatcher, log *logger.Logger,
+	opts ...eventbus.SubscribeOption) (unsubscribe func()) {
 	subscriber := notificationEvents.NewAlertNotificationSubscriber(dispatcher)
 	return eventbus.SubscribeTyped(bus, alertContract.TopicAlertNotification,
 		func(ctx context.Context, n alertContract.AlertNotification) {
 			subscriber.Handle(ctx, toAlertNotice(n))
 		},
 		log,
-		eventbus.WithName(name),
+		append([]eventbus.SubscribeOption{eventbus.WithName(name)}, opts...)...,
 	)
 }
 

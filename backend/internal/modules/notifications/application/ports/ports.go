@@ -51,6 +51,13 @@ type RetryablePushError struct {
 func (e *RetryablePushError) Error() string { return e.Err.Error() }
 func (e *RetryablePushError) Unwrap() error { return e.Err }
 
+// DeviceDirectory lee el nombre del dispositivo de un punto (devices, de
+// Ingestion, solo lectura). De ahí salen sensorId y pk del push. Vacío si no
+// se conoce.
+type DeviceDirectory interface {
+	DeviceName(ctx context.Context, measuringPointID int64) (string, error)
+}
+
 // PushTokenRepository guarda el token FCM vigente de cada celular
 // (push_devices). Un celular tiene un solo token y un token es de un solo
 // celular.

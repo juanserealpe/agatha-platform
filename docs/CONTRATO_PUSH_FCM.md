@@ -26,6 +26,10 @@ PUT /api/devices/push-token
     cuerpo va a fallar siempre. Sacar el registro de la cola y dejarlo en el log. Se
     vuelve a intentar solo cuando cambie algo (token nuevo, actualización de la app).
   - Así un dato inválido no deja a la app reintentando para siempre ni cargando al servidor.
+- **Volver a registrar en cada arranque de la app** (además de al obtener o renovar el
+  token). Es idempotente y barato, y recupera los registros que se descartaron por un `4xx`:
+  por ejemplo, un `404` mientras el backend desplegado todavía no tenga el módulo de
+  notificaciones habilitado, o un token que el backend borró.
 - **Respuestas**: `204` guardado; `400 INVALID_INPUT` con `{ "code", "message" }` si el JSON
   es inválido, pasa de 4 KB, falta un campo, `deviceId` supera 128 caracteres, `token`
   supera 4096 o `platform` no es `ANDROID` (sin distinguir mayúsculas); `500` si no se

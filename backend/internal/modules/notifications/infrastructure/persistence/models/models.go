@@ -1,5 +1,6 @@
-// Package models son las filas de las tablas de Notifications. El esquema lo
-// crea persistence.Migrate con SQL (no AutoMigrate).
+// Package models son las filas de las tablas de Notifications (el esquema lo
+// crea persistence.Migrate con SQL, no AutoMigrate) y el modelo de solo lectura
+// de devices (de Ingestion), que no se migra.
 package models
 
 import "time"
@@ -14,3 +15,9 @@ type PushDeviceModel struct {
 }
 
 func (PushDeviceModel) TableName() string { return "push_devices" }
+
+// DeviceReadModel es una fila de devices (de Ingestion, solo lectura).
+type DeviceReadModel struct {
+	MeasuringPointID int64  `gorm:"column:measuring_point_id"`
+	Name             string `gorm:"column:name"`
+}
