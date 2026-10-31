@@ -16,26 +16,28 @@ const (
 	// EventResync le dice al cliente que perdió eventos y debe volver a pedir
 	// /active y /pending por REST.
 	EventResync = "resync"
+	// EventPing es el heartbeat. Va como evento con nombre y no como comentario
+	// (": ping"), porque EventSource descarta los comentarios sin avisar a
+	// JavaScript y el watchdog del cliente no los vería.
+	EventPing = "ping"
 )
 
-// Frame es un mensaje SSE. Sin Event ni ID es el heartbeat (un comentario).
+// Frame es un mensaje SSE.
 type Frame struct {
 	// ID es <epoch>-<seq>; vacío en el heartbeat y en resync (no se reenvían).
+	// Sin id, el navegador conserva el último Last-Event-ID recibido.
 	ID    string
 	Event string
 	Data  []byte
 }
 
 var (
-	pingFrame   = Frame{}
+	pingFrame   = Frame{Event: EventPing, Data: []byte("{}")}
 	resyncFrame = Frame{Event: EventResync, Data: []byte("{}")}
 )
 
 // Bytes serializa el frame en el formato de text/event-stream.
 func (f Frame) Bytes() []byte {
-	if f.Event == "" && f.ID == "" {
-		return []byte(": ping\n\n")
-	}
 	var b bytes.Buffer
 	if f.ID != "" {
 		b.WriteString("id: " + f.ID + "\n")

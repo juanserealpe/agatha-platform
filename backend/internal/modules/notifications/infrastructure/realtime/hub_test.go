@@ -130,7 +130,8 @@ func TestHub_HeartbeatIsNotReplayed(t *testing.T) {
 	go h.Run(ctx)
 
 	c, _ := connect(t, h, "")
-	if f := receive(t, c); string(f.Bytes()) != ": ping\n\n" {
+	// Evento con nombre y sin id: el navegador lo entrega a JavaScript sin tocar su Last-Event-ID.
+	if f := receive(t, c); string(f.Bytes()) != "event: ping\ndata: {}\n\n" {
 		t.Fatalf("frame = %q, quiere el heartbeat", f.Bytes())
 	}
 	if _, pending := connect(t, h, h.epoch+"-0"); len(pending) != 0 {

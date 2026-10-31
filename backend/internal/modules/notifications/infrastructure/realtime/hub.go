@@ -38,7 +38,7 @@ type HubConfig struct {
 	// ClientBuffer es cuántos frames puede tener pendientes un cliente antes
 	// de que el hub lo desconecte por lento.
 	ClientBuffer int
-	// HeartbeatInterval es cada cuánto se manda ": ping".
+	// HeartbeatInterval es cada cuánto se manda el evento "ping".
 	HeartbeatInterval time.Duration
 }
 

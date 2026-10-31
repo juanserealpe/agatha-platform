@@ -139,7 +139,7 @@ La base de datos es la del piloto, la misma que usa el backend del VPS.
 Para no perder eventos se usan tres mecanismos juntos:
 - **Ids de evento**: el hub numera cada evento como `<epoch>-<seq>` y guarda los últimos 256 en un buffer circular. Al reconectar, el servidor toma el último id de la cabecera `Last-Event-ID` (reconexión nativa del navegador) o del parámetro `?last_event_id=` (reconexión manual del cliente, que crea un `EventSource` nuevo y no tiene cabecera). Le reenvía lo que faltó; si el id no está en el buffer o cambió el epoch (el servidor se reinició), le manda `event: resync`.
 - **Resincronización por REST en cada reconexión**: el cliente vuelve a pedir `/active` y `/pending`. Es la fuente de verdad.
-- **Heartbeat**: un comentario `: ping` cada 25 s. El cliente reconecta si pasan 60 s sin recibir nada.
+- **Heartbeat**: un evento `ping` cada 25 s (sin id). El cliente reconecta si pasan 60 s sin recibir nada. Al principio era un comentario `: ping`, pero `EventSource` no entrega los comentarios a JavaScript, así que el watchdog no los veía; se corrigió antes del commit 18.
 
 ### Decisión 2. Event bus: **reutilizar `shared/eventbus`; no crear otro**
 - El puerto ya existe: `Bus` del lado técnico, y `ports.NotificationPublisher` del lado de dominio.

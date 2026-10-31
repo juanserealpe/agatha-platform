@@ -45,7 +45,7 @@ source.addEventListener('resync', () => refetchActiveAndPending());
 | `alert.notification` | Un aviso que hay que mostrar: alerta nueva, subida de nivel, reactivación sobre el máximo | Banner, sonido y notificación del navegador |
 | `resync` | Se perdieron eventos | Volver a pedir `/api/alerts/active` y `/api/alerts/pending` |
 
-Además, cada 25 s llega un comentario `: ping` (heartbeat). `EventSource` no lo entrega como evento, pero cuenta como actividad para el watchdog (ver "Reconexión").
+Además, cada 25 s llega el evento `ping` (heartbeat), sin `id` y con `data: {}`. No trae nada que aplicar: solo sirve para que el watchdog sepa que la conexión sigue viva (ver "Reconexión"). Hay que escucharlo con `addEventListener('ping', …)`. No es un comentario `: ping` porque `EventSource` descarta los comentarios sin avisar a JavaScript. Como no trae `id`, el navegador conserva el último `Last-Event-ID`.
 
 Un evento en el cable se ve así:
 
@@ -117,7 +117,7 @@ Es una **foto**: el estado completo de la alerta justo después del cambio. No h
 - **Reconexión manual**: si `EventSource` queda en `readyState = CLOSED` (por ejemplo, tras un `503`), crear uno nuevo con `?last_event_id=<último id recibido>`, porque uno nuevo no manda la cabecera.
 - Si el id ya no está en el buffer, es de otro epoch (el servidor se reinició) o no se entiende, llega `resync` en lugar de los eventos perdidos.
 - **Siempre que se (re)conecte, pedir `/active` y `/pending` de nuevo.** El stream complementa la API; no la reemplaza.
-- **Watchdog**: si pasan 60 s sin ningún dato (ni el `ping`), cerrar y reconectar a mano.
+- **Watchdog**: si pasan 60 s sin ningún evento (ni el `ping`), cerrar y reconectar a mano. Cubre las conexiones que quedan colgadas sin error (el equipo se suspendió, cambió de red), que `EventSource` no detecta solo.
 - Mientras el stream esté conectado no hace falta el polling; activarlo solo cuando esté caído.
 
 ### Respuestas de error

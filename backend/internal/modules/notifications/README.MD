@@ -57,7 +57,7 @@ Responde `text/event-stream` y deja la conexión abierta. Sin cuerpo ni autentic
 
 - **Ids**: `<epoch>-<seq>`. El epoch cambia en cada arranque del proceso.
 - **Reenvío**: guarda los últimos 256 eventos. Al reconectar con `Last-Event-ID` (o `?last_event_id=`) reenvía lo que faltó; si el id ya salió del buffer, es de otro epoch o no se entiende, manda `resync`.
-- **Heartbeat**: `: ping` cada 25 s (no se guarda ni se reenvía).
+- **Heartbeat**: evento `ping` cada 25 s, sin id (no se guarda ni se reenvía). No es un comentario `: ping` porque `EventSource` no entrega los comentarios a JavaScript y el watchdog del cliente no los vería.
 - **Clientes lentos**: cada cliente tiene un buffer de 32 frames; si se llena, el hub lo desconecta sin frenar a los demás, y el cliente se resincroniza al volver.
 - **Tope**: 200 clientes simultáneos por defecto; se cambia con `NOTIFICATIONS_SSE_MAX_CLIENTS`.
 - Al apagarse (`Run` termina), cierra todos los clientes.
