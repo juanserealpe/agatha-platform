@@ -47,7 +47,8 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("rule_engine
 |---|---|---|
 | `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta 24 h `CALCULATED`, reenvía 24 h `NO_CALCULABLE`) |
 | `rule_engine.level_evaluated` (v3, aditiva sobre v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Alert Management (suscripción `alert_management.level_evaluated` → `ProcessingService.Process`; duplicados por `(punto, evento, evaluated_at)` se ignoran) |
-| `alert_management.alert_notification` (v1) | Alert Management (post-commit; **cada** mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`; no en backfill ni reprocesos; `late` marca horas con más de `late_notification_max_hours` de atraso) | Ninguno todavía: lo consumirá el módulo de notificaciones (web, push), idempotente por `message_id`. Sin suscriptores es un no-op |
+| `alert_management.alert_notification` (v1) | Alert Management (post-commit; **cada** mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`; no en backfill ni reprocesos; `late` marca horas con más de `late_notification_max_hours` de atraso; lleva `classification` y `started_at`) | Notifications: una suscripción por canal (`notifications.alert_notification.web` y `.push`), cada una con su política; idempotente por `message_id`. Se suscribe solo un canal configurado |
+| `alert_management.alert_changed` (v1) | Alert Management (post-commit; foto de la alerta en cada cambio visible: `OPENED`, `REACTIVATED`, `FINISHED`, `LEVEL_RAISED/LOWERED`, `NO_DATA_STARTED/ENDED` del procesamiento horario y `CLASSIFIED`/`LABELED` de la gestión guardada; no en backfill) | Notifications, canal web (`notifications.alert_changed.web`): mapa y panel en tiempo real |
 
 ## Errors (`shared/errors`)
 
@@ -229,6 +230,18 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 ---
 
+# Modulo: Notifications
+
+**Responsabilidad**: entregar los eventos de Alert Management por dos canales: web en tiempo real (SSE: mapa, panel y banner) y móvil (push FCM HTTP v1, `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas. En construcción: plan en `docs/PLAN.md`; detalle en `modules/notifications/README.MD`.
+
+**Reglas por canal** (Strategy, `domain/policies`): el push solo envía alertas nuevas y subidas en Amarillo, Naranja o Rojo, nunca horas atrasadas (`late`) ni falsas alertas; la web recibe todo (los atrasados marcados). Cada canal es una suscripción propia del bus: si FCM se atrasa, la web no lo nota.
+
+**Aislamiento**: define su propio `AlertNotice`/`AlertChange`; no importa `alert_management` (ni su `contract/`), `ingestion` ni `shared/eventbus` (`depguard` `notifications-isolation`). La traducción y las suscripciones viven en `internal/bootstrap/notifications.go`.
+
+**Inicialización**: habilitar `notifications` en `AGATHA_MODULES`. No exige `alert_management` (sin él no recibe eventos): así se puede levantar solo en local sin la cadena de schedulers.
+
+---
+
 # Composition Root y Despliegue
 
 `internal/bootstrap` arma cada módulo sobre una `Platform` compartida (`NewPlatform`: `.env` + `DATABASE_URL` + bus en memoria). Cada módulo tiene su constructor y ninguno conoce a los demás:
@@ -242,6 +255,7 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 | `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + `BusEventPublisher`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
 | `NewRuleEngineModule(platform)` | Rule Engine | `persistence.Migrate` (AutoMigrate + `btree_gist` + `EXCLUDE` idempotente) + seed de la v1 + repos + `busLevelEventPublisher`. Expone `Thresholds`, `Simulator`, `Evaluator`, `Backfiller`, `CatchUp` y `NewScheduler` (catch-up horario, Runner de `NewApplication`); `.SubscribeIndicatorEvaluated()` suscribe a `processing.indicator_evaluated` (traduce contrato → Notice); `.RegisterRoutes(mux)` registra `/api/rule-engine/*` (la simulación usa repos en memoria vía `memorySandbox`). Lee `AGATHA_ENV`, `RULE_ENGINE_BACKFILL_BATCH_SIZE` y `RULE_ENGINE_CATCHUP_MINUTE`. |
 | `NewAlertManagementModule(platform)` | Alert Management | `MigrateAlertManagement` (AutoMigrate + `code` GENERATED + índice único parcial + CHECK de gestión + `EXCLUDE` de políticas + trigger) + seed (política global desde 2000-01-01) + repos GORM + `busAlertNotificationPublisher` (port `NotificationPublisher` → bus). Expone `Processor`, `Replay`; `.SubscribeLevelEvaluated()`, `.RegisterRoutes(mux)` (`/api/alerts/*`) y `.Runners()` (catch-up). `NewApplication` lo construye ANTES de Baseline (crea `alerts`, que Baseline lee). Lee `AGATHA_ENV`, `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE`, `ALERT_MANAGEMENT_CATCHUP_MINUTE`. |
+| `NewNotificationsModule(platform)` | Notifications | Cablea un `NoticeDispatcher` por canal configurado (política + canal) y `.Subscribe()` registra sus suscripciones (traduce contrato → `AlertNotice`/`AlertChange`). Advierte en el log si no hay canales o si falta `alert_management`. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
@@ -249,7 +263,7 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `alert_management`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing`, `rule_engine` y `alert_management` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing`, que `alert_management` requiera `rule_engine` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Alert Management migra primero → Baseline → Processing → Rule Engine → Alert Management (suscripción) → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`, `dashboard`, `rule_engine`, `alert_management`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `alert_management`, `notifications`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing`, `rule_engine` y `alert_management` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing`, que `alert_management` requiera `rule_engine` y que `callback`/`dataos` sean excluyentes (`notifications` no requiere nada); `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Alert Management migra primero → Baseline → Processing → Rule Engine → Alert Management (suscripción) → Notifications (suscripciones) → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`, `dashboard`, `rule_engine`, `alert_management`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
 | `cmd/processing` | Evaluación a demanda de un punto (`-point`) o carga del histórico de evaluaciones (`-backfill`, `-from`, `-asof`, `-dry-run`, `-json`); sale al terminar. |

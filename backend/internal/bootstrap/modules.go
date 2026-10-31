@@ -24,9 +24,14 @@ const (
 	ModuleDataOS          Module = "dataos"    // ingesta de contingencia: consulta programada a DataOS
 	ModuleCallback        Module = "callback"  // ingesta principal: POST /ingestion/callback
 	ModuleDashboard       Module = "dashboard" // API HTTP de solo lectura: GET /api/dashboard/*
+
+	// ModuleNotifications entrega los eventos de alert_management por la web
+	// y por push. No exige alert_management: sin él no recibe eventos (sirve
+	// para levantarlo solo en local, sin procesar la base del piloto).
+	ModuleNotifications Module = "notifications"
 )
 
-var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleRuleEngine, ModuleAlertManagement, ModuleDataOS, ModuleCallback, ModuleDashboard}
+var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleRuleEngine, ModuleAlertManagement, ModuleNotifications, ModuleDataOS, ModuleCallback, ModuleDashboard}
 
 // DefaultModules se usa cuando AGATHA_MODULES está vacía. processing no entra:
 // se habilita a mano, después de cargar el histórico de Baseline.
@@ -43,6 +48,7 @@ type ModuleSet map[Module]bool
 //   - processing requiere baseline (lee sus tablas, que migra Baseline);
 //   - rule_engine requiere processing (sin él no le llega ningún evento);
 //   - alert_management requiere rule_engine (consume rule_engine.level_evaluated);
+//   - notifications no requiere nada (sin alert_management no recibe eventos);
 //   - callback y dataos son excluyentes (una sola vía de ingesta: el índice
 //     único descarta las mediciones repetidas, pero cada vía crea sus propios
 //     lotes en ingestion_state_models).

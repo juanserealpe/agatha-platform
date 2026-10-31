@@ -322,11 +322,11 @@ Se trabaja un commit a la vez: se hacen los cambios, se explican, se corren `go 
 
 > ⚠️ Los commits 1, 2 y 3 tocan `alert_management`: avisar antes de empezarlos para coordinar con su responsable.
 
-- [ ] 1. `feat(alert-management): add classification and start time to alert notification event`
-- [ ] 2. `feat(alert-management): publish alert_changed after hourly processing commits`
-- [ ] 3. `feat(alert-management): publish alert_changed after classification and labeling`
-- [ ] 4. `feat(notifications): add domain model and channel policies`
-- [ ] 5. `feat(bootstrap): wire notifications module and event subscriptions`
+- [x] 1. `feat(alert-management): add classification and start time to alert notification event`
+- [x] 2. `feat(alert-management): publish alert_changed after hourly processing commits`
+- [x] 3. `feat(alert-management): publish alert_changed after classification and labeling`
+- [x] 4. `feat(notifications): add domain model and channel policies`
+- [x] 5. `feat(bootstrap): wire notifications module and event subscriptions`
 
 **Fase 2: canal web**
 - [ ] 6. `feat(notifications): add SSE hub with heartbeat and replay buffer`
@@ -441,6 +441,7 @@ Observaciones sobre su código. **No se corrigen aquí.**
 2. **No se puede levantar la API de alertas sin la cadena de schedulers**: `alert_management` exige `rule_engine → processing → baseline`, y cada uno arranca su scheduler. No hay forma de levantar `/api/alerts` en solo lectura (por ejemplo, para desarrollo contra la base del piloto). Sugerencia: una variable que deshabilite los runners.
 3. **Catálogo del bus desactualizado**: en `shared/eventbus/README.md`, `rule_engine.level_evaluated` dice "Ninguno hoy (Alert Management)", pero `alert_management` ya está suscrito. El commit 25 actualiza el catálogo de los tópicos nuevos; esa fila se le deja a él.
 4. **HTTP/2 en nginx** (`listen 443 ssl http2`), para el límite de conexiones del navegador (riesgo 4).
+5. **`ARQUITECTURA_LITE.md` desactualizado en Docker**: la sección "Docker" todavía dice `AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine` y `8080:8080`, pero desde el merge de `dev` el compose incluye `alert_management` y publica `127.0.0.1:8080:8080`. Se dejó sin tocar; el commit 14 agrega `notifications` al compose.
 
 ---
 

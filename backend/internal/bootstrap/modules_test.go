@@ -62,6 +62,27 @@ func TestParseModules(t *testing.T) {
 		}
 	})
 
+	t.Run("notifications arranca después de alert_management", func(t *testing.T) {
+		set, err := ParseModules("notifications,callback,alert_management,rule_engine,processing,baseline")
+		if err != nil {
+			t.Fatalf("error inesperado: %v", err)
+		}
+		if got, want := set.String(), "baseline,processing,rule_engine,alert_management,notifications,callback"; got != want {
+			t.Fatalf("set = %q, se esperaba %q", got, want)
+		}
+	})
+
+	// En local se levanta solo, sin la cadena de schedulers de alert_management.
+	t.Run("notifications no exige alert_management", func(t *testing.T) {
+		set, err := ParseModules("notifications,dashboard")
+		if err != nil {
+			t.Fatalf("error inesperado: %v", err)
+		}
+		if !set.Has(ModuleNotifications) || set.Has(ModuleAlertManagement) {
+			t.Fatalf("set = %q", set)
+		}
+	})
+
 	errorCases := []struct {
 		name string
 		raw  string
