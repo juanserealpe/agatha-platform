@@ -2,7 +2,18 @@ import type { SeriesResponse } from "@/services/dashboard/series.types";
 import { apiPath, httpClient } from "@/services/http";
 import type { Device } from "./dashboard.types";
 
-export const dashboardService = {
+export interface DashboardService {
+    getDevices(signal?: AbortSignal): Promise<Device[]>;
+    getSeries(
+        deviceId: number,
+        startDate: string,
+        endDate: string,
+        variables: string[],
+        signal?: AbortSignal
+    ): Promise<SeriesResponse>;
+}
+
+const httpDashboardService: DashboardService = {
     getDevices(signal?: AbortSignal): Promise<Device[]> {
         return httpClient.get(apiPath("api", "dashboard", "devices"), {
             signal,
@@ -24,3 +35,11 @@ export const dashboardService = {
         });
     },
 };
+
+// Punto de composición: los hooks usan esta instancia.
+export let dashboardService: DashboardService = httpDashboardService;
+
+/** Reemplaza la implementación (la demo usa una en memoria). Solo antes del primer render: no se cambia en caliente. */
+export function installDashboardService(service: DashboardService) {
+    dashboardService = service;
+}

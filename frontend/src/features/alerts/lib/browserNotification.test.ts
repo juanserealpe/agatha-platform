@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { toAlertId } from "@/services/alertManagement";
 import type { AlertNotificationEvent } from "@/services/realtime";
-import { buildBrowserNotification, shouldShowBrowserNotification } from "./browserNotification";
+import {
+    buildBrowserNotification,
+    setBrowserNotificationTitlePrefix,
+    shouldShowBrowserNotification,
+} from "./browserNotification";
 
 const notice = (overrides: Partial<AlertNotificationEvent> = {}): AlertNotificationEvent => ({
     message_id: 1,
@@ -43,5 +47,16 @@ describe("buildBrowserNotification", () => {
         const { title, options } = buildBrowserNotification(notice({ late: true, level: "NARANJA" }));
         expect(title).toBe("La alerta ALR-000142 subió a Rojo (Atrasado)");
         expect(options.requireInteraction).toBe(false);
+    });
+
+    it("antepone el prefijo configurado (demo)", () => {
+        setBrowserNotificationTitlePrefix("[SIMULACIÓN] ");
+        try {
+            expect(buildBrowserNotification(notice({ late: true })).title).toBe(
+                "[SIMULACIÓN] La alerta ALR-000142 subió a Rojo (Atrasado)"
+            );
+        } finally {
+            setBrowserNotificationTitlePrefix("");
+        }
     });
 });

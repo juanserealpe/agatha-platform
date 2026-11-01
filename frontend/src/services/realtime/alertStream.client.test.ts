@@ -192,3 +192,20 @@ describe("createAlertStream", () => {
         expect(handlers.onChanged).not.toHaveBeenCalled();
     });
 });
+
+describe("installEventSourceFactory", () => {
+    it("lo usan los streams que se abren sin un EventSource propio", async () => {
+        // Módulo nuevo: la fábrica instalada es global y no debe afectar a las demás pruebas.
+        vi.resetModules();
+        const client = await import("./alertStream.client");
+        const created: string[] = [];
+        client.installEventSourceFactory((url) => {
+            created.push(url);
+            return new FakeEventSource(url);
+        });
+
+        client.createAlertStream({ handlers: handlers as unknown as AlertStreamHandlers }).connect();
+
+        expect(created).toEqual(["/api/notifications/stream"]);
+    });
+});

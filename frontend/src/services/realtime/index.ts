@@ -1,5 +1,5 @@
-export { createAlertStream } from "./alertStream.client";
-export type { AlertStream, AlertStreamOptions } from "./alertStream.client";
+export { createAlertStream, installEventSourceFactory } from "./alertStream.client";
+export type { AlertStream, AlertStreamOptions, EventSourceLike } from "./alertStream.client";
 export { STREAM_EVENTS } from "./alertStream.types";
 export type {
     AlertChange,

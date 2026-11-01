@@ -474,6 +474,13 @@ La demo vive en el mismo despliegue de Vercel, en la ruta `/demo`. El modo se de
 
 **Etapa 1 (en curso)**: escenario guiado sobre el Punto 1 (PK 34+470, alerta `ALR-900001`): Amarilla → Naranja → Roja (titila) → clasificar desde el modal → Normal. Las series del Punto 1 suben de forma visible en los pasos de alerta (B2, indicador y densidad) y vuelven a la normalidad; los otros dos puntos quedan en valores normales.
 
+Commits (uno a la vez, el usuario hace cada commit):
+- [x] D1. `feat(app): decide app mode at load and build the router with a basename`
+- [x] D2. `refactor(services): add composition points for alert, dashboard and stream services`: `installAlertManagementService`, `installDashboardService`, `installEventSourceFactory`, `blockBackendRequests` en `httpClient` y `setBrowserNotificationTitlePrefix`
+- [ ] D3. `feat(demo): add in-memory alert simulation store and scenario`: en `src/demo/`, puro y con pruebas. Ids `900001`, código `ALR-900001`, Punto 1 (PK 34+470); también genera las series coherentes con el paso del escenario
+- [ ] D4. `feat(demo): simulate the alert stream, alert management and dashboard`: `EventSource` simulado (`open`, eventos con `id`, `ping` cada 25 s, caída y vuelta), servicios en memoria (clasificar responde como el backend y emite `CLASSIFIED`; `exportXlsx` rechaza), dispositivos y series. `installDemo()` instala todo, bloquea el backend y pone el prefijo `[SIMULACIÓN] `. `main.tsx`: `bootstrap()` async (sin top-level await) que, si `DEMO_ENABLED && isDemoPath`, hace `import()` de `installDemo` y crea el router con `basename: "/demo"`
+- [ ] D5. `feat(demo): add demo route overlay with simulation panel`: `AppModeContext` y overlay en `RootLayout` (marca "DEMO — datos simulados", panel plegable con escenario guiado paso a paso y reinicio, botones sueltos: alerta nueva, subir nivel, clasificar, desconectar/reconectar, "disparar en 5 s"; botón "Salir de la demo" con `window.location.assign("/")`), `.env.example` y README. Verificar: `npm test`, `npm run lint`, `npm run build` (el chunk principal casi no crece respecto a 227,68 kB; la demo en su propio chunk; ningún texto de la demo en `index-*.js`) y `vite preview` recargando `/demo/monitoreo`
+
 **Etapa 2 (solo plan)**: reproducir la fuga del 25 de agosto con lecturas reales pasadas por las reglas reales, sobre un PostgreSQL local (nunca la base de producción). Las reglas están en Go, así que el escenario se genera sin conexión y la demo reproduce el resultado:
 1. Cargar las lecturas en el PostgreSQL local.
 2. Correr el pipeline real en orden cronológico: Baseline (backfill de versiones) → Processing → Rule Engine → Alert Management.

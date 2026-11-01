@@ -91,3 +91,22 @@ describe("httpClient", () => {
         expect(await blob.text()).toBe("xlsx");
     });
 });
+
+describe("blockBackendRequests", () => {
+    it("rechaza las peticiones sin llegar a la red", async () => {
+        // Módulo nuevo: el bloqueo es global y no debe afectar a las demás pruebas.
+        vi.resetModules();
+        const http = await import("./httpClient");
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+        vi.spyOn(console, "error").mockImplementation(() => {});
+
+        http.blockBackendRequests("La demo no usa el backend.");
+
+        await expect(http.httpClient.get("/api/x")).rejects.toMatchObject({
+            code: http.BACKEND_BLOCKED_CODE,
+            message: "La demo no usa el backend.",
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+});

@@ -84,7 +84,25 @@ async function toApiError(response: Response, fallbackMessage = DEFAULT_ERROR_ME
     return new ApiError({ status: response.status, code, message, body });
 }
 
+/** Código del error cuando las peticiones al backend están bloqueadas (modo demo). */
+export const BACKEND_BLOCKED_CODE = "BACKEND_BLOCKED";
+
+let blockedMessage: string | null = null;
+
+/**
+ * Rechaza toda petición desde aquí en adelante, sin llegar a la red. La demo lo activa para que nunca llame
+ * al backend real: si un servicio quedó sin simular, falla a la vista en vez de traer datos reales.
+ */
+export function blockBackendRequests(message: string) {
+    blockedMessage = message;
+}
+
 async function send(method: "GET" | "POST", path: string, options: RequestOptions, body?: unknown): Promise<Response> {
+    if (blockedMessage !== null) {
+        console.error(`Petición bloqueada: ${method} ${path}`);
+        throw new ApiError({ status: 0, code: BACKEND_BLOCKED_CODE, message: blockedMessage });
+    }
+
     let response: Response;
     try {
         response = await fetch(apiUrl(path, options.query), {

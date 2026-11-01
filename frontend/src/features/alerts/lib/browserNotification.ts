@@ -3,6 +3,16 @@ import { LATE_NOTICE_LABEL } from "../config/alertManagementDisplay";
 
 const NOTIFICATION_ICON = "/favicon.svg";
 
+let titlePrefix = "";
+
+/**
+ * Prefijo del título de toda notificación (la demo usa "[SIMULACIÓN] "): la notificación sale de la pestaña,
+ * así que debe distinguirse sola de un aviso real.
+ */
+export function setBrowserNotificationTitlePrefix(prefix: string) {
+    titlePrefix = prefix;
+}
+
 /** Permiso de notificaciones del navegador; `unsupported` si el navegador no tiene la Notification API. */
 export type BrowserNotificationPermission = NotificationPermission | "unsupported";
 
@@ -31,7 +41,7 @@ export function shouldShowBrowserNotification(permission: BrowserNotificationPer
  */
 export function buildBrowserNotification(notice: AlertNotificationEvent): { title: string; options: NotificationOptions } {
     return {
-        title: notice.late ? `${notice.title} (${LATE_NOTICE_LABEL})` : notice.title,
+        title: titlePrefix + (notice.late ? `${notice.title} (${LATE_NOTICE_LABEL})` : notice.title),
         options: {
             body: notice.body,
             tag: notice.alert_code,

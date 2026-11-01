@@ -25,6 +25,16 @@ export interface EventSourceLike {
     close(): void;
 }
 
+let defaultCreateEventSource: (url: string) => EventSourceLike = (url) => new EventSource(url);
+
+/**
+ * Reemplaza el `EventSource` de todos los streams que se abran sin uno propio (la demo usa uno simulado).
+ * Solo antes del primer render: no se cambia en caliente.
+ */
+export function installEventSourceFactory(factory: (url: string) => EventSourceLike) {
+    defaultCreateEventSource = factory;
+}
+
 export interface AlertStreamOptions {
     handlers: AlertStreamHandlers;
     createEventSource?: (url: string) => EventSourceLike;
@@ -78,7 +88,7 @@ export function parseEventData<T>(data: unknown, idField: keyof T & string): T |
  */
 export function createAlertStream({
     handlers,
-    createEventSource = (url) => new EventSource(url),
+    createEventSource = defaultCreateEventSource,
     random = Math.random,
 }: AlertStreamOptions): AlertStream {
     let source: EventSourceLike | null = null;
