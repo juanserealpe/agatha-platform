@@ -465,3 +465,28 @@ Observaciones sobre su código. **No se corrigen aquí.**
 - **HTTP/2** en el nginx del VPS.
 - **Autenticación** del stream y del registro de tokens.
 - **Panel "Sin clasificar"**: hoy muestra las 5 más recientes, sin límite de fecha, para que ninguna se olvide; las finalizadas se ven atenuadas. Si se acumulan muchas en el piloto: (a) ordenar por urgencia (pedir ~20 a `/pending` y mostrar las 5 más urgentes con `mostUrgentAlert`) y (b) mostrar aparte el atraso ("N con más de 7 días") con enlace al historial filtrado por fechas.
+
+---
+
+## 10. Demo en `/demo` (rama `feature/demo`)
+
+La demo vive en el mismo despliegue de Vercel, en la ruta `/demo`. El modo se decide al cargar la página. Usa servicios REST, stream, dispositivos y series simulados, y nunca llama al backend. El código va en un chunk aparte que se carga con `import()` solo en `/demo`. Se apaga con `VITE_ENABLE_DEMO=false`.
+
+**Etapa 1 (en curso)**: escenario guiado sobre el Punto 1 (PK 34+470, alerta `ALR-900001`): Amarilla → Naranja → Roja (titila) → clasificar desde el modal → Normal. Las series del Punto 1 suben de forma visible en los pasos de alerta (B2, indicador y densidad) y vuelven a la normalidad; los otros dos puntos quedan en valores normales.
+
+**Etapa 2 (solo plan)**: reproducir la fuga del 25 de agosto con lecturas reales pasadas por las reglas reales, sobre un PostgreSQL local (nunca la base de producción). Las reglas están en Go, así que el escenario se genera sin conexión y la demo reproduce el resultado:
+1. Cargar las lecturas en el PostgreSQL local.
+2. Correr el pipeline real en orden cronológico: Baseline (backfill de versiones) → Processing → Rule Engine → Alert Management.
+3. Exportar a JSON los eventos `alert.changed` y `alert.notification`, el detalle de la alerta y las series.
+4. La demo reproduce ese JSON con el mismo `EventSource` simulado.
+
+Qué historia exige el pipeline (revisado en el código):
+- La línea base usa los 90 días anteriores a cada versión (`BASELINE_HISTORY_DAYS = 90`), pero funciona con menos datos. Necesita al menos 96 registros de señal y 20 ventanas por combinación (24 h: D, P, EX, C; 6 h: D, P, EX). Sin las 7 combinaciones no hay I. Con menos de 60 ventanas la confianza es `LOW`.
+- Las ventanas son de 24 h y 6 h, alineadas a UTC.
+- El primer registro de B2 del punto 11556 es del **2026-07-08**: antes no hay datos, así que cargar desde finales de mayo equivale a cargar desde el 8 de julio. En producción, la primera versión `NORMAL` es la del 6 de agosto. Para que la del 25 de agosto sea la misma, hace falta **todo el histórico desde el 8 de julio** hasta el 28 de agosto.
+- Baseline excluye los eventos conocidos, y los toma de la tabla `alerts`: la versión vigente el 25 de agosto depende de que exista la alerta de julio. Por eso el pipeline debe correr en orden cronológico y no por módulo. Pendiente: confirmar con el responsable del backend cómo se hizo el `-rebuild` del piloto.
+
+Datos de entrada:
+- `raw_measurements`: `measuring_point_id`, `metric_id`, `timestamp` (UTC, ISO 8601), `value`. `source` es opcional. Baseline y Processing leen las métricas 12, 13 y 18; las demás solo sirven para las gráficas.
+- `devices`: la fila del punto 11556 (`id`, `name`, `active = true`).
+- Fuente preferida: un `SELECT` filtrado (punto 11556, del 2026-07-08 al 2026-08-28) en el editor SQL de Supabase, exportado a CSV. Son los datos exactos que procesó el piloto, en formato largo (una fila por medición). El Excel propio, que llega hasta el 24 de septiembre, sirve solo si trae fecha UTC y se puede mapear cada columna a su `metric_id`. Además, antes del 2026-10-22 el voltaje (métrica 3) venía al doble, aunque no lo usan las reglas.
