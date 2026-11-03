@@ -71,7 +71,7 @@ func TestMobilePushService_SendsToEveryPhone(t *testing.T) {
 	if len(sent) != 2 || f.sender.Attempts("a") != 1 || f.sender.Attempts("b") != 1 {
 		t.Fatalf("envíos = %+v", sent)
 	}
-	want := entities.PushMessage{AlertID: "ALR-000142", Level: entities.PushLevelRed, Kind: entities.PushKindLevelUp,
+	want := entities.PushMessage{MessageID: 9, AlertID: "ALR-000142", Level: entities.PushLevelRed, Kind: entities.PushKindLevelUp,
 		SensorID: "Sensor PK34-470", PK: "34+470", Event: entities.PushEventLeak}
 	if sent[0].Message != want {
 		t.Fatalf("mensaje = %+v, se esperaba %+v", sent[0].Message, want)

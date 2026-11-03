@@ -94,7 +94,7 @@ Un celular (`device_id`, el `CEL-XXXXXX` de la app) tiene un solo token FCM vige
 
 - **Autenticación**: OAuth2 con la cuenta de servicio (`golang.org/x/oauth2/google`, permiso `firebase.messaging`). El token de acceso se pide en el primer envío y se reutiliza hasta que vence. No se usa el Firebase Admin SDK ni la "server key" legacy.
 - **Credencial**: archivo montado (`FCM_SERVICE_ACCOUNT_FILE`) o, de respaldo, base64 (`FCM_SERVICE_ACCOUNT_JSON_BASE64`); si están los dos, gana el archivo. Solo se acepta el tipo `service_account`. Ni el JSON ni partes de él van al log o a los errores.
-- **Mensaje** (contrato §3): solo datos, `android.priority = HIGH`, valores string, opcionales vacíos omitidos y `startedAt` con offset de Colombia (`-05:00`). Con `ValidateOnly`, FCM valida sin entregar.
+- **Mensaje** (contrato §3): solo datos, `android.priority = HIGH`, valores string, opcionales vacíos omitidos, `messageId` para que la app descarte repetidos y `startedAt` con offset de Colombia (`-05:00`). Con `ValidateOnly`, FCM valida sin entregar.
 - **Cada envío tiene un plazo de 10 s**, incluido pedir el token.
 
 Cómo clasifica las respuestas (los reintentos y la limpieza los hace el servicio del canal móvil):

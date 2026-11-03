@@ -14,6 +14,9 @@ var ErrNotPushable = errors.New("el aviso no se puede enviar por push")
 // PushMessage es el mensaje solo-datos que espera la app Android
 // (docs/CONTRATO_PUSH_FCM.md §3). Los campos vacíos se omiten al enviarlo.
 type PushMessage struct {
+	// MessageID es el id del aviso: la app descarta un push repetido (FCM
+	// puede entregar dos veces si se reintenta). 0 = no se envía.
+	MessageID int64
 	// AlertID es el código de la alerta (ALR-000142): la app abre su detalle.
 	AlertID  string
 	Level    PushLevel
@@ -38,6 +41,7 @@ func NewPushMessage(n AlertNotice, deviceName string) (PushMessage, error) {
 		return PushMessage{}, ErrNotPushable
 	}
 	m := PushMessage{
+		MessageID: n.MessageID,
 		AlertID:   n.AlertCode,
 		Level:     level,
 		Kind:      kind,

@@ -11,7 +11,7 @@ import (
 
 func TestNewSendRequest_FollowsTheContract(t *testing.T) {
 	m := entities.PushMessage{
-		AlertID: "ALR-000142", Level: entities.PushLevelOrange, Kind: entities.PushKindLevelUp,
+		MessageID: 9, AlertID: "ALR-000142", Level: entities.PushLevelOrange, Kind: entities.PushKindLevelUp,
 		SensorID: "Sensor PK34-470", PK: "34+470", Event: entities.PushEventLeak,
 		StartedAt:      time.Date(2026, 10, 18, 19, 32, 0, 0, time.UTC),
 		Classification: entities.PushClassificationConfirmed,
@@ -27,7 +27,7 @@ func TestNewSendRequest_FollowsTheContract(t *testing.T) {
 			"token":   "token-fcm",
 			"android": map[string]any{"priority": "HIGH"},
 			"data": map[string]any{
-				"alertId": "ALR-000142", "level": "ORANGE", "kind": "LEVEL_UP",
+				"messageId": "9", "alertId": "ALR-000142", "level": "ORANGE", "kind": "LEVEL_UP",
 				"sensorId": "Sensor PK34-470", "pk": "34+470", "event": "LEAK",
 				"startedAt": "2026-10-18T14:32:00-05:00", "classification": "CONFIRMED",
 			},

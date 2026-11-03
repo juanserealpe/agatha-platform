@@ -69,6 +69,12 @@ PUT /api/devices/push-token
 | `event` | no | `LEAK` / `MOVEMENT`. El backend hoy no envía `LEAK_AND_MOVEMENT` |
 | `startedAt` | no | inicio de la alerta, RFC 3339 con offset de Colombia (`2026-10-18T14:32:00-05:00`) |
 | `classification` | no | `CONFIRMED`; se omite si está Sin clasificar (`FALSE_ALARM` nunca se envía, §4) |
+| `messageId` | no | id del aviso (número en texto, p. ej. `"9031"`). Los push de alertas siempre lo traen |
+
+**Push repetidos**: si el backend reintenta un envío que FCM sí había entregado (respuesta
+perdida por la red), el celular puede recibir el mismo push dos veces. La app debe
+mostrar una sola notificación por `messageId` (por ejemplo, guardando los últimos 50
+recibidos). Una subida de nivel es otro aviso, con otro `messageId` y el mismo `alertId`.
 
 Los campos opcionales se omiten cuando no hay dato (p. ej. un nombre de dispositivo sin PK
 no lleva `pk`). Un mensaje sin `alertId` o sin `level` válido se descarta en la app.
@@ -98,6 +104,7 @@ desinstaló o el token caducó. Cuando la app obtenga uno nuevo lo volverá a re
     "token": "<token FCM del celular>",
     "android": { "priority": "HIGH" },
     "data": {
+      "messageId": "9031",
       "alertId": "ALR-000142",
       "level": "ORANGE",
       "kind": "LEVEL_UP",

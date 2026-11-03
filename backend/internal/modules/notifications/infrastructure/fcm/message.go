@@ -5,6 +5,7 @@
 package fcm
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
@@ -45,6 +46,9 @@ func newSendRequest(token string, m entities.PushMessage, validateOnly bool) sen
 		"pk":             m.PK,
 		"event":          string(m.Event),
 		"classification": string(m.Classification),
+	}
+	if m.MessageID != 0 {
+		optional["messageId"] = strconv.FormatInt(m.MessageID, 10)
 	}
 	if !m.StartedAt.IsZero() {
 		optional["startedAt"] = m.StartedAt.In(colombia).Format(time.RFC3339)
