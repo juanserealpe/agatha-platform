@@ -62,16 +62,6 @@ func TestParseModules(t *testing.T) {
 		}
 	})
 
-	t.Run("notifications arranca después de alert_management", func(t *testing.T) {
-		set, err := ParseModules("notifications,alert_management,rule_engine,processing,baseline")
-		if err != nil {
-			t.Fatalf("error inesperado: %v", err)
-		}
-		if got, want := set.String(), "baseline,processing,rule_engine,alert_management,notifications"; got != want {
-			t.Fatalf("set = %q, se esperaba %q", got, want)
-		}
-	})
-
 	errorCases := []struct {
 		name string
 		raw  string
@@ -80,7 +70,6 @@ func TestParseModules(t *testing.T) {
 		{"callback y dataos a la vez", "callback,dataos,dashboard"},
 		{"rule_engine sin processing", "baseline,rule_engine"},
 		{"alert_management sin rule_engine", "baseline,processing,alert_management"},
-		{"notifications sin alert_management", "baseline,processing,rule_engine,notifications"},
 		{"solo separadores", ",,"},
 	}
 

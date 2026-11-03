@@ -47,7 +47,7 @@ eventbus.SubscribeTyped(bus, topic, handler, log, eventbus.WithName("rule_engine
 |---|---|---|
 | `processing.indicator_evaluated` | Processing (`EvaluatePending`, post-commit; uno por ventana 24 h/6 h; no en backfill) | Rule Engine (`EvaluateIndicator`: interpreta 24 h `CALCULATED`, reenvía 24 h `NO_CALCULABLE`) |
 | `rule_engine.level_evaluated` (v3, aditiva sobre v2) | Rule Engine (post-commit; **cada** hora de 24 h: `CALCULATED`, incluida NORMAL, y `NO_CALCULABLE` sin fila; no en backfill, duplicados ni llegadas tardías) | Alert Management (suscripción `alert_management.level_evaluated` → `ProcessingService.Process`; duplicados por `(punto, evento, evaluated_at)` se ignoran) |
-| `alert_management.alert_notification` (v1) | Alert Management (post-commit; **cada** mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`; no en backfill ni reprocesos; `late` marca horas con más de `late_notification_max_hours` de atraso) | Notifications (suscripción `notifications.alert_notification`, si `notifications` está habilitado): push FCM al topic `NOTIFICATIONS_PUSH_TOPIC`, salvo `late = true`. `message_id` viaja en los datos para que la app sea idempotente. Sin suscriptores es un no-op |
+| `alert_management.alert_notification` (v1) | Alert Management (post-commit; **cada** mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`; no en backfill ni reprocesos; `late` marca horas con más de `late_notification_max_hours` de atraso) | Ninguno todavía: lo consumirá el módulo de notificaciones (web, push), idempotente por `message_id`. Sin suscriptores es un no-op |
 
 ## Errors (`shared/errors`)
 
@@ -229,19 +229,6 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 ---
 
-# Modulo: Notifications
-
-**Responsabilidad**: entregar como push (Firebase Cloud Messaging, Admin SDK `firebase.google.com/go/v4`) cada `alert_management.alert_notification`: un push al topic `NOTIFICATIONS_PUSH_TOPIC` (default `alerts`, la app se suscribe) con `title`/`body` del catálogo y los datos del aviso (`message_id`, `alert_code`, `level`, …). `late = true` ⇒ no se envía. Sin BD, sin tokens, sin reintentos (best-effort; la fuente de verdad es `alert_messages`). Credenciales: `GOOGLE_APPLICATION_CREDENTIALS` (RUTA al JSON de la cuenta de servicio; nunca en el repo ni en la imagen). Detalle en `modules/notifications/README.MD`.
-
-| Trigger | Accion | Componente |
-|---|---|---|
-| Evento `alert_management.alert_notification` (suscripción `notifications.alert_notification`) | `late` ⇒ nada; si no, push FCM al topic | `AlertNotificationSubscriber` → `AlertPushService.Notify` → `fcm.Sender` |
-| `cmd/notifications -test-send [-topic\|-token] [-title] [-body]` | Push de prueba real (sin BD) | `fcm.Sender` |
-
-**Aislamiento**: define su propio `AlertNotice`; no importa `alert_management` (ni su `contract/`), otros módulos ni `shared/eventbus` (`depguard` `notifications-isolation`). Traducción y suscripción en `internal/bootstrap/notifications.go`.
-
----
-
 # Composition Root y Despliegue
 
 `internal/bootstrap` arma cada módulo sobre una `Platform` compartida (`NewPlatform`: `.env` + `DATABASE_URL` + bus en memoria). Cada módulo tiene su constructor y ninguno conoce a los demás:
@@ -255,7 +242,6 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 | `NewProcessingModule(platform)` | Processing | AutoMigrate (`feature_evaluations` + índice único vía tags) + config `PROCESSING_*` + `BusEventPublisher`. Lee las tablas de Baseline e Ingestion con modelos propios. Expone `Evaluator` y `NewScheduler()`. |
 | `NewRuleEngineModule(platform)` | Rule Engine | `persistence.Migrate` (AutoMigrate + `btree_gist` + `EXCLUDE` idempotente) + seed de la v1 + repos + `busLevelEventPublisher`. Expone `Thresholds`, `Simulator`, `Evaluator`, `Backfiller`, `CatchUp` y `NewScheduler` (catch-up horario, Runner de `NewApplication`); `.SubscribeIndicatorEvaluated()` suscribe a `processing.indicator_evaluated` (traduce contrato → Notice); `.RegisterRoutes(mux)` registra `/api/rule-engine/*` (la simulación usa repos en memoria vía `memorySandbox`). Lee `AGATHA_ENV`, `RULE_ENGINE_BACKFILL_BATCH_SIZE` y `RULE_ENGINE_CATCHUP_MINUTE`. |
 | `NewAlertManagementModule(platform)` | Alert Management | `MigrateAlertManagement` (AutoMigrate + `code` GENERATED + índice único parcial + CHECK de gestión + `EXCLUDE` de políticas + trigger) + seed (política global desde 2000-01-01) + repos GORM + `busAlertNotificationPublisher` (port `NotificationPublisher` → bus). Expone `Processor`, `Replay`; `.SubscribeLevelEvaluated()`, `.RegisterRoutes(mux)` (`/api/alerts/*`) y `.Runners()` (catch-up). `NewApplication` lo construye ANTES de Baseline (crea `alerts`, que Baseline lee). Lee `AGATHA_ENV`, `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE`, `ALERT_MANAGEMENT_CATCHUP_MINUTE`. |
-| `NewNotificationsModule(platform)` | Notifications | `fcm.NewSender` (Application Default Credentials: `GOOGLE_APPLICATION_CREDENTIALS`; falla el arranque si faltan) + `AlertPushService`. Sin BD. `.SubscribeAlertNotification()` suscribe a `alert_management.alert_notification` (traduce contrato → `AlertNotice`); `NewApplication` lo suscribe antes de la suscripción y el catch-up de Alert Management. Lee `NOTIFICATIONS_PUSH_TOPIC`. |
 | `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
@@ -263,13 +249,12 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 | Binario | Qué ejecuta |
 |---|---|
-| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `alert_management`, `notifications`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing`, `rule_engine` y `alert_management` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing`, que `alert_management` requiera `rule_engine`, que `notifications` requiera `alert_management` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Alert Management migra primero → Baseline → Processing → Rule Engine → Alert Management (suscripción) → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`, `dashboard`, `rule_engine`, `alert_management`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
+| `cmd/platform` | **Default de la imagen**: monolito con los módulos de `AGATHA_MODULES` (coma-separados: `baseline`, `processing`, `rule_engine`, `alert_management`, `dataos`, `callback`, `dashboard`; vacía = `baseline,callback,dashboard`: `processing`, `rule_engine` y `alert_management` se habilitan a mano). `bootstrap.ParseModules` valida que `processing` requiera `baseline`, que `rule_engine` requiera `processing`, que `alert_management` requiera `rule_engine` y que `callback`/`dataos` sean excluyentes; `bootstrap.NewApplication` cablea solo lo habilitado en orden de arranque (Alert Management migra primero → Baseline → Processing → Rule Engine → Alert Management (suscripción) → DataOS → Callback → Dashboard); las suscripciones quedan registradas antes de arrancar los schedulers. Servidor `:8080` solo si hay módulos HTTP (`callback`, `dashboard`, `rule_engine`, `alert_management`). Apagado ordenado con SIGINT/SIGTERM: `server.Shutdown` → espera a los schedulers → `Platform.Close` (10 s). |
 | `cmd/scheduler` | Ingestion programada + scheduler de Baseline. |
 | `cmd/baseline` | Recálculo manual de un punto (`-point`, `-asof`, `-dry-run`, `-json`) o carga del histórico retroactivo de versiones (`-backfill`, `-from`); sale al terminar. |
 | `cmd/processing` | Evaluación a demanda de un punto (`-point`) o carga del histórico de evaluaciones (`-backfill`, `-from`, `-asof`, `-dry-run`, `-json`); sale al terminar. |
 | `cmd/rule_engine` | Histórico de interpretaciones (`-backfill`, `-point`, `-from`, `-to`, `-rebuild`); nunca publica; sale al terminar. |
 | `cmd/alert_management` | Histórico de alertas (`-backfill`, `-point`, `-from`, `-to`, `-rebuild`); nunca publica avisos; sale al terminar. |
-| `cmd/notifications` | Push de prueba real por FCM (`-test-send`, `-topic` o `-token`, `-title`, `-body`); sin BD; sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo); sale al terminar. |
 
 **Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine`, `8080:8080`, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` (los secretos entran en runtime).
