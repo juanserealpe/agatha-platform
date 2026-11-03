@@ -39,3 +39,6 @@ graphify-out/
 .claude/
 CLAUDE.md
 CLAUDE.local.md
+
+# Credenciales de Firebase (cuenta de servicio) fuera de backend/secrets/
+*firebase-adminsdk*.json
