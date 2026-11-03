@@ -10,4 +10,5 @@ export { alertKeys } from "./hooks/alertKeys";
 export { SEVERITY_STYLES } from "./config/alertDisplay";
 export { displayLevel, EVENT_LABEL, levelStyle, MANAGEMENT_STATUS_STYLES } from "./config/alertManagementDisplay";
 export { mostUrgentAlert } from "./lib/alertPriority";
+export { setBrowserNotificationTitlePrefix } from "./lib/browserNotification";
 export { useAlertDetailParam } from "./hooks/useAlertDetailParam";
