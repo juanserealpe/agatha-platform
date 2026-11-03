@@ -11,15 +11,18 @@ import (
 // ErrInvalidCORSOrigin indica un origen CORS mal formado o no admitido.
 var ErrInvalidCORSOrigin = errors.New("origen CORS inválido")
 
-// Lo único que el navegador consume hoy son los GET de Dashboard, sin
-// autenticación: no se permiten otros métodos ni credenciales.
+// El navegador consume los GET de lectura y los POST de Alert Management y
+// Rule Engine, sin autenticación: no se permiten otros métodos ni credenciales.
 const (
-	corsAllowedMethods = "GET"
+	corsAllowedMethods = "GET, POST"
 	corsAllowedHeaders = "Accept, Content-Type"
 	corsMaxAgeSeconds  = "600"
 )
 
-var corsAllowedHeaderSet = map[string]bool{"accept": true, "content-type": true}
+var (
+	corsAllowedMethodSet = map[string]bool{http.MethodGet: true, http.MethodPost: true}
+	corsAllowedHeaderSet = map[string]bool{"accept": true, "content-type": true}
+)
 
 // ParseAllowedOrigins interpreta una lista de orígenes separada por comas
 // (ignorando espacios, vacíos, repetidos y la barra final) y la normaliza a
@@ -84,7 +87,7 @@ func CORS(allowedOrigins []string, next http.Handler) http.Handler {
 			w.Header().Add("Vary", "Access-Control-Request-Method")
 			w.Header().Add("Vary", "Access-Control-Request-Headers")
 
-			if !originAllowed || requestedMethod != http.MethodGet ||
+			if !originAllowed || !corsAllowedMethodSet[requestedMethod] ||
 				!headersAllowed(r.Header.Get("Access-Control-Request-Headers")) {
 				w.WriteHeader(http.StatusForbidden)
 				return

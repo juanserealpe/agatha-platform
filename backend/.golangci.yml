@@ -101,6 +101,24 @@ linters:
               desc: "alert_management no conoce a baseline (baseline lee alerts por su cuenta)"
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
               desc: "alert_management no conoce el bus; la suscripción vive en bootstrap"
+        # Notifications consume alert_management.alert_notification sin importarlo y no conoce el bus.
+        notifications-isolation:
+          list-mode: lax
+          files:
+            - "**/internal/modules/notifications/**"
+          deny:
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management
+              desc: "notifications no importa alert_management (ni su contract); usa su propio AlertNotice traducido en bootstrap"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine
+              desc: "notifications no importa rule_engine"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
+              desc: "notifications no importa processing"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion
+              desc: "notifications no importa ingestion"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline
+              desc: "notifications no importa baseline"
+            - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
+              desc: "notifications no conoce el bus; la suscripción vive en bootstrap"
         # Baseline es autosuficiente: solo lee tablas. Nunca conoce a Processing.
         baseline-isolation:
           list-mode: lax

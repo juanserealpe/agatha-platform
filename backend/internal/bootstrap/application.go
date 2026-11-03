@@ -21,7 +21,8 @@ type Application struct {
 
 // NewApplication cablea los módulos habilitados en orden de arranque: Baseline,
 // Processing, Rule Engine (suscripción + HTTP de umbrales + catch-up horario),
-// Alert Management (migración antes de Baseline; suscripción, /api/alerts, catch-up y publicación de avisos), DataOS, Callback y Dashboard. Cada constructor migra su propio
+// Alert Management (migración antes de Baseline; suscripción, /api/alerts, catch-up y publicación de avisos),
+// Notifications (push FCM de los avisos), DataOS, Callback y Dashboard. Cada constructor migra su propio
 // esquema (Baseline antes que Processing, que lee sus tablas).
 func NewApplication(platform *Platform, modules ModuleSet) (*Application, error) {
 	app := &Application{Modules: modules}
@@ -62,6 +63,16 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 		m.SubscribeIndicatorEvaluated()
 		app.routes = append(app.routes, m.RegisterRoutes)
 		app.runners = append(app.runners, Runner{Name: "catch-up del rule engine", Start: m.NewScheduler().Start})
+	}
+
+	// Notifications se suscribe antes que Alert Management arranque su catch-up:
+	// ningún aviso se publica sin su consumidor.
+	if modules.Has(ModuleNotifications) {
+		m, err := NewNotificationsModule(platform)
+		if err != nil {
+			return nil, fmt.Errorf("módulo %s: %w", ModuleNotifications, err)
+		}
+		m.SubscribeAlertNotification()
 	}
 
 	if alerts != nil {

@@ -153,7 +153,7 @@ func TestCORS_Preflight(t *testing.T) {
 		}
 		want := map[string]string{
 			"Access-Control-Allow-Origin":  allowedOrigin,
-			"Access-Control-Allow-Methods": "GET",
+			"Access-Control-Allow-Methods": "GET, POST",
 			"Access-Control-Allow-Headers": "Accept, Content-Type",
 			"Access-Control-Max-Age":       "600",
 		}
@@ -171,7 +171,7 @@ func TestCORS_Preflight(t *testing.T) {
 		name, origin, method, headers string
 	}{
 		{name: "origen no autorizado", origin: forbiddenOrigin, method: http.MethodGet},
-		{name: "método no permitido", origin: allowedOrigin, method: http.MethodPost},
+		{name: "método no permitido", origin: allowedOrigin, method: http.MethodDelete},
 		{name: "encabezado no permitido", origin: allowedOrigin, method: http.MethodGet, headers: "Authorization"},
 	}
 	for _, tt := range rejected {
@@ -251,6 +251,16 @@ func TestCORS_CompatibleConServeMux(t *testing.T) {
 		}
 		if got := rec.Header().Values("Access-Control-Allow-Origin"); len(got) != 1 {
 			t.Fatalf("Access-Control-Allow-Origin duplicado o ausente: %q", got)
+		}
+	})
+
+	t.Run("preflight POST con JSON se autoriza", func(t *testing.T) {
+		rec := serve(h, preflight("/api/alerts/1/label", allowedOrigin, http.MethodPost, "content-type"))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, se esperaba 204", rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != allowedOrigin {
+			t.Fatalf("Access-Control-Allow-Origin = %q, se esperaba %q", got, allowedOrigin)
 		}
 	})
 

@@ -21,3 +21,7 @@
 # OS files
 .DS_Store
 Thumbs.db
+
+# Credenciales de Firebase (cuenta de servicio): GOOGLE_APPLICATION_CREDENTIALS apunta acá
+*firebase-adminsdk*.json
+backend/secrets/

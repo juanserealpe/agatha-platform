@@ -21,12 +21,16 @@ const (
 	// (/api/alerts, catch-up) y publica alert_management.alert_notification;
 	// requiere rule_engine.
 	ModuleAlertManagement Module = "alert_management"
-	ModuleDataOS          Module = "dataos"    // ingesta de contingencia: consulta programada a DataOS
-	ModuleCallback        Module = "callback"  // ingesta principal: POST /ingestion/callback
-	ModuleDashboard       Module = "dashboard" // API HTTP de solo lectura: GET /api/dashboard/*
+	// ModuleNotifications envía alert_management.alert_notification como push
+	// (FCM, topic NOTIFICATIONS_PUSH_TOPIC); requiere alert_management y
+	// GOOGLE_APPLICATION_CREDENTIALS.
+	ModuleNotifications Module = "notifications"
+	ModuleDataOS        Module = "dataos"    // ingesta de contingencia: consulta programada a DataOS
+	ModuleCallback      Module = "callback"  // ingesta principal: POST /ingestion/callback
+	ModuleDashboard     Module = "dashboard" // API HTTP de solo lectura: GET /api/dashboard/*
 )
 
-var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleRuleEngine, ModuleAlertManagement, ModuleDataOS, ModuleCallback, ModuleDashboard}
+var moduleOrder = []Module{ModuleBaseline, ModuleProcessing, ModuleRuleEngine, ModuleAlertManagement, ModuleNotifications, ModuleDataOS, ModuleCallback, ModuleDashboard}
 
 // DefaultModules se usa cuando AGATHA_MODULES está vacía. processing no entra:
 // se habilita a mano, después de cargar el histórico de Baseline.
@@ -43,6 +47,7 @@ type ModuleSet map[Module]bool
 //   - processing requiere baseline (lee sus tablas, que migra Baseline);
 //   - rule_engine requiere processing (sin él no le llega ningún evento);
 //   - alert_management requiere rule_engine (consume rule_engine.level_evaluated);
+//   - notifications requiere alert_management (consume alert_management.alert_notification);
 //   - callback y dataos son excluyentes (una sola vía de ingesta: el índice
 //     único descarta las mediciones repetidas, pero cada vía crea sus propios
 //     lotes en ingestion_state_models).
@@ -76,6 +81,9 @@ func ParseModules(raw string) (ModuleSet, error) {
 	}
 	if set.Has(ModuleAlertManagement) && !set.Has(ModuleRuleEngine) {
 		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleAlertManagement, ModuleRuleEngine)
+	}
+	if set.Has(ModuleNotifications) && !set.Has(ModuleAlertManagement) {
+		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleNotifications, ModuleAlertManagement)
 	}
 	if set.Has(ModuleCallback) && set.Has(ModuleDataOS) {
 		return nil, fmt.Errorf("%w: %s y %s no pueden correr a la vez (se usa una sola vía de ingesta)",
