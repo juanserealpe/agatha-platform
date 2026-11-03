@@ -371,6 +371,20 @@ Commits extra de la fase 4 (2026-10-31), surgidos al revisar con el usuario:
 - [x] 24. `test(bootstrap): cover alert to web and push delivery end to end`
 - [x] 25. `docs(notifications): document module, event catalog and FCM contract`
 
+**Después del plan (2026-11-03)**
+
+El compañero subió a `dev` su propio módulo de notificaciones (FCM por topic `alerts`, Admin SDK). Acordamos quedarnos con este módulo: se revirtió el suyo en `dev` (`a80f9fc`), conservando su CORS y sus reglas de ignorados. De su versión se adoptaron dos ideas:
+- [x] Merge de `dev` en `feature/notificaciones`: CORS queda con GET, POST, PUT + `Last-Event-ID`; los ignorados, con las reglas de las dos ramas.
+- [x] `feat(notifications): send messageId in push data`: la app descarta un push repetido.
+- [x] `feat(notifications): add test-send command for push to one phone`: `cmd/notifications -test-send` (contrato §7).
+
+Probado en local (base PostgreSQL en Docker, no la del piloto): registro de token, stream SSE, evento de prueba y la credencial de FCM contra Firebase en modo validación.
+
+**Pendiente**
+- **Prueba en un celular real**: falta que el equipo móvil pase el token FCM y el `deviceId` de un teléfono de prueba. Con eso: `go run ./cmd/notifications -test-send -token <token>` con `FCM_VALIDATE_ONLY=false`, en los tres niveles y en `NEW`/`LEVEL_UP`, con la app abierta, en segundo plano y cerrada.
+- **Avisar al equipo móvil**: `messageId` (deduplicar), alerta de prueba inexistente al tocar la notificación, no reintentar `4xx` y registrar el token en cada arranque.
+- **Despliegue**: el workflow del VPS falla con "missing server host" (faltan los secrets `VPS_HOST`, `VPS_USERNAME` y `VPS_SSH_KEY` del repositorio); copiar la credencial de FCM al VPS (§8.7); merge a `dev` solo con el visto bueno del responsable del backend.
+
 ---
 
 ## 6. Estrategia de pruebas
@@ -406,6 +420,8 @@ Extiende `TestAlertManagement_EndToEndFromProcessing`: `processing.indicator_eva
 
 ### 6.3 Prueba manual (requiere el `.env`; se avisa antes de cada paso)
 
+> **Actualización (2026-11-03):** la prueba manual se hace contra un PostgreSQL **local** en Docker (contenedor `agatha-pg-local`, puerto 5433, base vacía: el backend crea sus tablas), no contra la base del piloto. La tabla de abajo queda como referencia de qué escribe cada módulo.
+
 **Módulos en local: `AGATHA_MODULES=notifications`** (y `dashboard` solo si el mapa lo necesita).
 
 | Módulo | Qué escribe en la base de producción |
@@ -419,7 +435,7 @@ Variables en local: `NOTIFICATIONS_TEST_ENDPOINT=true`, `AGATHA_ENV` distinto de
 1. Levantar el backend con esos módulos y variables.
 2. Ver el stream: `curl -N http://localhost:8080/api/notifications/stream`.
 3. Disparar un evento: `curl -X POST .../api/notifications/test-event -d '{"level":"ROJO","kind":"NEW","measuring_point_id":…}'`. Recorre el mismo pipeline del bus y no escribe alertas.
-4. En la web (proxy `/api/notifications` → local, el resto → VPS): el marcador cambia, aparece el banner y, con la pestaña oculta, la notificación del navegador.
+4. En la web (proxy `/api/notifications` → local, el resto → VPS; se activa con `LOCAL_NOTIFICATIONS_URL=http://localhost:8080` en `frontend/.env.development.local`, archivo ignorado por git): el marcador cambia, aparece el banner y, con la pestaña oculta, la notificación del navegador.
 5. En el celular: registrar el token desde la app, ponerlo en la allowlist y repetir el paso 3.
 6. Probar la reconexión: reiniciar el backend local y comprobar que el indicador pasa a "Reconectando" → "En vivo" y que se resincroniza.
 
@@ -464,4 +480,6 @@ Observaciones sobre su código. **No se corrigen aquí.**
 - **Conciliador de pushes** sobre `alert_messages` (`kind = NOTIFICACION`), para no perder avisos si el proceso cae entre el commit y la publicación.
 - **HTTP/2** en el nginx del VPS.
 - **Autenticación** del stream y del registro de tokens.
+- **Concurrencia del push configurable** por variable de entorno: hoy `DefaultPushConcurrency = 4` fijo, unos 30-50 s para 1000 celulares.
+- **Topics de FCM** (como el módulo del compañero) si el número de celulares crece mucho: un envío por topic en vez de uno por token, a cambio de perder la allowlist y la limpieza por token.
 - **Panel "Sin clasificar"**: hoy muestra las 5 más recientes, sin límite de fecha, para que ninguna se olvide; las finalizadas se ven atenuadas. Si se acumulan muchas en el piloto: (a) ordenar por urgencia (pedir ~20 a `/pending` y mostrar las 5 más urgentes con `mostUrgentAlert`) y (b) mostrar aparte el atraso ("N con más de 7 días") con enlace al historial filtrado por fechas.

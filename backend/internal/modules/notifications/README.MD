@@ -127,6 +127,10 @@ La suscripción del push tiene un plazo de 3 min (las demás, 30 s): alcanza par
 
 El handler valida el pedido (`entities.NewTestEvent`) y llama al puerto `TestEventEmitter`. Lo implementa `internal/bootstrap` (`busTestEventEmitter`), que publica los mismos contratos de Alert Management en el bus. Así el evento recorre el pipeline real sin que este módulo importe esos contratos y sin escribir en la base. Los ids son negativos y el código es `ALR-PRUEBA-…`, para que nunca se confundan con una alerta real. Uso y ejemplos en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD) §3.
 
+## Push de prueba (`cmd/notifications -test-send`)
+
+Envía un mensaje con el formato del contrato a **un** celular, sin esperar una alerta (contrato §7). Usa la credencial y `FCM_VALIDATE_ONLY` del `.env`: si no se pide `false`, FCM valida el mensaje y el token pero no lo entrega. Con `-device` busca el token en `push_devices` y respeta la allowlist; con `-token` no toca la base. La lógica está en `internal/bootstrap/notification_test_push.go`.
+
 ## Habilitación
 
 `notifications` en `AGATHA_MODULES`. No exige `alert_management`: sin él no recibe eventos, y así se puede levantar solo en local sin la cadena de schedulers que procesa la base del piloto.

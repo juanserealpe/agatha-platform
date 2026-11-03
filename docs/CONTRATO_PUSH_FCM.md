@@ -119,3 +119,24 @@ desinstaló o el token caducó. Cuando la app obtenga uno nuevo lo volverá a re
 
 Resultado en el celular: "La alerta ALR-000142 subió a Naranja", con dispositivo, PK, evento e
 inicio; al tocarla abre el detalle de la alerta.
+
+## 7. Push de prueba
+
+Para probar la entrega en un celular sin esperar una alerta real, el backend tiene un
+comando que manda **un** push con el formato de §3 a un solo celular (desde `backend/`):
+
+```
+go run ./cmd/notifications -test-send -token <token FCM> [-level RED] [-kind NEW]
+go run ./cmd/notifications -test-send -device CEL-1A2B3C [-level ORANGE] [-kind LEVEL_UP]
+```
+
+- `-token`: el token que la app obtiene de Firebase. No necesita que la app haya llegado al
+  backend.
+- `-device`: el `deviceId` que la app registró con `PUT /api/devices/push-token` (§1).
+- El push trae `alertId = ALR-PRUEBA-000001`, `sensorId = Sensor PK34-470`, `pk = 34+470`,
+  `event = LEAK`, `startedAt` = la hora del envío y un `messageId` **negativo** distinto en
+  cada envío. Esa alerta no existe: al tocar la notificación, el detalle no la encuentra.
+  La app debe mostrar un estado de "no encontrada" sin cerrarse.
+- Por seguridad, el backend local solo **valida** con FCM (`FCM_VALIDATE_ONLY=true`): si
+  responde que validó, el token y el mensaje son correctos. Para que el push llegue al
+  celular se corre con `FCM_VALIDATE_ONLY=false`.
