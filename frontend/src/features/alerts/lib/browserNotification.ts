@@ -34,17 +34,23 @@ export function shouldShowBrowserNotification(permission: BrowserNotificationPer
     return permission === "granted" && tabHidden;
 }
 
+/** `renotify` existe en Chrome y Edge pero no en los tipos de TypeScript; los demás navegadores lo ignoran. */
+type AlertNotificationOptions = NotificationOptions & { renotify: boolean };
+
 /**
  * Título y opciones de la notificación. `tag = alert_code`: un aviso nuevo de la misma alerta (p. ej. una
  * subida de nivel) reemplaza al anterior en el sistema operativo en vez de apilarse, y si hay varias pestañas
  * ocultas, la notificación de cada una reemplaza a la de las otras.
  */
-export function buildBrowserNotification(notice: AlertNotificationEvent): { title: string; options: NotificationOptions } {
+export function buildBrowserNotification(notice: AlertNotificationEvent): { title: string; options: AlertNotificationOptions } {
     return {
         title: titlePrefix + (notice.late ? `${notice.title} (${LATE_NOTICE_LABEL})` : notice.title),
         options: {
             body: notice.body,
             tag: notice.alert_code,
+            // Sin esto, el reemplazo es silencioso: si la anterior sigue en el centro de notificaciones de
+            // Windows, la subida a Rojo no aparece en pantalla.
+            renotify: true,
             icon: NOTIFICATION_ICON,
             // Rojo se queda en pantalla hasta que alguien lo atienda; los demás siguen la duración del sistema.
             requireInteraction: notice.level === "ROJO",

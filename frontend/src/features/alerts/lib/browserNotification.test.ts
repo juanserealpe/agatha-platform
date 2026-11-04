@@ -43,6 +43,10 @@ describe("buildBrowserNotification", () => {
         expect(options).toMatchObject({ body: notice().body, tag: "ALR-000142", requireInteraction: true });
     });
 
+    it("vuelve a avisar al reemplazar la notificación de la misma alerta", () => {
+        expect(buildBrowserNotification(notice()).options).toMatchObject({ tag: "ALR-000142", renotify: true });
+    });
+
     it("marca el aviso atrasado y deja que el sistema cierre los que no son rojos", () => {
         const { title, options } = buildBrowserNotification(notice({ late: true, level: "NARANJA" }));
         expect(title).toBe("La alerta ALR-000142 subió a Rojo (Atrasado)");
