@@ -1,10 +1,11 @@
 // Package fcm es el Adapter del canal móvil: envía los PushMessage por la API
 // FCM HTTP v1 con la cuenta de servicio del proyecto Firebase
-// (docs/CONTRATO_PUSH_FCM.md). El JSON de la credencial nunca va al log ni a
+// (CONTRATO_PUSH_FCM.md). El JSON de la credencial nunca va al log ni a
 // los errores.
 package fcm
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
@@ -45,6 +46,9 @@ func newSendRequest(token string, m entities.PushMessage, validateOnly bool) sen
 		"pk":             m.PK,
 		"event":          string(m.Event),
 		"classification": string(m.Classification),
+	}
+	if m.MessageID != 0 {
+		optional["messageId"] = strconv.FormatInt(m.MessageID, 10)
 	}
 	if !m.StartedAt.IsZero() {
 		optional["startedAt"] = m.StartedAt.In(colombia).Format(time.RFC3339)

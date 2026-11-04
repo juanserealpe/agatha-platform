@@ -31,8 +31,9 @@ export function PipelineMap({ nodes, onShowTelemetry, topRightOverlay }: Pipelin
                 <PipelineLayers nodes={nodes} onShowTelemetry={onShowTelemetry} />
             </MapContainer>
 
+            {/* Un nivel sobre la leyenda y el minimapa (z-[1000]): los avisos de alerta tienen prioridad. */}
             {topRightOverlay && (
-                <div className="pointer-events-none absolute right-3 top-3 z-[1000] flex justify-end [&>*]:pointer-events-auto">
+                <div className="pointer-events-none absolute right-3 top-3 z-[1001] flex justify-end [&>*]:pointer-events-auto">
                     {topRightOverlay}
                 </div>
             )}

@@ -12,7 +12,7 @@ import { showBrowserNotification } from "../lib/browserNotification";
 import { applyToActive, applyToPending, isNewerEvaluation } from "../lib/streamCache";
 import { alertKeys } from "./alertKeys";
 import { useAlertDetailParam } from "./useAlertDetailParam";
-import { dismissNotification, receiveNotification } from "./useNewAlerts";
+import { applyNoticeChange, dismissNotification, receiveNotification } from "./useNewAlerts";
 
 // Estado de la conexión a nivel de módulo: hay un solo stream para toda la app y varios lectores
 // (el polling de las consultas y el indicador de conexión).
@@ -89,7 +89,10 @@ export function useAlertStream() {
 
         const stream = createAlertStream({
             handlers: {
-                onChanged: (event) => applyAlertChanged(queryClient, event),
+                onChanged: (event) => {
+                    applyAlertChanged(queryClient, event);
+                    applyNoticeChange(event);
+                },
                 onNotification,
                 onResync: () => {
                     void queryClient.invalidateQueries({ queryKey: alertKeys.active() });

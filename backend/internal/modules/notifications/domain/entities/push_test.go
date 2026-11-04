@@ -11,7 +11,7 @@ import (
 func TestNewPushMessage_MapsTheContract(t *testing.T) {
 	started := time.Date(2026, 10, 18, 19, 32, 0, 0, time.UTC)
 	n := entities.AlertNotice{
-		AlertCode: "ALR-000142", Code: "UP_NARANJA_FAST", Level: entities.LevelNaranja, EventType: entities.EventLeak,
+		MessageID: 9, AlertCode: "ALR-000142", Code: "UP_NARANJA_FAST", Level: entities.LevelNaranja, EventType: entities.EventLeak,
 		StartedAt: started, Classification: entities.ClassificationConfirmed,
 	}
 	got, err := entities.NewPushMessage(n, "Sensor PK34-470")
@@ -19,7 +19,7 @@ func TestNewPushMessage_MapsTheContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := entities.PushMessage{
-		AlertID: "ALR-000142", Level: entities.PushLevelOrange, Kind: entities.PushKindLevelUp,
+		MessageID: 9, AlertID: "ALR-000142", Level: entities.PushLevelOrange, Kind: entities.PushKindLevelUp,
 		SensorID: "Sensor PK34-470", PK: "34+470", Event: entities.PushEventLeak, StartedAt: started,
 		Classification: entities.PushClassificationConfirmed,
 	}

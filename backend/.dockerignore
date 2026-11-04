@@ -14,3 +14,6 @@ tests
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Credenciales de Firebase: se montan en runtime, nunca en la imagen.
+*firebase-adminsdk*.json

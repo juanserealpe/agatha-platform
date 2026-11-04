@@ -6,6 +6,8 @@ export interface SeverityStyle {
     badgeClass: string;
     /** Borde completo de las tarjetas de alerta. */
     borderClass: string;
+    /** Fondo tenue y opaco de los avisos (van sobre el mapa), para reconocer el nivel de un vistazo. */
+    surfaceClass: string;
     dotClass: string;
     /** Color para capas del mapa (Leaflet no usa clases de Tailwind). */
     hex: string;
@@ -17,6 +19,7 @@ export const SEVERITY_STYLES: Record<AlertLevel, SeverityStyle> = {
         label: "Rojo",
         badgeClass: "bg-red-50 text-red-700 ring-1 ring-red-200",
         borderClass: "border-alerta-roja",
+        surfaceClass: "bg-red-50",
         dotClass: "bg-alerta-roja",
         hex: "#ef4444",
     },
@@ -24,6 +27,7 @@ export const SEVERITY_STYLES: Record<AlertLevel, SeverityStyle> = {
         label: "Naranja",
         badgeClass: "bg-orange-50 text-orange-700 ring-1 ring-orange-200",
         borderClass: "border-alerta-naranja",
+        surfaceClass: "bg-orange-50",
         dotClass: "bg-alerta-naranja",
         hex: "#f97316",
     },
@@ -31,6 +35,7 @@ export const SEVERITY_STYLES: Record<AlertLevel, SeverityStyle> = {
         label: "Amarillo",
         badgeClass: "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
         borderClass: "border-alerta-amarilla",
+        surfaceClass: "bg-amber-50",
         dotClass: "bg-alerta-amarilla",
         hex: "#f59e0b",
     },

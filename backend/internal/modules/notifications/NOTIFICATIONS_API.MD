@@ -136,7 +136,7 @@ Es una **foto**: el estado completo de la alerta justo después del cambio. No h
 
 ## 2. Registro del token FCM: `PUT /api/devices/push-token`
 
-Lo llama la app Android al obtener o renovar su token. Contrato completo en [docs/CONTRATO_PUSH_FCM.md](../../../../docs/CONTRATO_PUSH_FCM.md).
+Lo llama la app Android al obtener o renovar su token. Contrato completo en [CONTRATO_PUSH_FCM.md](CONTRATO_PUSH_FCM.md).
 
 ```
 PUT /api/devices/push-token
@@ -207,15 +207,17 @@ Content-Type: application/json
 - **Ids negativos**: `alert_id` y `message_id` siempre son negativos y el código es `ALR-PRUEBA-…`. Así nunca pisan una alerta real en la caché del frontend, y el endpoint no acepta un `alert_id` positivo. Al resincronizar con `/active` y `/pending` desaparecen, porque no existen en la base.
 - `202` porque la entrega a cada canal es asíncrona.
 
+**Qué se ve en la web**: el banner, el sonido, la notificación del navegador y el indicador de conexión. El mapa y el panel de alertas **no cambian**: el frontend aplica `alert.changed` solo a las alertas que ya tiene de `/active` y `/pending`, y ante una alerta desconocida vuelve a consultarlas, pero las de prueba no existen en la base. Para verlas en el mapa y el panel hacen falta alertas reales (el pipeline completo).
+
 Una secuencia típica para probar el frontend:
 
 ```bash
 curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"level":"AMARILLO"}'
-# → alert_id -1: el marcador se pone amarillo, banner "nueva"
+# → alert_id -1: banner amarillo "nueva" y sonido
 curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":-1,"level":"ROJO","code":"UP_ROJO"}'
-# → misma alerta en rojo y titilando, banner "subió"
+# → el banner de la misma alerta pasa a rojo y titila: "subió"
 curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":-1,"level":"ROJO","change":"CLASSIFIED","classification":"CONFIRMADA"}'
-# → deja de titilar, sin banner
+# → el banner deja de titilar; no aparece otro
 ```
 
 | HTTP | `code` | Cuándo |

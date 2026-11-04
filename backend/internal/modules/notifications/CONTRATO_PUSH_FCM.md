@@ -6,7 +6,7 @@ Código de referencia en la app: `push/AlertPush.kt`, `push/AgathaMessagingServi
 `push/PushTokenStore.kt`, `core/device/DeviceOriginProvider.kt`.
 
 **Estado (2026-10-31): implementado en el backend** (módulo `notifications`, detalle en
-`backend/internal/modules/notifications/README.MD`). Este documento es el contrato final:
+[NOTIFICATIONS_README.MD](NOTIFICATIONS_README.MD)). Este documento es el contrato final:
 lo que antes era propuesta quedó como se describe aquí.
 
 ## 1. Registro del token (implementado en el backend)
@@ -69,6 +69,12 @@ PUT /api/devices/push-token
 | `event` | no | `LEAK` / `MOVEMENT`. El backend hoy no envía `LEAK_AND_MOVEMENT` |
 | `startedAt` | no | inicio de la alerta, RFC 3339 con offset de Colombia (`2026-10-18T14:32:00-05:00`) |
 | `classification` | no | `CONFIRMED`; se omite si está Sin clasificar (`FALSE_ALARM` nunca se envía, §4) |
+| `messageId` | no | id del aviso (número en texto, p. ej. `"9031"`). Los push de alertas siempre lo traen |
+
+**Push repetidos**: si el backend reintenta un envío que FCM sí había entregado (respuesta
+perdida por la red), el celular puede recibir el mismo push dos veces. La app debe
+mostrar una sola notificación por `messageId` (por ejemplo, guardando los últimos 50
+recibidos). Una subida de nivel es otro aviso, con otro `messageId` y el mismo `alertId`.
 
 Los campos opcionales se omiten cuando no hay dato (p. ej. un nombre de dispositivo sin PK
 no lleva `pk`). Un mensaje sin `alertId` o sin `level` válido se descarta en la app.
@@ -98,6 +104,7 @@ desinstaló o el token caducó. Cuando la app obtenga uno nuevo lo volverá a re
     "token": "<token FCM del celular>",
     "android": { "priority": "HIGH" },
     "data": {
+      "messageId": "9031",
       "alertId": "ALR-000142",
       "level": "ORANGE",
       "kind": "LEVEL_UP",
@@ -112,3 +119,24 @@ desinstaló o el token caducó. Cuando la app obtenga uno nuevo lo volverá a re
 
 Resultado en el celular: "La alerta ALR-000142 subió a Naranja", con dispositivo, PK, evento e
 inicio; al tocarla abre el detalle de la alerta.
+
+## 7. Push de prueba
+
+Para probar la entrega en un celular sin esperar una alerta real, el backend tiene un
+comando que manda **un** push con el formato de §3 a un solo celular (desde `backend/`):
+
+```
+go run ./cmd/notifications -test-send -token <token FCM> [-level RED] [-kind NEW]
+go run ./cmd/notifications -test-send -device CEL-1A2B3C [-level ORANGE] [-kind LEVEL_UP]
+```
+
+- `-token`: el token que la app obtiene de Firebase. No necesita que la app haya llegado al
+  backend.
+- `-device`: el `deviceId` que la app registró con `PUT /api/devices/push-token` (§1).
+- El push trae `alertId = ALR-PRUEBA-000001`, `sensorId = Sensor PK34-470`, `pk = 34+470`,
+  `event = LEAK`, `startedAt` = la hora del envío y un `messageId` **negativo** distinto en
+  cada envío. Esa alerta no existe: al tocar la notificación, el detalle no la encuentra.
+  La app debe mostrar un estado de "no encontrada" sin cerrarse.
+- Por seguridad, el backend local solo **valida** con FCM (`FCM_VALIDATE_ONLY=true`): si
+  responde que validó, el token y el mensaje son correctos. Para que el push llegue al
+  celular se corre con `FCM_VALIDATE_ONLY=false`.

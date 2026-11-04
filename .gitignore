@@ -32,6 +32,9 @@ frontend/dist/
 frontend/.env
 frontend/.env.*
 
+# Documentos de trabajo locales (plan); la documentación de cada módulo vive en su carpeta
+/docs/
+
 # Graphify
 graphify-out/
 
@@ -39,3 +42,6 @@ graphify-out/
 .claude/
 CLAUDE.md
 CLAUDE.local.md
+
+# Credenciales de Firebase (cuenta de servicio) fuera de backend/secrets/
+*firebase-adminsdk*.json

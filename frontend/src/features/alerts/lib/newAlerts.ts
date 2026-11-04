@@ -1,3 +1,4 @@
+import type { Classification } from "@/services/alertManagement";
 import type { AlertNotificationEvent } from "@/services/realtime";
 import { LEVEL_ORDER } from "../config/alertManagementDisplay";
 
@@ -25,6 +26,19 @@ export function ingestNotification(state: NewAlertsState, notice: AlertNotificat
         seenMessageIds: new Set([...state.seenMessageIds, notice.message_id]),
         notices: [...state.notices.filter((current) => current.alert_code !== notice.alert_code), notice],
     };
+}
+
+/**
+ * La alerta se clasificó (aquí, en otra pestaña o desde la app): su banner guarda la clasificación y deja de
+ * titilar. Misma referencia si no hay banner de esa alerta o ya la tenía.
+ */
+export function classifyNotice(state: NewAlertsState, alertCode: string, classification: Classification): NewAlertsState {
+    const index = state.notices.findIndex((notice) => notice.alert_code === alertCode);
+    if (index === -1 || state.notices[index].classification === classification) return state;
+
+    const notices = [...state.notices];
+    notices[index] = { ...notices[index], classification };
+    return { ...state, notices };
 }
 
 export function dismissNotice(state: NewAlertsState, alertCode: string): NewAlertsState {

@@ -25,7 +25,12 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
             role={isUrgent ? "alert" : "status"}
             aria-live={isUrgent ? "assertive" : "polite"}
             style={{ "--glow-color": severity.hex } as CSSProperties}
-            className={cn("rounded-xl border-2 bg-white p-3 shadow-xl", severity.borderClass, pulses && "alert-glow")}
+            className={cn(
+                "rounded-xl border-2 p-3 shadow-xl",
+                severity.borderClass,
+                severity.surfaceClass,
+                pulses && "alert-glow"
+            )}
         >
             <div className="flex items-center gap-2">
                 <BellRing size={16} className="shrink-0 text-gray-700" aria-hidden />
@@ -42,7 +47,7 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
                     type="button"
                     onClick={onDismiss}
                     aria-label="Descartar aviso"
-                    className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                    className="ml-auto rounded p-1 text-gray-500 hover:bg-black/5 hover:text-gray-700"
                 >
                     <X size={14} aria-hidden />
                 </button>
@@ -60,7 +65,7 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
                 <button
                     type="button"
                     onClick={onOpen}
-                    className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 font-semibold text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-gray-900"
+                    className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 font-semibold text-gray-900 hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-gray-900"
                 >
                     Ver detalle <ArrowRight size={14} aria-hidden />
                 </button>
