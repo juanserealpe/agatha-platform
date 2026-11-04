@@ -143,5 +143,14 @@ Formato del mensaje y reglas: [CONTRATO_PUSH_FCM.md](CONTRATO_PUSH_FCM.md) §3 y
 ## 6. Apagar
 
 - Backend y frontend: Ctrl+C en cada terminal.
+- Si no hay terminal donde presionar Ctrl+C (por ejemplo, porque se arrancaron en segundo plano), cerrar
+  lo que esté escuchando en los puertos 8080 y 5173:
+
+  ```powershell
+  Get-NetTCPConnection -State Listen -LocalPort 8080,5173 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+
+  Para comprobar que quedaron apagados, correr `Get-NetTCPConnection -State Listen -LocalPort 8080,5173`.
+  Si responde con el error "no encontró objetos MSFT_NetTCPConnection", es que ya no hay nada corriendo.
 - Base: `docker stop agatha-pg-local` (los datos se conservan para la próxima).
 - Borrar la base por completo: `docker rm -f agatha-pg-local`.
