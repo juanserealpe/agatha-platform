@@ -1,12 +1,83 @@
 # Notifications
 
-Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1, contrato en `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas: eso es de Alert Management. Plan completo y estado en `docs/PLAN.md`.
+Entrega los eventos de Alert Management por dos canales: **web en tiempo real** (SSE: mapa, panel y banner) y **móvil** (push FCM HTTP v1). No decide qué es una alerta ni guarda alertas: eso es de Alert Management.
 
-Estado: los dos canales están implementados. La web recibe el stream (`GET /api/notifications/stream`). La app registra su token (`PUT /api/devices/push-token`) y recibe push por FCM cuando el servidor tiene la credencial. Para desarrollo hay un endpoint que simula eventos de alerta.
+## Documentación
 
-**Para los clientes (web y app)**: endpoints, eventos, reglas para aplicar el estado y reconexión en [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD). Este README describe cómo está hecho el módulo por dentro.
+| Documento | Para quién | Qué tiene |
+|---|---|---|
+| Este README | Todos; desde "Estructura", el backend | Cómo funciona (primera parte) y cómo está hecho por dentro |
+| [NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD) | Clientes (web y app) | Referencia de los endpoints, los eventos y sus campos |
+| [GUIA_WEB.md](GUIA_WEB.md) | Equipo web | Cómo recibir y mostrar las alertas en tiempo real, y dónde está en el frontend |
+| [GUIA_MOVIL.md](GUIA_MOVIL.md) | Equipo móvil (Android) | Qué tiene que hacer la app para recibir los push y cómo probarlo en un celular real |
+| [CONTRATO_PUSH_FCM.md](CONTRATO_PUSH_FCM.md) | Equipo móvil y backend | Contrato del push acordado con la app |
+| [PRUEBA_LOCAL.md](PRUEBA_LOCAL.md) | Quien quiera probarlo | Levantar el módulo en un PC (base local en Docker) y probar la web y el push |
 
-> **Foto = estado actual de la alerta.** Cuando este README, el plan o el código dicen "foto" (`alert_changed`), se refieren al estado completo de la alerta justo después de un cambio. No son las evidencias fotográficas de la especificación (RN-09).
+> **Foto = estado actual de la alerta.** Cuando este README o el código dicen "foto" (`alert_changed`), se refieren al estado completo de la alerta justo después de un cambio. No son las evidencias fotográficas de la especificación (RN-09).
+
+## Cómo funciona
+
+Cuando el backend detecta una alerta (una posible fuga o un movimiento en un punto del oleoducto), o cuando una alerta sube de nivel, el módulo avisa **al instante** por dos canales:
+
+| Canal | Quién lo recibe | Tecnología | Qué ve el usuario |
+|---|---|---|---|
+| **Web** | El Centro de Control (navegador) | Server-Sent Events (SSE): una conexión HTTP que queda abierta y por la que el servidor empuja eventos | El mapa y el panel se actualizan solos, aparece un banner, suena un tono y, si la pestaña está oculta, sale una notificación del sistema |
+| **Móvil** | La app Android de campo | Firebase Cloud Messaging (FCM), push de solo datos | Una notificación en el celular, incluso con la app cerrada. Al tocarla se abre el detalle de la alerta |
+
+La fuente de verdad sigue siendo la API de alertas (`/api/alerts/...`): el módulo solo reparte lo que Alert Management publica.
+
+### Recorrido de una alerta
+
+```
+Sensores ──► Processing ──► Rule Engine ──► Alert Management ──(bus de eventos interno)──┐
+                                            (guarda la alerta                            │
+                                             y sus mensajes)                             ▼
+                                                                    ┌──── Notifications ────┐
+                                                                    │                       │
+                                                         Canal web (SSE)          Canal móvil (FCM)
+                                                         GET /api/notifications/  un push por cada
+                                                         stream                   celular registrado
+                                                                    │                       │
+                                                                    ▼                       ▼
+                                                           Navegadores abiertos     App Android
+```
+
+1. Alert Management guarda el cambio en la base y, **después de guardarlo**, publica dos tipos de evento en el bus:
+   - **Cambio de alerta** (`alert_changed`): el estado completo de la alerta tras cualquier cambio (nueva, subió, bajó, finalizó, se clasificó…). Mantiene el mapa y el panel al día.
+   - **Aviso** (`alert_notification`): un mensaje que hay que mostrarle a una persona (alerta nueva, subida de nivel, reactivación), con el título y el texto ya redactados.
+2. Cada canal tiene su propia suscripción y su propia cola: si FCM se demora, la web no se entera.
+3. Cada canal aplica sus reglas y entrega.
+
+### Qué llega a cada canal
+
+| Situación | Web | Móvil |
+|---|---|---|
+| Alerta nueva en Amarillo, Naranja o Rojo | Sí | Sí (`kind = NEW`) |
+| La alerta sube de nivel (o se reactiva por encima del máximo) | Sí | Sí (`kind = LEVEL_UP`) |
+| Hora procesada con atraso (el dato llegó tarde) | Sí, marcada "Atrasado" | No: el aviso ya no es actual |
+| Alerta clasificada como Falsa alerta | Sí | No |
+| Avisos de nivel normal (verde) o sin comunicación (gris) | Sí | No |
+| Cambios silenciosos: baja de nivel, finaliza, se clasifica, se etiqueta | Sí (mapa y panel, sin banner) | No |
+
+La web ve **todo** porque es la consola de operación; el celular solo recibe lo que exige actuar ya.
+
+**Niveles**: la API web usa los nombres en español y el push, en inglés: `AMARILLO` = `YELLOW` (atención), `NARANJA` = `ORANGE` (alerta), `ROJO` = `RED` (crítico: el punto titila en el mapa hasta que alguien clasifique la alerta).
+
+### Confiabilidad
+
+- **Web**: si la conexión se corta, el navegador se reconecta y el servidor le reenvía lo que faltó (guarda los últimos 256 eventos en memoria). Si ya no los tiene, le pide volver a consultar las alertas. Mientras el stream está caído, la web consulta la API cada 30 s.
+- **Móvil**: si FCM falla por algo pasajero, el backend reintenta hasta 4 veces. Cada push trae un `messageId` para que la app no muestre dos veces el mismo aviso.
+- **Límite conocido**: el bus es en memoria. Si el servidor se cae justo entre guardar la alerta y publicarla, ese aviso no sale en tiempo real (la alerta sí queda en la base y aparece al consultar).
+
+### Estado (2026-11-04)
+
+| Qué | Estado |
+|---|---|
+| Backend (los dos canales) | Implementado y probado (pruebas automáticas y prueba local) |
+| Web (Centro de Control) | Implementado: banner, sonido, notificación del navegador, indicador de conexión |
+| Credencial de FCM | Verificada contra Firebase en modo validación |
+| Prueba en un celular real | Pendiente: falta el token de un celular de prueba ([GUIA_MOVIL.md](GUIA_MOVIL.md) §7) |
+| Servidor del piloto (VPS) | Todavía no está habilitado. Mientras tanto, `PUT /api/devices/push-token` y el stream responden `404` |
 
 ## Estructura
 

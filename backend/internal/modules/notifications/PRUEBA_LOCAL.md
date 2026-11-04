@@ -118,7 +118,7 @@ Más pruebas:
 - **Ver el stream crudo**: `curl.exe -N http://localhost:8080/api/notifications/stream`.
 
 Todos los campos del evento de prueba están en
-[NOTIFICATIONS_API.MD](../backend/internal/modules/notifications/NOTIFICATIONS_API.MD) §3.
+[NOTIFICATIONS_API.MD](NOTIFICATIONS_API.MD) §3.
 
 ## 5. Push a un celular
 

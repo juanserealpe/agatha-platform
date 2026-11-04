@@ -232,7 +232,7 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 # Modulo: Notifications
 
-**Responsabilidad**: entregar los eventos de Alert Management por dos canales: web en tiempo real (SSE: mapa, panel y banner) y móvil (push FCM HTTP v1, `docs/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas. En construcción: plan en `docs/PLAN.md`; detalle en `modules/notifications/README.MD`.
+**Responsabilidad**: entregar los eventos de Alert Management por dos canales: web en tiempo real (SSE: mapa, panel y banner) y móvil (push FCM HTTP v1, contrato en `modules/notifications/CONTRATO_PUSH_FCM.md`). No decide qué es una alerta ni guarda alertas. Detalle en `modules/notifications/NOTIFICATIONS_README.MD`; guías para los equipos web y móvil en la misma carpeta.
 
 **Reglas por canal** (Strategy, `domain/policies`): el push solo envía alertas nuevas y subidas en Amarillo, Naranja o Rojo, nunca horas atrasadas (`late`) ni falsas alertas; la web recibe todo (los atrasados marcados). Cada canal es una suscripción propia del bus: si FCM se atrasa, la web no lo nota.
 

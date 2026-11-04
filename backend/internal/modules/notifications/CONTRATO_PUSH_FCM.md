@@ -6,7 +6,7 @@ Código de referencia en la app: `push/AlertPush.kt`, `push/AgathaMessagingServi
 `push/PushTokenStore.kt`, `core/device/DeviceOriginProvider.kt`.
 
 **Estado (2026-10-31): implementado en el backend** (módulo `notifications`, detalle en
-`backend/internal/modules/notifications/README.MD`). Este documento es el contrato final:
+[NOTIFICATIONS_README.MD](NOTIFICATIONS_README.MD)). Este documento es el contrato final:
 lo que antes era propuesta quedó como se describe aquí.
 
 ## 1. Registro del token (implementado en el backend)

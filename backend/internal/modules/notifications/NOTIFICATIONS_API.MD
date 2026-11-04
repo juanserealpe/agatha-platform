@@ -136,7 +136,7 @@ Es una **foto**: el estado completo de la alerta justo después del cambio. No h
 
 ## 2. Registro del token FCM: `PUT /api/devices/push-token`
 
-Lo llama la app Android al obtener o renovar su token. Contrato completo en [docs/CONTRATO_PUSH_FCM.md](../../../../docs/CONTRATO_PUSH_FCM.md).
+Lo llama la app Android al obtener o renovar su token. Contrato completo en [CONTRATO_PUSH_FCM.md](CONTRATO_PUSH_FCM.md).
 
 ```
 PUT /api/devices/push-token

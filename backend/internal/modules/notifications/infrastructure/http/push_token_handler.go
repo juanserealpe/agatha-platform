@@ -15,7 +15,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// RoutePushToken registra el token FCM de un celular (docs/CONTRATO_PUSH_FCM.md
+// RoutePushToken registra el token FCM de un celular (CONTRATO_PUSH_FCM.md
 // §1). Va fuera de /api/alerts: Alert Management no expone push-devices.
 const RoutePushToken = "PUT /api/devices/push-token"
 
