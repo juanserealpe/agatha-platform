@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { alertToClassify, alertToRaise, pointForNewAlert } from "./demoActions";
 import type { DemoController } from "./installDemo";
-import { runAfter } from "./runAfter";
 import { SCENARIO_STEPS } from "./scenario";
 
 // Overlay de la demo: una franja que deja claro que los datos son simulados y un panel plegable para manejar la
@@ -38,8 +37,8 @@ export function DemoOverlay({ controller }: { controller: DemoController }) {
     useEffect(() => store.subscribe(refresh), [store]);
     useEffect(() => () => cancelDelayedStep.current?.(), []);
 
-    // "Disparar en 5 s": da tiempo de cambiar de pestaña o minimizar para ver la notificación del sistema. El
-    // paso lo dispara `runAfter`; la cuenta regresiva es solo visual y puede atrasarse con la ventana oculta.
+    // "Disparar en 5 s": da tiempo de cambiar de pestaña para ver la notificación del sistema. Un solo
+    // temporizador dispara el paso; la cuenta regresiva es solo visual y puede atrasarse con la pestaña oculta.
     useEffect(() => {
         if (secondsLeft === null || secondsLeft <= 1) return;
         const timer = setTimeout(() => setSecondsLeft(secondsLeft - 1), 1000);
@@ -48,12 +47,13 @@ export function DemoOverlay({ controller }: { controller: DemoController }) {
 
     const startDelayedStep = () => {
         setSecondsLeft(DELAYED_STEP_SECONDS);
-        cancelDelayedStep.current = runAfter(DELAYED_STEP_SECONDS * 1000, () => {
+        const timer = setTimeout(() => {
             cancelDelayedStep.current = null;
             setSecondsLeft(null);
             scenario.advance();
             refresh();
-        });
+        }, DELAYED_STEP_SECONDS * 1000);
+        cancelDelayedStep.current = () => clearTimeout(timer);
     };
 
     const cancelDelayed = () => {
