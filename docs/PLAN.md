@@ -420,7 +420,7 @@ Extiende `TestAlertManagement_EndToEndFromProcessing`: `processing.indicator_eva
 
 ### 6.3 Prueba manual (requiere el `.env`; se avisa antes de cada paso)
 
-> **Actualización (2026-11-03):** la prueba manual se hace contra un PostgreSQL **local** en Docker (contenedor `agatha-pg-local`, puerto 5433, base vacía: el backend crea sus tablas), no contra la base del piloto. La tabla de abajo queda como referencia de qué escribe cada módulo.
+> **Actualización (2026-11-03):** la prueba manual se hace contra un PostgreSQL **local** en Docker (contenedor `agatha-pg-local`, puerto 5433, base vacía: el backend crea sus tablas), no contra la base del piloto. La tabla de abajo queda como referencia de qué escribe cada módulo. Pasos y comandos: [PRUEBA_LOCAL_NOTIFICACIONES.md](PRUEBA_LOCAL_NOTIFICACIONES.md).
 
 **Módulos en local: `AGATHA_MODULES=notifications`** (y `dashboard` solo si el mapa lo necesita).
 

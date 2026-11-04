@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { AlertNotificationEvent } from "@/services/realtime";
-import { dismissNotice, ingestNotification, INITIAL_NEW_ALERTS_STATE, type NewAlertsState } from "../lib/newAlerts";
+import type { AlertChangedEvent, AlertNotificationEvent } from "@/services/realtime";
+import { classifyNotice, dismissNotice, ingestNotification, INITIAL_NEW_ALERTS_STATE, type NewAlertsState } from "../lib/newAlerts";
 
 // Estado a nivel de módulo: sobrevive al cambio de pestaña, así un aviso que llega mientras el usuario está
 // en Historial se sigue mostrando al volver al mapa.
@@ -27,6 +27,11 @@ export function receiveNotification(notice: AlertNotificationEvent): boolean {
     setState(ingestNotification(previous, notice));
     // ingestNotification devuelve el mismo estado solo si el message_id ya se había visto.
     return state !== previous;
+}
+
+/** Un cambio de la alerta (la llama useAlertStream): si ya está clasificada, su banner deja de titilar. */
+export function applyNoticeChange(event: AlertChangedEvent) {
+    if (event.classification !== null) setState(classifyNotice(state, event.alert_code, event.classification));
 }
 
 /** Quita el banner de la alerta (descartado, o ya abierto desde el banner o la notificación del navegador). */

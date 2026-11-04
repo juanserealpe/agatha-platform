@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toAlertId } from "@/services/alertManagement";
 import type { AlertNotificationEvent } from "@/services/realtime";
-import { dismissNotice, ingestNotification, INITIAL_NEW_ALERTS_STATE, sortNotices } from "./newAlerts";
+import { classifyNotice, dismissNotice, ingestNotification, INITIAL_NEW_ALERTS_STATE, sortNotices } from "./newAlerts";
 
 const notice = (messageId: number, overrides: Partial<AlertNotificationEvent> = {}): AlertNotificationEvent => ({
     message_id: messageId,
@@ -57,5 +57,21 @@ describe("sortNotices", () => {
         const redOld = notice(2, { alert_code: "B", level: "ROJO", occurred_at: "2026-10-30T14:00:00Z" });
         const redNew = notice(3, { alert_code: "C", level: "ROJO", occurred_at: "2026-10-30T15:00:00Z" });
         expect(ids(sortNotices([yellow, redOld, redNew]))).toEqual([3, 2, 1]);
+    });
+});
+
+describe("classifyNotice", () => {
+    it("guarda la clasificación en el banner de esa alerta (deja de titilar)", () => {
+        const state = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1, { code: "UP_ROJO", level: "ROJO" }));
+        const classified = classifyNotice(state, "ALR-000142", "CONFIRMADA");
+        expect(classified.notices[0]).toMatchObject({ message_id: 1, classification: "CONFIRMADA" });
+    });
+
+    it("sin banner de esa alerta, o ya clasificado igual, devuelve el mismo estado", () => {
+        const state = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        expect(classifyNotice(state, "ALR-000999", "CONFIRMADA")).toBe(state);
+
+        const classified = classifyNotice(state, "ALR-000142", "CONFIRMADA");
+        expect(classifyNotice(classified, "ALR-000142", "CONFIRMADA")).toBe(classified);
     });
 });
