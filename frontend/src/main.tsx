@@ -6,6 +6,7 @@ import { RouterProvider } from 'react-router'
 import 'leaflet/dist/leaflet.css'
 import './index.css'
 import { DEMO_BASENAME, DEMO_ENABLED, isDemoPath } from './app/appMode'
+import { AppModeContext, REAL_APP_MODE, type AppModeValue } from './app/appModeContext'
 import { createAppRouter } from './app/router'
 import { isClientError } from '@/services/http'
 
@@ -14,10 +15,11 @@ const MAX_QUERY_RETRIES = 3
 // Función async en vez de top-level await: el módulo de entrada termina de evaluarse sin esperar a la demo.
 async function bootstrap() {
   const demoMode = DEMO_ENABLED && isDemoPath(window.location.pathname)
+  let appMode: AppModeValue = REAL_APP_MODE
   if (demoMode) {
     // Chunk aparte: la app real nunca descarga el código de la demo.
-    const { installDemo } = await import('./demo/installDemo')
-    installDemo()
+    const { startDemo } = await import('./demo/startDemo')
+    appMode = { demo: true, overlay: startDemo() }
   }
 
   const queryClient = new QueryClient({
@@ -33,7 +35,9 @@ async function bootstrap() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <AppModeContext value={appMode}>
+          <RouterProvider router={router} />
+        </AppModeContext>
       </QueryClientProvider>
     </StrictMode>,
   )

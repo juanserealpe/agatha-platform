@@ -31,6 +31,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/.env.*
+!frontend/.env.example
 
 # Documentos de trabajo locales (plan); la documentación de cada módulo vive en su carpeta
 /docs/
