@@ -40,7 +40,7 @@ describe("buildBrowserNotification", () => {
     it("usa el texto del backend y agrupa por alerta con el tag", () => {
         const { title, options } = buildBrowserNotification(notice());
         expect(title).toBe("La alerta ALR-000142 subió a Rojo");
-        expect(options).toMatchObject({ body: notice().body, tag: "ALR-000142", requireInteraction: true });
+        expect(options).toMatchObject({ body: "El índice de ruido siguió subiendo y ya es demasiado alto.", tag: "ALR-000142", requireInteraction: true });
     });
 
     it("vuelve a avisar al reemplazar la notificación de la misma alerta", () => {
