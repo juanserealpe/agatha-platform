@@ -11,6 +11,9 @@ type AlertNotification struct {
 	AlertCode        string `json:"alert_code"`
 	MeasuringPointID int64  `json:"measuring_point_id"`
 	EventType        string `json:"event_type"`
+	// StartedAt es la primera hora (UTC) sobre el umbral de la racha que abrió
+	// la alerta.
+	StartedAt time.Time `json:"started_at"`
 	// EvaluatedAt es la hora (UTC) que generó el mensaje.
 	EvaluatedAt time.Time `json:"evaluated_at"`
 	// Code es el código del catálogo (OPEN, UP_NARANJA_FAST, UP_ROJO, …).
@@ -20,8 +23,12 @@ type AlertNotification struct {
 	Level      string `json:"level"`
 	MaxLevel   string `json:"max_level"`
 	AlertState string `json:"alert_state"`
-	Title      string `json:"title"`
-	Body       string `json:"body"`
+	// Classification es la del operador al publicar (CONFIRMADA o
+	// FALSA_ALERTA; vacío = sin clasificar). La especificación pide no enviar
+	// push de una falsa alerta; lo aplica el consumidor.
+	Classification string `json:"classification"`
+	Title          string `json:"title"`
+	Body           string `json:"body"`
 	// IndicatorValue es el I de la hora (nil en horas sin cálculo).
 	IndicatorValue *float64 `json:"indicator_value"`
 	// Source es LIVE o CATCH_UP.

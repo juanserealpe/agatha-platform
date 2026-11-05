@@ -704,15 +704,15 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 			w := newWorld(t)
 			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
 			return w
-		}, messages.CodeOpen, "Índice de ruido en 0,18 desde las 05:00 del 24/08; lo normal es menos de 0,16."},
+		}, messages.CodeOpen, "El índice de ruido está por encima de lo normal desde las 05:00 del 24/08. Dato: 0,18 (lo normal es menos de 0,16)."},
 		{"apertura naranja", func(t *testing.T) *world {
 			w := newWorld(t)
 			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.27, O, O, opened, hoursAbove(2)))
 			return w
-		}, messages.CodeOpen, "Índice de ruido en 0,27 desde las 05:00 del 24/08; Naranja empieza en 0,25 y lo normal es menos de 0,16."},
-		{"subida rápida", fastRise, messages.CodeUpNaranjaFast, "El índice de ruido pasó de 0,20 a 0,27; Naranja empieza en 0,25."},
-		{"subida a rojo", fastRise, messages.CodeUpRojo, "El índice de ruido pasó de 0,27 a 0,40; Rojo empieza en 0,35."},
-		{"subida por duración", persistUp, messages.CodeUpNaranjaPersist, "El índice de ruido lleva 12 h por encima de lo normal (menos de 0,16); ahora está en 0,20."},
+		}, messages.CodeOpen, "El índice de ruido está muy por encima de lo normal desde las 05:00 del 24/08. Dato: 0,27 (Naranja desde 0,25; lo normal es menos de 0,16)."},
+		{"subida rápida", fastRise, messages.CodeUpNaranjaFast, "El índice de ruido está subiendo más rápido de lo normal. Dato: pasó de 0,20 a 0,27 (Naranja desde 0,25)."},
+		{"subida a rojo", fastRise, messages.CodeUpRojo, "El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de 0,27 a 0,40 (Rojo desde 0,35)."},
+		{"subida por duración", persistUp, messages.CodeUpNaranjaPersist, "El índice de ruido lleva 12 h por encima de lo normal. Dato: 0,20 (lo normal es menos de 0,16)."},
 		{"cuenta regresiva", persistUp, messages.CodeCountdown, "El índice de ruido lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel."},
 		{"fin", persistUp, messages.CodeEndNormal, "El índice de ruido volvió a 0,12 (lo normal, menos de 0,16). Duró 14 h; nivel máximo Naranja, con índice de hasta 0,20. Si vuelve en las próximas 24 h y sigue sin clasificar, se reactivará esta misma alerta."},
 		{"casi normal", almostNormal, messages.CodeAlmostNormal, "Índice de ruido en 0,15, ya por debajo de 0,16; la alerta terminará si baja de 0,14 y se mantiene así."},
@@ -742,13 +742,13 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 			w := finishedAt(t)
 			w.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.18, A, A, opened, hoursAbove(2)))
 			return w
-		}, messages.CodeReactivated, "El índice de ruido volvió a 0,18, 7 h después de terminar; lo normal es menos de 0,16."},
+		}, messages.CodeReactivated, "El índice de ruido volvió a subir 7 h después de normalizarse. Dato: 0,18 (lo normal es menos de 0,16)."},
 		{"nueva tras clasificada", func(t *testing.T) *world {
 			w := finishedAt(t)
 			w.alerts[123].Management = entities.Management{Status: entities.StatusClassifiedNoLabel, Classification: entities.ClassificationFalseAlarm}
 			w.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.18, A, A, opened, hoursAbove(2)))
 			return w
-		}, messages.CodeNewAfterClassified, "La anterior (ALR-000123) ya había sido clasificada como Falsa alerta. Índice de ruido en 0,18; lo normal es menos de 0,16."},
+		}, messages.CodeNewAfterClassified, "El índice de ruido otra vez está fuera de lo normal; la alerta anterior (ALR-000123) se clasificó como Falsa alerta. Dato: 0,18 (lo normal es menos de 0,16)."},
 		{"resumen", func(t *testing.T) *world {
 			w := newWorld(t)
 			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))

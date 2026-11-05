@@ -47,19 +47,44 @@ func (p *fakePublisher) PublishAlertNotification(_ context.Context, n contract.A
 	return nil
 }
 
+// fakeChangePublisher guarda las fotos publicadas (o falla si err != nil).
+type fakeChangePublisher struct {
+	published []contract.AlertChanged
+	err       error
+}
+
+func (p *fakeChangePublisher) PublishAlertChanged(_ context.Context, c contract.AlertChanged) error {
+	if p.err != nil {
+		return p.err
+	}
+	p.published = append(p.published, c)
+	return nil
+}
+
+func (p *fakeChangePublisher) changes() []string {
+	var out []string
+	for _, c := range p.published {
+		out = append(out, c.Change)
+	}
+	return out
+}
+
 type fixture struct {
 	store    *memory.AlertStore
 	policies *memory.PolicyStore
 	pub      *fakePublisher
+	changes  *fakeChangePublisher
 	now      time.Time
 	svc      *services.ProcessingService
 }
 
 func newFixture() *fixture {
-	f := &fixture{store: memory.NewAlertStore(), policies: memory.NewPolicyStore(), pub: &fakePublisher{}, now: h(0).Add(35 * time.Minute)}
+	f := &fixture{store: memory.NewAlertStore(), policies: memory.NewPolicyStore(), pub: &fakePublisher{},
+		changes: &fakeChangePublisher{}, now: h(0).Add(35 * time.Minute)}
 	f.svc = services.NewProcessingService(f.store, f.policies,
 		fakeDevices{pointA: {MeasuringPointID: pointA, PK: "PK34+500"}}, f.pub,
-		ports.ClockFunc(func() time.Time { return f.now }), testLogger())
+		ports.ClockFunc(func() time.Time { return f.now }), testLogger()).
+		WithChangePublisher(f.changes)
 	return f
 }
 
@@ -118,7 +143,8 @@ func TestProcess_LiveOpenPublishesTheNotification(t *testing.T) {
 	n := f.pub.published[0]
 	if n.MessageID != msgs[0].ID || n.AlertID != alerts[0].ID || n.AlertCode != "ALR-000123" || n.Code != messages.CodeOpen ||
 		n.Level != "AMARILLO" || n.MaxLevel != "AMARILLO" || n.AlertState != "ACTIVA" || n.MeasuringPointID != pointA ||
-		n.EventType != "FUGA" || !n.EvaluatedAt.Equal(h(1)) || n.Title != msgs[0].Title || n.Body != msgs[0].Body ||
+		n.EventType != "FUGA" || !n.StartedAt.Equal(h(0)) || n.Classification != "" ||
+		!n.EvaluatedAt.Equal(h(1)) || n.Title != msgs[0].Title || n.Body != msgs[0].Body ||
 		n.Source != "LIVE" || n.Late || n.SchemaVersion != contract.SchemaVersion || !n.OccurredAt.Equal(f.now) {
 		t.Fatalf("aviso = %+v", n)
 	}
@@ -233,6 +259,23 @@ func TestProcess_DoesNotOverwriteManagement(t *testing.T) {
 	}
 	if segs := f.store.Segments(id); len(segs) != 2 || segs[0].EndedAt == nil || segs[1].Seq != 2 {
 		t.Fatalf("colores = %+v", segs)
+	}
+}
+
+// Una falsa alerta que sube de nivel sigue publicando su NOTIFICACION, ahora
+// con la clasificación: el módulo de notificaciones decide qué canal la omite.
+func TestProcess_NotificationCarriesTheClassification(t *testing.T) {
+	f := newFixture()
+	f.process(t, entities.SourceLive, opening()...)
+	id := f.store.Alerts()[0].ID
+	f.store.SetManagement(id, entities.Management{Status: entities.StatusClassifiedNoLabel, Classification: entities.ClassificationFalseAlarm})
+	f.process(t, entities.SourceLive, notice(2, 0.27, entities.LevelNaranja, entities.LevelNaranja, entities.EpisodeNone, 3))
+
+	if len(f.pub.published) != 2 {
+		t.Fatalf("publicados = %+v", f.pub.published)
+	}
+	if n := f.pub.published[1]; n.Classification != "FALSA_ALERTA" || n.Level != "NARANJA" || !n.StartedAt.Equal(h(0)) {
+		t.Fatalf("aviso = %+v", n)
 	}
 }
 

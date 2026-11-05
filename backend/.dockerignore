@@ -1,6 +1,7 @@
 # Secretos: se inyectan en runtime vía env_file, nunca dentro de la imagen.
 .env
 .env.*
+secrets
 
 # Documentación, tooling y artefactos que no participan del build.
 .claude
@@ -16,4 +17,3 @@ docker-compose.yml
 
 # Credenciales de Firebase: se montan en runtime, nunca en la imagen.
 *firebase-adminsdk*.json
-secrets

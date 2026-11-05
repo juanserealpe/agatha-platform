@@ -16,6 +16,10 @@ const (
 	// publica en el backfill ni en reprocesos (el mensaje ya existía).
 	TopicAlertNotification = "alert_management.alert_notification"
 
+	// TopicAlertChanged se publica por cada cambio visible de una alerta
+	// (AlertChanged), después del commit. Tampoco se publica en el backfill.
+	TopicAlertChanged = "alert_management.alert_changed"
+
 	// SchemaVersion es la versión del esquema de los eventos de este contrato.
 	SchemaVersion = 1
 )

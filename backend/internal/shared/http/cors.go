@@ -11,17 +11,23 @@ import (
 // ErrInvalidCORSOrigin indica un origen CORS mal formado o no admitido.
 var ErrInvalidCORSOrigin = errors.New("origen CORS inválido")
 
-// El navegador consume los GET de lectura y los POST de Alert Management y
-// Rule Engine, sin autenticación: no se permiten otros métodos ni credenciales.
+// Lo que usa el navegador, sin autenticación ni credenciales:
+//   - GET: consultas de Dashboard y alertas, y el stream SSE de notificaciones.
+//   - POST: gestión de alertas (clasificar, etiquetar, observar) y políticas.
+//   - PUT: registro de tokens de push (hoy solo lo usa la app, sin CORS).
+//
+// Last-Event-ID la agrega EventSource al reconectar: no es una cabecera
+// "segura" y, según el navegador, dispara preflight. Authorization no se
+// permite: el callback de Dataflow Labs (con Bearer) es de servidor a servidor.
 const (
-	corsAllowedMethods = "GET, POST"
-	corsAllowedHeaders = "Accept, Content-Type"
+	corsAllowedMethods = "GET, POST, PUT"
+	corsAllowedHeaders = "Accept, Content-Type, Last-Event-ID"
 	corsMaxAgeSeconds  = "600"
 )
 
 var (
-	corsAllowedMethodSet = map[string]bool{http.MethodGet: true, http.MethodPost: true}
-	corsAllowedHeaderSet = map[string]bool{"accept": true, "content-type": true}
+	corsAllowedMethodSet = map[string]bool{http.MethodGet: true, http.MethodPost: true, http.MethodPut: true}
+	corsAllowedHeaderSet = map[string]bool{"accept": true, "content-type": true, "last-event-id": true}
 )
 
 // ParseAllowedOrigins interpreta una lista de orígenes separada por comas

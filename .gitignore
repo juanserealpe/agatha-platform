@@ -3,6 +3,10 @@
 # Environment variables
 .env
 .env.*
+!.env.example
+
+# Credenciales montadas en Docker (cuenta de servicio de FCM)
+backend/secrets/
 
 # Go build artifacts
 /bin/
@@ -22,6 +26,23 @@
 .DS_Store
 Thumbs.db
 
-# Credenciales de Firebase (cuenta de servicio): GOOGLE_APPLICATION_CREDENTIALS apunta acá
+# Frontend - Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Documentos de trabajo locales (plan); la documentación de cada módulo vive en su carpeta
+/docs/
+
+# Graphify
+graphify-out/
+
+# Claude Code (configuración local)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# Credenciales de Firebase (cuenta de servicio) fuera de backend/secrets/
 *firebase-adminsdk*.json
-backend/secrets/

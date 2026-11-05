@@ -12,7 +12,7 @@ Especificación vigente: `backend/AGATHA_Modulo_Alert_Management_v3.3.docx` (Bac
 
 ```
 alert_management/
-├── contract/                 # TopicAlertNotification + AlertNotification (solo stdlib; bootstrap lo traduce para Notification)
+├── contract/                 # TopicAlertNotification + AlertNotification, TopicAlertChanged + AlertChanged (solo stdlib; bootstrap lo traduce para Notification)
 ├── domain/
 │   ├── errors.go             # AppError del módulo
 │   ├── entities/             # Alert, Management, Runtime, Segment, Message, Observation, ProcessingState, Policy, LevelNotice, enums
@@ -86,11 +86,21 @@ Decisión (2026-10-26, cambia la propuesta técnica del documento, que excluía 
 
 Alert Management decide **qué** es una notificación (`kind = NOTIFICACION` en el catálogo y las reglas de `Decide`: apertura, subidas, alerta nueva tras clasificada; las subidas silenciosas por intervención no lo son). **Cómo** se entrega no es asunto de este módulo.
 
-- **Evento**: `alert_management.alert_notification` (`contract.AlertNotification`, `schema_version` 1), uno por cada mensaje `NOTIFICACION` **nuevo**. Lleva `message_id` (clave de idempotencia), `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `evaluated_at`, `code`, `level`, `max_level`, `alert_state`, `title` y `body` ya renderizados, `indicator_value`, `source` (`LIVE` | `CATCH_UP`), `late`, `policy_version_id` y `occurred_at`.
+- **Evento**: `alert_management.alert_notification` (`contract.AlertNotification`, `schema_version` 1), uno por cada mensaje `NOTIFICACION` **nuevo**. Lleva `message_id` (clave de idempotencia), `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `started_at`, `evaluated_at`, `code`, `level`, `max_level`, `alert_state`, `classification` (vacío = sin clasificar; el consumidor omite el push de `FALSA_ALERTA`), `title` y `body` ya renderizados, `indicator_value`, `source` (`LIVE` | `CATCH_UP`), `late`, `policy_version_id` y `occurred_at`.
 - **Cuándo**: después del commit de la hora. Si la TX falla no se publica nada; si falla la publicación, la alerta ya quedó guardada (se loguea). En el backfill y en reprocesos (el mensaje ya existía) no se publica.
 - **`late`**: la hora llegó con más de `late_notification_max_hours` (2) de atraso (catch-up, Processing reponiéndose de una caída). La especificación pide no enviar push en ese caso; lo aplica el consumidor.
 - **Best-effort**: el bus es en memoria (un evento se pierde si el proceso cae entre el commit y la publicación). La fuente de verdad es `alert_messages` (`kind = 'NOTIFICACION'`, índice `ix_alert_messages_kind`): el módulo de notificaciones puede reconciliar por `id`.
 - El adaptador del puerto `NotificationPublisher` al bus es `busAlertNotificationPublisher` (`internal/bootstrap`); sin suscriptores, publicar es un no-op.
+
+### Cambios visibles: `alert_management.alert_changed`
+
+Para que el mapa y el panel se actualicen en tiempo real sin consultar la API.
+
+- **Evento**: `contract.AlertChanged` (`schema_version` 1), una **foto** de la alerta (*foto* = **estado actual de la alerta**; no tiene que ver con las evidencias fotográficas de RN-09): `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `change`, `state`, `current_level`, `max_level`, `blinking`, `management_status`, `classification`, `started_at`, `evaluated_at` y `occurred_at`.
+- **`change`** (uno por hora, el más relevante): `OPENED`, `REACTIVATED`, `FINISHED`; si no, `LEVEL_RAISED` o `LEVEL_LOWERED` (incluidas las subidas silenciosas por intervención); si el nivel no cambió, `NO_DATA_STARTED` o `NO_DATA_ENDED`. Una hora sin cambio visible no publica nada.
+- **Gestión**: `ManagementService` publica `CLASSIFIED` y `LABELED` solo cuando el paso se guardó (`SAVED`); un conflicto, un reenvío (`ALREADY_RECEIVED`) o una observación libre no publican. Clasificar un rojo publica `blinking = false`: deja de titilar.
+- **Cuándo**: igual que el aviso, después del commit, y nunca en el backfill. El puerto `AlertChangePublisher` es opcional (`WithChangePublisher` en `ProcessingService` y `ManagementService`); el adaptador al bus es `busAlertChangePublisher` (`internal/bootstrap`).
+- **Orden**: el consumidor aplica nivel y estado solo si `evaluated_at` es más nuevo que el que conoce (en la gestión es la última hora procesada, no cambia); los campos de gestión, solo si `management_status` avanzó.
 
 ## API (`/api/alerts`, sin autenticación todavía)
 
@@ -138,7 +148,7 @@ Sigue el patrón de `rule_threshold_versions`: solo se agregan versiones y nunca
 
 Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un duplicado o una hora vieja (`evaluated_at` ≤ `alert_processing_state.last_evaluated_at`) no hace nada.
 
-**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo de una hora `LIVE` o `CATCH_UP`, después del commit (ver "Notificaciones"). Hoy no tiene suscriptores. Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
+**Publica** `alert_management.alert_notification` (v1) por cada mensaje `NOTIFICACION` nuevo y `alert_management.alert_changed` (v1) por cada cambio visible, de una hora `LIVE` o `CATCH_UP` y después del commit (ver "Notificaciones"). Los consume el módulo `notifications` (web y push). Flujo completo entre módulos: `backend/FLUJO_RULE_ENGINE_ALERT_MANAGEMENT.MD`.
 
 ## Catch-up y backfill (sección 9.2)
 
@@ -162,7 +172,8 @@ Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_
 - `ALMOST_NORMAL` no cita las horas que faltan, porque el evento v3 no trae `exit_hours`. Dice "terminará si baja de {cierre} y se mantiene así".
 - `{pk}` sale de `devices.name` (que ya trae "Sensor …"), porque `devices` no tiene abscisa. Sin dispositivo, se usa `MP-<id>`.
 - **Los mensajes solo informan el estado y la criticidad; nunca dicen qué hacer.** Se quitaron del texto de la especificación las indicaciones operativas ("Programar recorrido", "Enviar cuadrilla", "avisar al centro de control", "no se requiere salir a campo") y la variable `{zona}`. Además, **el cuerpo no repite el título**: lo complementa. Las dos reglas las verifican tests del catálogo.
-- **Los mensajes citan el dato (catálogo v4, `MessageCatalogVersion = 4`).** Todo mensaje del procesamiento horario dice el índice de ruido de la hora en decimal con coma (`messages.FormatValue`: "0,18", con un tercer decimal solo si hace falta, "0,158") y el límite que explica el mensaje. Ese límite puede ser lo normal (`{normal}`, el corte de Amarillo), el corte del nivel (`{corte}`), la salida de Amarillo (`{cierre}`), el índice anterior (`{valor_anterior}`: la última hora calculada o la de `trend_lookback_hours` antes) o el máximo de la alerta (`{valor_max}`). Ejemplo: "Índice de ruido en 0,18 desde las 05:00 del 24/08; lo normal es menos de 0,16." Lo verifica `TestCatalog_ProcessingMessagesCiteTheIndex`, y `TestDecide_MessagesCiteTheData` fija cada texto. "Lleva N h" ya no dice "seguidas", porque con persistencia `WINDOW` N es un conteo en la ventana.
+- **Los avisos empiezan con una frase simple (catálogo v5, `MessageCatalogVersion = 5`).** Los cuerpos de los avisos que llegan al banner web y al push (`OPEN`, `NEW_AFTER_CLASSIFIED`, `UP_NARANJA_PERSIST`, `UP_NARANJA_FAST`, `UP_ROJO`, `REACTIVATED`) dicen primero qué pasa en palabras simples y al final el dato: "El índice de ruido es demasiado alto desde las 05:00 del 24/08. Dato: 0,41 (Rojo desde 0,35; lo normal es menos de 0,16)." Los demás mensajes de la línea de tiempo no cambian. Las variables y los títulos son los mismos que en v4. Los mensajes ya guardados conservan su texto y su versión.
+- **Los mensajes citan el dato (desde el catálogo v4).** Todo mensaje del procesamiento horario dice el índice de ruido de la hora en decimal con coma (`messages.FormatValue`: "0,18", con un tercer decimal solo si hace falta, "0,158") y el límite que explica el mensaje. Ese límite puede ser lo normal (`{normal}`, el corte de Amarillo), el corte del nivel (`{corte}`), la salida de Amarillo (`{cierre}`), el índice anterior (`{valor_anterior}`: la última hora calculada o la de `trend_lookback_hours` antes) o el máximo de la alerta (`{valor_max}`). Ejemplo (v5): "El índice de ruido está por encima de lo normal desde las 05:00 del 24/08. Dato: 0,18 (lo normal es menos de 0,16)." Lo verifica `TestCatalog_ProcessingMessagesCiteTheIndex`, y `TestDecide_MessagesCiteTheData` fija cada texto. "Lleva N h" ya no dice "seguidas", porque con persistencia `WINDOW` N es un conteo en la ventana.
 - `alerts.max_indicator_value`: el índice más alto de las horas calculadas de la alerta, con sus reactivaciones. Lo citan el fin, la bajada y el resumen, y lo expone el detalle (`max_indicator_value`). `Migrate` completa las filas previas con el mayor índice que conocen: la apertura, el último y el de sus mensajes. Es un valor aproximado; `-rebuild` lo deja exacto.
 - La duración ("Duró N h", "lleva N h" y `duration_hours` en la API) es tiempo transcurrido sin las pausas entre fin y reactivación (`Alert.DurationHours`), no `hours_calculated`.
 - Después de una subida no se emiten las reglas 5 a 9 en esa hora. Abrir o reactivar no emite otras reglas.

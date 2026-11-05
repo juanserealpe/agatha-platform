@@ -72,7 +72,8 @@ func NewAlertManagementModule(platform *Platform) (*AlertManagementModule, error
 	policies := alertRepositories.NewPolicyStore(platform.DB)
 
 	processor := alertServices.NewProcessingService(store, policies, alertRepositories.NewDeviceDirectory(platform.DB),
-		busAlertNotificationPublisher{bus: platform.EventBus}, clock, log)
+		busAlertNotificationPublisher{bus: platform.EventBus}, clock, log).
+		WithChangePublisher(busAlertChangePublisher{bus: platform.EventBus})
 	replay := alertServices.NewReplayService(processor, alertRepositories.NewLevelSource(platform.DB), store,
 		alertServices.ReplayConfig{
 			Environment: os.Getenv(EnvironmentEnv),
@@ -81,7 +82,7 @@ func NewAlertManagementModule(platform *Platform) (*AlertManagementModule, error
 
 	handler := alertHTTP.NewAlertHandler(
 		alertServices.NewQueryService(alertRepositories.NewAlertQueries(platform.DB), alertExport.NewXLSXWriter(), clock, log),
-		alertServices.NewManagementService(store, clock, log),
+		alertServices.NewManagementService(store, clock, log).WithChangePublisher(busAlertChangePublisher{bus: platform.EventBus}),
 		alertServices.NewPolicyService(policies, clock, log),
 		log,
 	)
@@ -174,5 +175,16 @@ type busAlertNotificationPublisher struct {
 
 func (p busAlertNotificationPublisher) PublishAlertNotification(ctx context.Context, n alertContract.AlertNotification) error {
 	eventbus.PublishTyped(ctx, p.bus, alertContract.TopicAlertNotification, n)
+	return nil
+}
+
+// busAlertChangePublisher es el adaptador del puerto AlertChangePublisher
+// hacia el bus, por la misma razón que busAlertNotificationPublisher.
+type busAlertChangePublisher struct {
+	bus eventbus.Bus
+}
+
+func (p busAlertChangePublisher) PublishAlertChanged(ctx context.Context, c alertContract.AlertChanged) error {
+	eventbus.PublishTyped(ctx, p.bus, alertContract.TopicAlertChanged, c)
 	return nil
 }

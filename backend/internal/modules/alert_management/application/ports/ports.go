@@ -108,3 +108,10 @@ type AlertReset interface {
 type NotificationPublisher interface {
 	PublishAlertNotification(ctx context.Context, n contract.AlertNotification) error
 }
+
+// AlertChangePublisher publica la foto de una alerta tras un cambio visible
+// (mapa y panel en tiempo real). Se llama después del commit: un error no
+// revierte la alerta.
+type AlertChangePublisher interface {
+	PublishAlertChanged(ctx context.Context, c contract.AlertChanged) error
+}

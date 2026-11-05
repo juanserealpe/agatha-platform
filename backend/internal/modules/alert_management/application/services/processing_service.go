@@ -14,6 +14,7 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/entities"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/messages"
 	domainServices "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/services"
 	sharedErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -58,6 +59,7 @@ type ProcessingService struct {
 	policies  ports.PolicyStore
 	devices   ports.DeviceDirectory
 	publisher ports.NotificationPublisher
+	changes   ports.AlertChangePublisher
 	clock     ports.Clock
 	log       *logger.Logger
 
@@ -74,6 +76,13 @@ func NewProcessingService(
 	log *logger.Logger,
 ) *ProcessingService {
 	return &ProcessingService{store: store, policies: policies, devices: devices, publisher: publisher, clock: clock, log: log, locks: map[int64]*sync.Mutex{}}
+}
+
+// WithChangePublisher activa la publicación de alert_changed. Es opcional:
+// sin él solo se publican los avisos.
+func (s *ProcessingService) WithChangePublisher(p ports.AlertChangePublisher) *ProcessingService {
+	s.changes = p
+	return s
 }
 
 // Process procesa una hora. source decide si publica los avisos: BACKFILL
@@ -111,8 +120,9 @@ func (s *ProcessingService) Process(ctx context.Context, notice entities.LevelNo
 
 	var result ProcessResult
 	var pending []contract.AlertNotification
+	var changed []contract.AlertChanged
 	err = s.store.Transaction(ctx, func(tx ports.AlertTx) error {
-		result, pending = ProcessResult{}, nil
+		result, pending, changed = ProcessResult{}, nil, nil
 		state, err := tx.GetState(ctx, notice.MeasuringPointID, notice.EventType)
 		if err != nil {
 			return err
@@ -132,7 +142,7 @@ func (s *ProcessingService) Process(ctx context.Context, notice entities.LevelNo
 		}
 
 		for _, n := range withGaps(current, notice) {
-			if current, active, err = s.apply(ctx, tx, current, active, n, policy, dev, source, now, &result, &pending); err != nil {
+			if current, active, err = s.apply(ctx, tx, current, active, n, policy, dev, source, now, &result, &pending, &changed); err != nil {
 				return err
 			}
 		}
@@ -145,7 +155,22 @@ func (s *ProcessingService) Process(ctx context.Context, notice entities.LevelNo
 		return ProcessResult{}, domain.ErrPersistingAlerts
 	}
 	s.publish(ctx, pending)
+	s.publishChanges(ctx, changed)
 	return result, nil
+}
+
+// publishChanges entrega las fotos de la hora ya confirmada. Como en publish,
+// un error se registra y sigue.
+func (s *ProcessingService) publishChanges(ctx context.Context, changed []contract.AlertChanged) {
+	if s.changes == nil {
+		return
+	}
+	for _, c := range changed {
+		if err := s.changes.PublishAlertChanged(ctx, c); err != nil {
+			s.log.Error("[ProcessingService] No se pudo publicar el cambio de la alerta",
+				"alert", c.AlertCode, "change", c.Change, "error", err)
+		}
+	}
 }
 
 // publish entrega los avisos de la hora ya confirmada. Un error se registra y
@@ -189,6 +214,7 @@ func (s *ProcessingService) apply(
 	now time.Time,
 	result *ProcessResult,
 	pending *[]contract.AlertNotification,
+	changed *[]contract.AlertChanged,
 ) (entities.ProcessingState, *entities.Alert, error) {
 	in := domainServices.DecideInput{State: state, Active: active, Notice: notice, Policy: policy, Device: device}
 
@@ -285,6 +311,15 @@ func (s *ProcessingService) apply(
 		*pending = append(*pending, toAlertNotification(alert, m, source, late, now))
 	}
 
+	// Decide trabaja sobre una copia: active conserva el nivel anterior.
+	previous := entities.Level("")
+	if active != nil {
+		previous = active.CurrentLevel
+	}
+	if change := changeOf(d, previous, alert.CurrentLevel); change != "" && source != entities.SourceBackfill {
+		*changed = append(*changed, toAlertChanged(alert, change, notice.EvaluatedAt, now))
+	}
+
 	if d.Outcome == domainServices.OutcomeOpened || d.Outcome == domainServices.OutcomeReactivated || d.Outcome == domainServices.OutcomeFinished {
 		s.log.Info("[ProcessingService] Alerta "+string(d.Outcome),
 			"alert", alert.Code, "measuring_point_id", alert.MeasuringPointID, "evaluated_at", notice.EvaluatedAt,
@@ -305,17 +340,68 @@ func toAlertNotification(a entities.Alert, m entities.Message, source entities.S
 		AlertCode:        a.Code,
 		MeasuringPointID: a.MeasuringPointID,
 		EventType:        string(a.EventType),
+		StartedAt:        a.StartedAt.UTC(),
 		EvaluatedAt:      m.EvaluatedAt.UTC(),
 		Code:             m.Code,
 		Level:            string(m.Level),
 		MaxLevel:         string(a.MaxLevel),
 		AlertState:       string(a.State),
+		Classification:   string(a.Management.Classification),
 		Title:            m.Title,
 		Body:             m.Body,
 		IndicatorValue:   m.IndicatorValue,
 		Source:           string(source),
 		Late:             late,
 		PolicyVersionID:  m.PolicyVersionID,
+		OccurredAt:       now,
+		SchemaVersion:    contract.SchemaVersion,
+	}
+}
+
+// changeOf traduce la decisión de la hora al cambio visible. "" = ninguno: la
+// hora solo actualizó contadores o mensajes de seguimiento.
+func changeOf(d domainServices.Decision, previous, current entities.Level) string {
+	switch d.Outcome {
+	case domainServices.OutcomeOpened:
+		return contract.ChangeOpened
+	case domainServices.OutcomeReactivated:
+		return contract.ChangeReactivated
+	case domainServices.OutcomeFinished:
+		return contract.ChangeFinished
+	}
+	switch {
+	case current.Rank() > previous.Rank():
+		return contract.ChangeLevelRaised
+	case current.Rank() < previous.Rank():
+		return contract.ChangeLevelLowered
+	}
+	for _, m := range d.Messages {
+		switch m.Code {
+		case messages.CodeNoCalcStart:
+			return contract.ChangeNoDataStarted
+		case messages.CodeNoCalcEnd:
+			return contract.ChangeNoDataEnded
+		}
+	}
+	return ""
+}
+
+// toAlertChanged arma la foto del contrato con la alerta ya actualizada.
+func toAlertChanged(a entities.Alert, change string, evaluatedAt, now time.Time) contract.AlertChanged {
+	return contract.AlertChanged{
+		AlertID:          a.ID,
+		AlertCode:        a.Code,
+		MeasuringPointID: a.MeasuringPointID,
+		EventType:        string(a.EventType),
+		Change:           change,
+		State:            string(a.State),
+		CurrentLevel:     string(a.CurrentLevel),
+		MaxLevel:         string(a.MaxLevel),
+		Blinking:         a.Blinking(),
+		ManagementStatus: string(a.Management.Status),
+		Classification:   string(a.Management.Classification),
+		StartedAt:        a.StartedAt.UTC(),
+		EvaluatedAt:      evaluatedAt.UTC(),
 		OccurredAt:       now,
 		SchemaVersion:    contract.SchemaVersion,
 	}

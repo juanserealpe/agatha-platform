@@ -9,6 +9,9 @@ services:
   #   dataos      ingesta de contingencia: consulta programada a DataOS
   #   callback    ingesta principal: POST :8080/ingestion/callback (excluyente con dataos)
   #   dashboard   API de solo lectura: GET :8080/api/dashboard/*
+  #   alert_management alertas, /api/alerts y avisos al bus (requiere rule_engine)
+  #   notifications    stream SSE (/api/notifications/stream), registro de tokens
+  #                    (/api/devices/push-token) y push FCM
   # Vacía = baseline,callback,dashboard. Cambiarla NO requiere rebuild.
   platform:
     build:
@@ -23,7 +26,20 @@ services:
       - .env
 
     environment:
-      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine,alert_management
+      AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine,alert_management,notifications
+      # Push FCM: el código valida sin entregar salvo que se pida "false". Solo el VPS entrega.
+      FCM_VALIDATE_ONLY: "false"
+      FCM_SERVICE_ACCOUNT_FILE: /run/secrets/agatha/fcm-service-account.json
+      # Las variables de environment pisan las del .env: el endpoint de eventos
+      # de prueba no se puede encender aquí por error.
+      NOTIFICATIONS_TEST_ENDPOINT: "false"
+
+    # Credencial de FCM (cuenta de servicio), en solo lectura. Va en
+    # ./secrets/fcm-service-account.json, fuera del repositorio y de la imagen, y
+    # tiene que poder leerla el usuario del contenedor (chmod 444). Si falta, el
+    # push queda deshabilitado y el resto de la plataforma arranca igual.
+    volumes:
+      - ./secrets:/run/secrets/agatha:ro
 
     ports:
       - "127.0.0.1:8080:8080"
