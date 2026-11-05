@@ -75,7 +75,7 @@ convertirlas a la hora de Colombia.
 | `code` | string | `OPEN`, `NEW_AFTER_CLASSIFIED`, `UP_NARANJA_PERSIST`, `UP_NARANJA_FAST`, `UP_ROJO`, `REACTIVATED` |
 | `level`, `max_level` | string | Nivel del aviso y máximo de la alerta |
 | `classification` | string \| null | Como en `alert.changed` |
-| `title`, `body` | string | Texto en español ya redactado. El Centro de Control muestra `title` tal cual y, en vez de `body` (trae cifras), un resumen simple (§6) |
+| `title`, `body` | string | Texto en español ya redactado: se muestra tal cual. Desde el catálogo v5, `body` empieza con una frase simple y termina con el dato (§6) |
 | `late` | bool | La hora llegó atrasada. Se avisa igual, con la etiqueta "Atrasado" |
 | `started_at`, `evaluated_at`, `occurred_at` | fecha | |
 
@@ -138,11 +138,11 @@ navegador.
   cierra solo al minuto. Si terminó sin clasificar, lo dice: sigue pendiente en la pestaña "Sin clasificar".
   Si la alerta se reactiva en ese minuto, el aviso nuevo reemplaza al banner y ya no se cierra solo.
 - El brillo del Rojo sin clasificar es una capa fija de la que solo se anima la opacidad (sin repintar).
-- El cuerpo no muestra el `body` del backend, que cita cifras ("el índice pasó de 0,30 a 0,41; Rojo empieza
-  en 0,35") que no se entienden de un vistazo. Muestra una frase simple según `code` y `level`, p. ej. "El
-  índice de ruido está subiendo más rápido de lo normal" o "El índice de ruido es demasiado alto". Si el
-  `body` trae "Sensor en ajuste: resultado preliminar.", se agrega. Las cifras siguen en la línea de tiempo
-  del detalle ("Ver detalle"). La notificación del navegador usa la misma frase.
+- El cuerpo es el `body` del backend tal cual, sin textos propios en el frontend. Desde el catálogo v5 de
+  Alert Management empieza con una frase simple y termina con el dato, p. ej. "El índice de ruido siguió
+  subiendo y ya es demasiado alto. Dato: pasó de 0,30 a 0,41 (Rojo desde 0,35)." El banner muestra hasta
+  dos líneas y el texto completo al pasar el cursor. La notificación del navegador y el push usan el mismo
+  texto.
 - Se mantiene al cambiar de sección: un aviso que llega mientras el operador está en Historial sigue visible
   al volver al mapa.
 
@@ -195,7 +195,6 @@ quedar en espera.
 | `src/features/alerts/hooks/useAlerts.ts` | `/active` y `/pending`: consultan cada 30 s solo si el stream no está en vivo |
 | `src/features/alerts/lib/newAlerts.ts`, `hooks/useNewAlerts.ts` | Estado de los banners: deduplicación por `message_id`, agrupación por alerta y orden |
 | `src/features/alerts/components/NewAlertToast.tsx` | Banner |
-| `src/features/alerts/lib/noticeSummary.ts` | Frase simple del banner y de la notificación del navegador, por `code` y `level` |
 | `src/features/alerts/lib/sensorAlertIndicators.ts`, `useSensorAlertIndicators` en `hooks/useAlerts.ts` | Color de alerta de cada sensor en la lista, a partir de `/active`. `MonitoringPage` se lo pasa a `SensorsPanel` |
 | `src/features/alerts/lib/alertSound.ts` | Sonido, desbloqueo del audio, una sola pestaña y silencio |
 | `src/features/alerts/lib/browserNotification.ts` | Permiso y notificación del navegador |
