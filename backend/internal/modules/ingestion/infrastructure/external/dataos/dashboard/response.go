@@ -28,9 +28,10 @@ type ChartData struct {
 }
 
 type Series struct {
-	Name       string      `json:"name"`
-	DataPoints []DataPoint `json:"data_points"`
-	Unit       string      `json:"unit"`
+	Name        string      `json:"name"`
+	DataPoints  []DataPoint `json:"data_points"`
+	Unit        string      `json:"unit"`
+	ComponentID string      `json:"-"`
 }
 
 type DataPoint struct {

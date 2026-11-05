@@ -40,6 +40,36 @@ describe("search", () => {
     });
 });
 
+describe("getPending", () => {
+    it("omite limit si no se pide (el backend usa 5)", async () => {
+        const fetchMock = mockFetch(jsonResponse(200, { total: 0, items: [] }));
+
+        await service.getPending();
+
+        expect(requestedUrl(fetchMock)).toBe("/api/alerts/pending");
+    });
+
+    it("envía limit y devuelve el total junto con las filas", async () => {
+        const body = { total: 12, items: [{ id: 123 }] };
+        const fetchMock = mockFetch(jsonResponse(200, body));
+
+        await expect(service.getPending(20)).resolves.toEqual(body);
+        expect(requestedUrl(fetchMock)).toBe("/api/alerts/pending?limit=20");
+    });
+});
+
+describe("getActive", () => {
+    it("consulta /active y devuelve los puntos tal cual", async () => {
+        const body = {
+            devices: [{ measuring_point_id: 11556, pk: "Sensor PK34-470", level: "ROJO", blinking: true, alerts: [] }],
+        };
+        const fetchMock = mockFetch(jsonResponse(200, body));
+
+        await expect(service.getActive()).resolves.toEqual(body);
+        expect(requestedUrl(fetchMock)).toBe("/api/alerts/active");
+    });
+});
+
 describe("exportXlsx", () => {
     it("usa los mismos filtros, sin página", async () => {
         const fetchMock = mockFetch(new Response("xlsx", { status: 200 }));

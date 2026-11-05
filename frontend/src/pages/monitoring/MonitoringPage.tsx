@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { EmptyState } from "@/shared/components/EmptyState";
-import { NewAlertToast, RecentAlertsPanel } from "@/features/alerts";
+import { NewAlertToast, RecentAlertsPanel, useSensorAlertIndicators } from "@/features/alerts";
 import { SensorsPanel, useActiveDevice } from "@/features/sensors";
 import { PipelineMap, usePilotNodes } from "@/features/map";
 import { TelemetryPanel } from "@/features/telemetry";
@@ -13,6 +13,7 @@ const SENSORS_PANEL_CLASS = "max-h-[360px] lg:max-h-[45%] lg:flex-none";
 export function MonitoringPage() {
     const { activeDevice, selectDevice } = useActiveDevice();
     const nodes = usePilotNodes();
+    const sensorAlerts = useSensorAlertIndicators();
     const telemetryRef = useRef<HTMLElement>(null);
 
     function showTelemetry(deviceId: number) {
@@ -34,6 +35,7 @@ export function MonitoringPage() {
 
                     <SensorsPanel
                         selectedDeviceId={activeDevice?.id}
+                        alerts={sensorAlerts}
                         onSelect={selectDevice}
                         className={SENSORS_PANEL_CLASS}
                     />

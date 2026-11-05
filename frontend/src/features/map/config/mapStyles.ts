@@ -1,5 +1,5 @@
 import type { PathOptions } from "leaflet";
-import { SEVERITY_STYLES } from "@/features/alerts";
+import { LEVEL_ALERT_LABEL, SEVERITY_STYLES } from "@/features/alerts";
 import type { PipeMaterial } from "../data/pilotSensors";
 import type { NodeTone } from "../lib/nodeState";
 
@@ -38,13 +38,13 @@ export const WATER_STYLES = {
 
 export const NODE_TONE_STYLES: Record<NodeTone, { label: string; hex: string }> = {
     normal: { label: "Normal", hex: "#10b981" },
-    yellow: { label: "Alerta amarilla", hex: SEVERITY_STYLES.yellow.hex },
-    orange: { label: "Alerta naranja", hex: SEVERITY_STYLES.orange.hex },
-    red: { label: "Alerta roja", hex: SEVERITY_STYLES.red.hex },
+    AMARILLO: { label: LEVEL_ALERT_LABEL.AMARILLO, hex: SEVERITY_STYLES.AMARILLO.hex },
+    NARANJA: { label: LEVEL_ALERT_LABEL.NARANJA, hex: SEVERITY_STYLES.NARANJA.hex },
+    ROJO: { label: LEVEL_ALERT_LABEL.ROJO, hex: SEVERITY_STYLES.ROJO.hex },
     unavailable: { label: "Sin comunicación / no operativo", hex: "#9ca3af" },
 };
 
 /** Orden en que se listan los estados en la leyenda. */
-export const LEGEND_TONES: NodeTone[] = ["normal", "yellow", "orange", "red", "unavailable"];
+export const LEGEND_TONES: NodeTone[] = ["normal", "AMARILLO", "NARANJA", "ROJO", "unavailable"];
 
 export const WARNING_HEX = NODE_TONE_STYLES.unavailable.hex;

@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { LABELS_BY_CLASSIFICATION } from "@/services/alertManagement";
 import { SEVERITY_STYLES } from "./alertDisplay";
-import { LABEL_TEXT, labelDisplayText, levelStyle } from "./alertManagementDisplay";
+import { displayLevel, LABEL_TEXT, labelDisplayText, levelStyle } from "./alertManagementDisplay";
 
 describe("levelStyle", () => {
     it("reutiliza la escala de severidad de la app", () => {
-        expect(levelStyle("ROJO")).toBe(SEVERITY_STYLES.red);
-        expect(levelStyle("NARANJA")).toBe(SEVERITY_STYLES.orange);
-        expect(levelStyle("AMARILLO")).toBe(SEVERITY_STYLES.yellow);
+        expect(levelStyle("ROJO")).toBe(SEVERITY_STYLES.ROJO);
+        expect(levelStyle("AMARILLO")).toBe(SEVERITY_STYLES.AMARILLO);
+    });
+});
+
+describe("displayLevel", () => {
+    it("usa el nivel actual y, si la alerta finalizó, el máximo", () => {
+        expect(displayLevel({ current_level: "NARANJA", max_level: "ROJO" })).toBe("NARANJA");
+        expect(displayLevel({ current_level: null, max_level: "ROJO" })).toBe("ROJO");
     });
 });
 

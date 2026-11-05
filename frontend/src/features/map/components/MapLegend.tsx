@@ -48,7 +48,8 @@ function Row({ symbol, children }: { symbol: ReactNode; children: ReactNode }) {
 }
 
 export function MapLegend() {
-    const [isExpanded, setIsExpanded] = useState(true);
+    // Cerrada por defecto: con alertas en el mapa, la leyenda abierta tapa puntos y banners.
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
         <div className="absolute bottom-6 right-3 z-[1000] w-60 overflow-hidden rounded-lg bg-white/95 text-xs text-gray-700 shadow-lg backdrop-blur">
@@ -59,6 +60,7 @@ export function MapLegend() {
                 className="flex w-full items-center px-3 py-1.5 font-medium hover:bg-gray-50"
             >
                 Leyenda
+                {!isExpanded && <span className="ml-1.5 font-normal text-gray-500">· clic para abrir</span>}
                 <ChevronDown size={14} className={`ml-auto transition-transform ${isExpanded ? "" : "rotate-180"}`} aria-hidden />
             </button>
 
@@ -68,12 +70,12 @@ export function MapLegend() {
                         <h3 className="mb-1.5 font-semibold text-gray-900">Estado del punto</h3>
                         <ul className="flex flex-col gap-1.5">
                             {LEGEND_TONES.map((tone) => (
-                                <Row key={tone} symbol={<Dot color={NODE_TONE_STYLES[tone].hex} blink={tone === "red"} />}>
+                                <Row key={tone} symbol={<Dot color={NODE_TONE_STYLES[tone].hex} blink={tone === "ROJO"} />}>
                                     {NODE_TONE_STYLES[tone].label}
-                                    {tone === "red" && <span className="text-gray-500"> (titila mientras esté sin clasificar)</span>}
+                                    {tone === "ROJO" && <span className="text-gray-500"> (titila mientras esté sin clasificar)</span>}
                                 </Row>
                             ))}
-                            <Row symbol={<Dot color={NODE_TONE_STYLES.orange.hex} warning />}>
+                            <Row symbol={<Dot color={NODE_TONE_STYLES.NARANJA.hex} warning />}>
                                 Alerta + aviso <span className="text-gray-500">(conserva el color de la alerta)</span>
                             </Row>
                         </ul>

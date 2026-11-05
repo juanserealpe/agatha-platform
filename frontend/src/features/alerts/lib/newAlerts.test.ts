@@ -1,56 +1,110 @@
 import { describe, expect, it } from "vitest";
-import type { Alert } from "@/services/alerts";
-import { dismissAlert, ingestAlerts, INITIAL_NEW_ALERTS_STATE, pickHeadline } from "./newAlerts";
+import { toAlertId } from "@/services/alertManagement";
+import type { AlertNotificationEvent } from "@/services/realtime";
+import {
+    classifyNotice,
+    dismissNotice,
+    endNotice,
+    expireEndedNotice,
+    ingestNotification,
+    INITIAL_NEW_ALERTS_STATE,
+    sortNotices,
+} from "./newAlerts";
 
-const alert = (id: string, overrides: Partial<Alert> = {}): Alert => ({
-    id,
-    severity: "yellow",
-    type: "leak",
-    status: "unclassified",
-    deviceId: 11556,
-    pkMeters: 34470,
-    detectedAt: "2026-10-18T12:00:00Z",
+const notice = (messageId: number, overrides: Partial<AlertNotificationEvent> = {}): AlertNotificationEvent => ({
+    message_id: messageId,
+    alert_id: toAlertId(142),
+    alert_code: "ALR-000142",
+    measuring_point_id: 11556,
+    event_type: "FUGA",
+    code: "OPEN",
+    level: "AMARILLO",
+    max_level: "AMARILLO",
+    classification: null,
+    title: "Nueva alerta",
+    body: "Índice de ruido en 0,18.",
+    late: false,
+    started_at: "2026-10-30T12:00:00Z",
+    evaluated_at: "2026-10-30T14:00:00Z",
+    occurred_at: "2026-10-30T14:00:05Z",
     ...overrides,
 });
 
-describe("ingestAlerts", () => {
-    it("la primera lista fija la línea base y no notifica", () => {
-        const state = ingestAlerts(INITIAL_NEW_ALERTS_STATE, [alert("a"), alert("b")]);
-        expect(state.unseen).toEqual([]);
-        expect([...state.seenIds!]).toEqual(["a", "b"]);
+const ids = (notices: AlertNotificationEvent[]) => notices.map((n) => n.message_id);
+
+describe("ingestNotification", () => {
+    it("una subida de nivel de la misma alerta reemplaza al aviso anterior", () => {
+        const opened = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        const raised = ingestNotification(opened, notice(2, { code: "UP_ROJO", level: "ROJO" }));
+        expect(ids(raised.notices)).toEqual([2]);
     });
 
-    it("una lista vacía también fija la línea base", () => {
-        const state = ingestAlerts(INITIAL_NEW_ALERTS_STATE, []);
-        expect(ingestAlerts(state, [alert("a")]).unseen.map((a) => a.id)).toEqual(["a"]);
+    it("avisos de alertas distintas se acumulan", () => {
+        const first = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        const second = ingestNotification(first, notice(2, { alert_id: toAlertId(150), alert_code: "ALR-000150" }));
+        expect(ids(second.notices)).toEqual([1, 2]);
     });
 
-    it("notifica solo los ids que no había visto", () => {
-        const base = ingestAlerts(INITIAL_NEW_ALERTS_STATE, [alert("a")]);
-        const next = ingestAlerts(base, [alert("b"), alert("a")]);
-        expect(next.unseen.map((a) => a.id)).toEqual(["b"]);
+    it("un aviso reenviado tras una reconexión no se repite, aunque se haya descartado", () => {
+        const once = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        expect(ingestNotification(once, notice(1))).toBe(once);
+
+        const dismissed = dismissNotice(once, "ALR-000142");
+        expect(ingestNotification(dismissed, notice(1)).notices).toEqual([]);
     });
 
-    it("no repite una alerta ya notificada aunque siga en la lista", () => {
-        const base = ingestAlerts(INITIAL_NEW_ALERTS_STATE, []);
-        const once = ingestAlerts(base, [alert("a")]);
-        const twice = ingestAlerts(once, [alert("a")]);
-        expect(twice).toBe(once);
-    });
-
-    it("una alerta descartada no vuelve a aparecer", () => {
-        const base = ingestAlerts(INITIAL_NEW_ALERTS_STATE, []);
-        const dismissed = dismissAlert(ingestAlerts(base, [alert("a")]), "a");
-        expect(ingestAlerts(dismissed, [alert("a")]).unseen).toEqual([]);
+    it("tras descartar, un aviso nuevo de la misma alerta vuelve a mostrarse", () => {
+        const dismissed = dismissNotice(ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1)), "ALR-000142");
+        expect(ids(ingestNotification(dismissed, notice(2, { code: "UP_ROJO" })).notices)).toEqual([2]);
     });
 });
 
-describe("pickHeadline", () => {
-    it("prioriza la más grave y, entre iguales, la más reciente", () => {
-        const older = alert("old", { severity: "red", detectedAt: "2026-10-18T10:00:00Z" });
-        const newer = alert("new", { severity: "red", detectedAt: "2026-10-18T11:00:00Z" });
-        const yellow = alert("y", { detectedAt: "2026-10-18T12:00:00Z" });
-        expect(pickHeadline([yellow, older, newer])?.id).toBe("new");
-        expect(pickHeadline([])).toBeNull();
+describe("sortNotices", () => {
+    it("mayor nivel primero y, entre iguales, el más reciente", () => {
+        const yellow = notice(1, { alert_code: "A", occurred_at: "2026-10-30T16:00:00Z" });
+        const redOld = notice(2, { alert_code: "B", level: "ROJO", occurred_at: "2026-10-30T14:00:00Z" });
+        const redNew = notice(3, { alert_code: "C", level: "ROJO", occurred_at: "2026-10-30T15:00:00Z" });
+        expect(ids(sortNotices([yellow, redOld, redNew]))).toEqual([3, 2, 1]);
+    });
+});
+
+describe("classifyNotice", () => {
+    it("guarda la clasificación en el banner de esa alerta (deja de titilar)", () => {
+        const state = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1, { code: "UP_ROJO", level: "ROJO" }));
+        const classified = classifyNotice(state, "ALR-000142", "CONFIRMADA");
+        expect(classified.notices[0]).toMatchObject({ message_id: 1, classification: "CONFIRMADA" });
+    });
+
+    it("sin banner de esa alerta, o ya clasificado igual, devuelve el mismo estado", () => {
+        const state = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        expect(classifyNotice(state, "ALR-000999", "CONFIRMADA")).toBe(state);
+
+        const classified = classifyNotice(state, "ALR-000142", "CONFIRMADA");
+        expect(classifyNotice(classified, "ALR-000142", "CONFIRMADA")).toBe(classified);
+    });
+});
+
+describe("endNotice / expireEndedNotice", () => {
+    it("al finalizar, el banner pasa a terminado y después se cierra", () => {
+        const ended = endNotice(ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1)), "ALR-000142");
+        expect(ended.notices[0].ended).toBe(true);
+        expect(expireEndedNotice(ended, "ALR-000142", 1).notices).toEqual([]);
+    });
+
+    it("si la alerta se reactiva antes de cerrarse, el banner nuevo se queda", () => {
+        const ended = endNotice(ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1)), "ALR-000142");
+        const reactivated = ingestNotification(ended, notice(2, { code: "REACTIVATED" }));
+        expect(expireEndedNotice(reactivated, "ALR-000142", 1)).toBe(reactivated);
+        expect(reactivated.notices[0].ended).toBeUndefined();
+    });
+
+    it("sin banner de esa alerta devuelve el mismo estado", () => {
+        expect(endNotice(INITIAL_NEW_ALERTS_STATE, "ALR-000142")).toBe(INITIAL_NEW_ALERTS_STATE);
+    });
+
+    it("los banners de alertas terminadas van después de los que siguen en curso", () => {
+        const red = notice(1, { alert_code: "ALR-1", level: "ROJO" });
+        const yellow = notice(2, { alert_code: "ALR-2" });
+        expect(ids(sortNotices([{ ...red, ended: true }, yellow]))).toEqual([2, 1]);
     });
 });

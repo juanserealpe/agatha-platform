@@ -1,7 +1,12 @@
-import { Wifi } from "lucide-react";
+import type { ReactNode } from "react";
 import tgiLogo from "@/assets/tgi-logo.png";
 
-export function Header() {
+interface HeaderProps {
+    /** Indicador de conexión en tiempo real; lo provee la capa de la app para que el layout no dependa de features. */
+    connectionStatus?: ReactNode;
+}
+
+export function Header({ connectionStatus }: HeaderProps) {
     return (
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
@@ -22,10 +27,7 @@ export function Header() {
                     <span className="text-gray-400 mr-1">Sitio:</span>
                     Güepsa - San José de Pare
                 </div>
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full text-emerald-700 text-sm font-medium shadow-sm">
-                    <Wifi size={16} />
-                    <span className="font-data-mono text-xs uppercase">Conectado</span>
-                </div>
+                {connectionStatus}
             </div>
         </header>
     );

@@ -1,8 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import { CircleCheck, CircleDashed, CircleDot } from "lucide-react";
-import type { AlertSeverity } from "@/services/alerts";
 import type {
     AlertEvent,
+    AlertItem,
     AlertLabel,
     AlertLevel,
     Classification,
@@ -10,25 +10,32 @@ import type {
     ManagementStatus,
 } from "@/services/alertManagement";
 import { OTHER_LABEL } from "@/services/alertManagement";
+import type { NotificationCode } from "@/services/realtime";
 import type { RowAction } from "../lib/rowActions";
 import { SEVERITY_STYLES, type SeverityStyle } from "./alertDisplay";
 
 // Único lugar donde los enums de Alert Management se traducen a textos y estilos. Los componentes no
 // comparan strings del backend: consultan estos catálogos.
 
-const LEVEL_SEVERITY: Record<AlertLevel, AlertSeverity> = {
-    AMARILLO: "yellow",
-    NARANJA: "orange",
-    ROJO: "red",
-};
-
 /** Estilo de criticidad de un nivel; reutiliza la escala amarillo/naranja/rojo de la app. */
 export function levelStyle(level: AlertLevel): SeverityStyle {
-    return SEVERITY_STYLES[LEVEL_SEVERITY[level]];
+    return SEVERITY_STYLES[level];
 }
 
 /** Orden de los niveles en filtros y leyendas: de menor a mayor criticidad. */
 export const LEVEL_ORDER: readonly AlertLevel[] = ["AMARILLO", "NARANJA", "ROJO"];
+
+/** Nombre de un sensor o punto que está en ese nivel (lista de sensores, leyenda del mapa). */
+export const LEVEL_ALERT_LABEL: Record<AlertLevel, string> = {
+    AMARILLO: "Alerta amarilla",
+    NARANJA: "Alerta naranja",
+    ROJO: "Alerta roja",
+};
+
+/** Nivel de una alerta en listas y avisos: el actual o, si ya finalizó, el máximo que alcanzó. */
+export function displayLevel(alert: Pick<AlertItem, "current_level" | "max_level">): AlertLevel {
+    return alert.current_level ?? alert.max_level;
+}
 
 export const EVENT_LABEL: Record<AlertEvent, string> = {
     FUGA: "Fuga",
@@ -103,6 +110,24 @@ export const ORIGIN_LABEL: Record<ManagementOrigin, string> = {
 export const EMPTY_CELL = "—";
 
 export const IN_PROGRESS_LABEL = "En curso";
+
+/** Encabezado del banner según el aviso del catálogo (`alert.notification`). */
+export const NOTICE_KIND_LABEL: Record<NotificationCode, string> = {
+    OPEN: "Nueva alerta",
+    NEW_AFTER_CLASSIFIED: "Nueva alerta",
+    UP_NARANJA_PERSIST: "Subió de nivel",
+    UP_NARANJA_FAST: "Subió de nivel",
+    UP_ROJO: "Subió de nivel",
+    REACTIVATED: "Alerta reactivada",
+};
+
+/** Banner de una alerta que ya finalizó (se cierra solo al minuto). */
+export const ENDED_NOTICE_LABEL = "Volvió a la normalidad";
+export const ENDED_UNCLASSIFIED_TEXT = "La alerta terminó sin clasificar: sigue pendiente en «Sin clasificar».";
+export const ENDED_CLASSIFIED_TEXT = "La alerta terminó.";
+
+/** Aviso de una hora que llegó atrasada: se muestra igual, marcado para que no se ignore. */
+export const LATE_NOTICE_LABEL = "Atrasado";
 
 export const ROW_ACTION_LABEL: Record<RowAction, string> = {
     classify: "Clasificar",

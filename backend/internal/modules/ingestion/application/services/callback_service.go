@@ -1,0 +1,144 @@
+package services
+
+import (
+	"context"
+	"errors"
+
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/dtos"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/application/ports"
+	ingestionErrors "github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/entities"
+	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/domain/repositories"
+	appErrors "github.com/juanserealpe/agatha-platform/backend/internal/shared/errors"
+	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
+)
+
+// CallbackSource identifica en ingestion_state_models los lotes recibidos por callback.
+const CallbackSource = "dataflow_callback"
+
+// CallbackService recibe los registros que Dataflow Labs empuja por HTTP.
+//
+// Mapea cada variable a su métrica del catálogo y, en una sola transacción,
+// persiste el recibo del registro (una fila en ingestion_state_models con su record_id,
+// que deduplica los reintentos) y las mediciones en raw_measurements.
+type CallbackService struct {
+	deviceRepository repositories.DeviceRepository
+	unitOfWork       ports.IngestionUnitOfWork
+	validator        *CallbackValidator
+	mapper           *CallbackMapper
+	logger           *logger.Logger
+}
+
+func NewCallbackService(
+	deviceRepository repositories.DeviceRepository,
+	unitOfWork ports.IngestionUnitOfWork,
+	validator *CallbackValidator,
+	mapper *CallbackMapper,
+	logger *logger.Logger,
+) *CallbackService {
+	return &CallbackService{
+		deviceRepository: deviceRepository,
+		unitOfWork:       unitOfWork,
+		validator:        validator,
+		mapper:           mapper,
+		logger:           logger,
+	}
+}
+
+// Receive valida, registra y persiste un registro. Devuelve duplicate si el
+// record_id ya fue procesado; cualquier error de BD es reintentable (5xx).
+func (s *CallbackService) Receive(ctx context.Context, request dtos.DataRecordCallback) (dtos.CallbackResponse, error) {
+	// 1. Validar el payload.
+	record, err := s.validator.Validate(request)
+	if err != nil {
+		s.logger.Warn("payload rechazado", "record_id", request.RecordID, "mp_id", request.MpID, "error", err)
+		return dtos.CallbackResponse{}, err
+	}
+
+	// 2. Mapear las variables a métricas.
+	measurements, unmapped, err := s.mapper.Map(record)
+	if err != nil {
+		s.logger.Warn("payload rechazado", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "error", err)
+		return dtos.CallbackResponse{}, err
+	}
+	if len(unmapped) > 0 {
+		s.logger.Warn("variables sin mapeo; no se guardan", "record_id", record.RecordID, "variables", unmapped)
+	}
+
+	// 3. Verificar que el punto de medición exista.
+	device, err := s.deviceRepository.FindByMeasuringPointID(ctx, record.MeasuringPointID)
+	if err != nil {
+		s.logger.Error("error consultando el punto de medición", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "error", err)
+		return dtos.CallbackResponse{}, ingestionErrors.ErrConsultingDevice
+	}
+	if device == nil {
+		s.logger.Warn("punto de medición no registrado", "record_id", record.RecordID, "mp_id", record.MeasuringPointID)
+		return dtos.CallbackResponse{}, appErrors.ErrDeviceNotFound
+	}
+
+	// 4. Persistir recibo y mediciones; el índice único sobre record_id deduplica.
+	recordID := record.RecordID
+	lastIngestedAt := record.LatestReadingTimestamp()
+	state := &entities.IngestionState{
+		MeasuringPointID: uint64(record.MeasuringPointID),
+		Source:           CallbackSource,
+		LastIngestedAt:   &lastIngestedAt,
+		ReceivedRecords:  len(record.Readings),
+		RecordID:         &recordID,
+	}
+
+	var (
+		created  bool
+		inserted int
+	)
+	err = s.unitOfWork.Execute(
+		ctx,
+		func(
+			ctx context.Context,
+			measurementRepository repositories.MeasurementRepository,
+			ingestionStateRepository repositories.IngestionStateRepository,
+		) error {
+			// Primero se reclama el record_id: un reintento no vuelve a escribir
+			// mediciones, y el id de la fila es el lote de cada medición.
+			savedState, saved, err := ingestionStateRepository.SaveIfAbsent(ctx, state)
+			if err != nil || !saved {
+				return err
+			}
+			created = true
+			linkToBatch(measurements, savedState.BatchSeq)
+
+			// Misma TX: si fallan las mediciones, se libera también el record_id
+			// y Dataflow Labs puede reintentar el registro completo.
+			batch, err := measurementRepository.SaveBatch(ctx, measurements)
+			if err != nil {
+				created = false
+				return err
+			}
+			inserted = batch.Inserted
+			return nil
+		},
+	)
+	if err != nil {
+		s.logger.Error("no se pudo guardar el registro; Dataflow Labs debe reintentar", "record_id", record.RecordID, "error", err)
+		return dtos.CallbackResponse{}, errors.Join(ingestionErrors.ErrPersistingIngestionState, err)
+	}
+
+	response := dtos.CallbackResponse{
+		Status:          dtos.CallbackStatusStored,
+		RecordID:        record.RecordID,
+		ReceivedRecords: len(record.Readings),
+	}
+
+	if !created {
+		response.Status = dtos.CallbackStatusDuplicate
+		s.logger.Info("registro duplicado", "record_id", record.RecordID)
+		return response, nil
+	}
+
+	if omitted := len(measurements) - inserted; omitted > 0 {
+		s.logger.Warn("mediciones ya existentes; no se duplican", "record_id", record.RecordID, "omitidas", omitted)
+	}
+
+	s.logger.Info("registro guardado", "record_id", record.RecordID, "mp_id", record.MeasuringPointID, "recibidas", response.ReceivedRecords, "guardadas", inserted, "hasta", lastIngestedAt)
+	return response, nil
+}

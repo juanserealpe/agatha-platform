@@ -1,75 +1,31 @@
-# React + TypeScript + Vite
+# AGATHA — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Monitoreo en tiempo real del gasoducto Otero-Santana: mapa del piloto, alertas de fuga en vivo, gestión de alertas e historial. React 19 + Vite + TypeScript, desplegado en Vercel.
 
-Currently, two official plugins are available:
+## Comandos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev       # http://localhost:5173 (proxy de /api al backend, ver vite.config.ts)
+npm test          # vitest
+npm run lint
+npm run build     # tsc + vite build en dist/
+npm run preview   # sirve dist/ en http://localhost:4173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Variables de entorno
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Ver [.env.example](.env.example): `VITE_API_BASE_URL`, `VITE_ENABLE_DEMO`, `VITE_FEATURE_ALERT_EVIDENCE` y `LOCAL_NOTIFICATIONS_URL` (solo en desarrollo).
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Demo en `/demo`
 
-```
+El mismo despliegue sirve una demo con datos simulados en `/demo` (por ejemplo `/demo/monitoreo`). Nunca llama al backend: alertas, stream de tiempo real, dispositivos y series salen de un store en memoria (`src/demo/`) que responde con la misma forma que la API. Su código va en un chunk aparte que solo se descarga en `/demo`.
+
+- Una franja indica "DEMO — datos simulados"; las notificaciones del navegador llevan el prefijo `[SIMULACIÓN]`.
+- El panel **Simulación** (abajo a la izquierda, plegable) tiene:
+  - **Escenario guiado** sobre el Punto 1 (PK 34+470): Amarilla → Naranja → Roja (titila) → clasificar → Normal. "Siguiente paso" lo aplica de inmediato; "Disparar en 5 s" da tiempo de cambiar de pestaña para ver la notificación del navegador.
+  - **Acciones sueltas**: alerta nueva (en un punto libre), subir nivel y clasificar (sobre la alerta activa más reciente), desconectar/reconectar el stream. Al reconectar, el cliente reintenta con su backoff normal (puede tardar hasta 30 s) y recibe lo que se perdió.
+  - **Reiniciar la demo**: recarga la página y todo vuelve al inicio.
+- "Salir de la demo" vuelve a la app real en `/`.
+- La exportación a Excel no está disponible en la demo.
+- `VITE_ENABLE_DEMO=false` apaga la ruta: `/demo` redirige a la app real.

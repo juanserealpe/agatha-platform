@@ -7,7 +7,6 @@ import (
 )
 
 type DeviceRepository interface {
-	Save(ctx context.Context, device entities.Device) error
+	// FindByMeasuringPointID devuelve nil, nil si el punto no existe.
 	FindByMeasuringPointID(ctx context.Context, measuringPointID int64) (*entities.Device, error)
-	List(ctx context.Context) ([]entities.Device, error)
 }

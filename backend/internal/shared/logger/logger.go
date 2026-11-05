@@ -4,30 +4,49 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	// Embebe la base de zonas horarias en el binario: America/Bogota se resuelve
+	// aunque el host (VPS, contenedor) no tenga tzdata instalada.
+	_ "time/tzdata"
 )
 
 type Level string
 
 const (
+	LevelDebug Level = "DEBUG"
 	LevelInfo  Level = "INFO"
 	LevelWarn  Level = "WARN"
 	LevelError Level = "ERROR"
 )
+
+const (
+	timestampLayout = "2006-01-02 15:04:05 -07:00"
+	fieldTimeLayout = time.RFC3339
+)
+
+// bogota es la zona de todos los logs, independiente de la zona del host.
+var bogota = loadBogota()
 
 type Logger struct {
 	module string
 	level  Level
 }
 
-// Configurar zona horaria de Colombia (Bogotá)
-func init() {
+func loadBogota() *time.Location {
 	loc, err := time.LoadLocation("America/Bogota")
 	if err != nil {
-		log.Printf("Error loading timezone America/Bogota: %v, usando UTC", err)
-	} else {
-		time.Local = loc
-		log.Printf("Timezone configurado a: America/Bogota (UTC-5)")
+		// Con time/tzdata embebida no debería ocurrir; Colombia no tiene horario de verano.
+		return time.FixedZone("America/Bogota", -5*60*60)
 	}
+	return loc
+}
+
+// Configurar zona horaria de Colombia (Bogotá) para todo el proceso y dejar un
+// único timestamp por línea (el propio, con offset).
+func init() {
+	time.Local = bogota
+	log.SetFlags(0)
+	log.Printf("[%s] Timezone configurado a: America/Bogota (UTC-5)", time.Now().In(bogota).Format(timestampLayout))
 }
 
 func New(module string, level string) *Logger {
@@ -35,6 +54,15 @@ func New(module string, level string) *Logger {
 		module: module,
 		level:  Level(strings.ToUpper(level)),
 	}
+}
+
+// Debug solo se imprime si el logger se creó con nivel DEBUG (detalle de
+// diagnóstico que en producción no aporta).
+func (l *Logger) Debug(msg string, keysAndValues ...interface{}) {
+	if l.level != LevelDebug {
+		return
+	}
+	l.log(LevelDebug, msg, keysAndValues...)
 }
 
 func (l *Logger) Info(msg string, keysAndValues ...interface{}) {
@@ -54,8 +82,7 @@ func (l *Logger) log(
 	msg string,
 	keysAndValues ...interface{},
 ) {
-	// Obtener hora actual en zona horaria de Bogotá
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	timestamp := time.Now().In(bogota).Format(timestampLayout)
 
 	log.Printf(
 		"[%s] [%s] [%s] %s %v",
@@ -63,6 +90,27 @@ func (l *Logger) log(
 		level,
 		l.module,
 		msg,
-		keysAndValues,
+		normalizeTimes(keysAndValues),
 	)
+}
+
+// normalizeTimes convierte los campos time.Time a hora Bogotá, sin importar la
+// zona con la que llegaron (UTC de la BD, offset del payload, etc.).
+func normalizeTimes(keysAndValues []interface{}) []interface{} {
+	normalized := make([]interface{}, len(keysAndValues))
+	for i, value := range keysAndValues {
+		switch v := value.(type) {
+		case time.Time:
+			normalized[i] = v.In(bogota).Format(fieldTimeLayout)
+		case *time.Time:
+			if v != nil {
+				normalized[i] = v.In(bogota).Format(fieldTimeLayout)
+			} else {
+				normalized[i] = v
+			}
+		default:
+			normalized[i] = value
+		}
+	}
+	return normalized
 }

@@ -18,6 +18,7 @@ func ToIngestionStateModel(entity *entities.IngestionState) *models.IngestionSta
 		ReceivedRecords:  entity.ReceivedRecords,
 		CreatedAt:        entity.CreatedAt,
 		UpdatedAt:        entity.UpdatedAt,
+		RecordID:         entity.RecordID,
 	}
 }
 
@@ -34,5 +35,6 @@ func ToIngestionStateEntity(model *models.IngestionStateModel) *entities.Ingesti
 		ReceivedRecords:  model.ReceivedRecords,
 		CreatedAt:        model.CreatedAt,
 		UpdatedAt:        model.UpdatedAt,
+		RecordID:         model.RecordID,
 	}
 }

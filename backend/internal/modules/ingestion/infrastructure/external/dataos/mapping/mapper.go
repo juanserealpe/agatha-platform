@@ -7,10 +7,12 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/ingestion/infrastructure/external/dataos/dashboard"
 )
 
+// metricIDMap traduce el nombre de cada serie de DataOS al id del catálogo de
+// métricas (ARQUITECTURA_LITE.md §2.1).
 var metricIDMap = map[string]uint64{
 	"Pitch":          1,
 	"Roll":           2,
-	"Voltaje (V)":   3,
+	"Voltaje (V)":    3,
 	"Corriente (mA)": 4,
 	"Batería (%)":    5,
 	"RMS (ADC)":      6,
@@ -31,52 +33,60 @@ var metricIDMap = map[string]uint64{
 
 	"Planitud espectral": 18,
 	"Deriva (grados)":    19,
+
+	"Temperatura (°C)": 20,
+	"Humedad (%)":      21,
+}
+
+// componentMetricIDMap identifica por componente las series que DataOS nombra
+// igual ("MP-11556" para temperatura y humedad).
+var componentMetricIDMap = map[string]uint64{
+	"chart_temperature": 20,
+	"chart_humidity":    21,
 }
 
 type Mapper struct {
 	timestampParser *TimestampParser
 }
 
-func NewMapper(
-	timestampParser *TimestampParser,
-) *Mapper {
-	return &Mapper{
-		timestampParser: timestampParser,
-	}
+func NewMapper(timestampParser *TimestampParser) *Mapper {
+	return &Mapper{timestampParser: timestampParser}
 }
 
-func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series,
-) ([]entities.RawMeasurement, error) {
+// MapSeries convierte una serie en mediciones crudas. Devuelve nil, nil si la
+// serie no está en el catálogo.
+func (m *Mapper) MapSeries(device *entities.Device, series dashboard.Series) ([]entities.RawMeasurement, error) {
+	// Primero intentamos identificar la métrica por el componente.
+	// Esto es necesario porque temperatura y humedad llegan desde
+	// DataOS con el mismo nombre: "MP-11556".
+	metricID, ok := componentMetricIDMap[series.ComponentID]
 
-	metricID, ok := metricIDMap[series.Name]
 	if !ok {
-		fmt.Errorf("no se encontró un ID de métrica para la serie %q", series.Name)
+		// Para las demás métricas seguimos utilizando el nombre
+		// de la serie como hasta ahora.
+		metricID, ok = metricIDMap[series.Name]
+	}
+
+	// Serie fuera del catálogo: el cliente la informa y la omite.
+	if !ok {
 		return nil, nil
 	}
 
 	measurements := make([]entities.RawMeasurement, 0, len(series.DataPoints))
 
 	for _, point := range series.DataPoints {
-
 		timestamp, err := m.timestampParser.Parse(point.Timestamp)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"parse timestamp %q for metric %q: %w",
-				point.Timestamp,
-				series.Name,
-				err,
-			)
+			return nil, fmt.Errorf("timestamp %q inválido en la serie %q: %w", point.Timestamp, series.Name, err)
 		}
 
-		measurement := entities.RawMeasurement{
+		measurements = append(measurements, entities.RawMeasurement{
 			MeasuringPointID: device.MeasuringPointID,
 			MetricID:         metricID,
 			Timestamp:        timestamp,
-			Value:            point.Value,
+			Value:            entities.NormalizeMeasurementValue(metricID, point.Value),
 			Source:           "dataos",
-		}
-
-		measurements = append(measurements, measurement)
+		})
 	}
 
 	return measurements, nil

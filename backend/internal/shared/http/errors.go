@@ -10,13 +10,27 @@ import (
 var errorStatus = map[appErrors.ErrorCode]int{
 	appErrors.CodeNotFound:                http.StatusNotFound,
 	appErrors.CodeInvalidInput:            http.StatusBadRequest,
+	appErrors.CodeConflict:                http.StatusConflict,
 	appErrors.CodeFutureDate:              http.StatusBadRequest,
 	appErrors.CodeAlreadyIngested:         http.StatusConflict,
 	appErrors.CodeBeforeInitialDate:       http.StatusBadRequest,
 	appErrors.CodeInvalidMeasuringPointID: http.StatusBadRequest,
 
-	appErrors.CodeConsultingLastState: http.StatusInternalServerError,
-	appErrors.CodeGettingIngestedData: http.StatusBadGateway,
+	appErrors.CodeConsultingLastState:    http.StatusInternalServerError,
+	appErrors.CodeGettingIngestedData:    http.StatusBadGateway,
+	appErrors.CodeConsultingDevices:      http.StatusInternalServerError,
+	appErrors.CodeConsultingMeasurements: http.StatusInternalServerError,
+	appErrors.CodeConsultingBaseline:     http.StatusInternalServerError,
+	appErrors.CodePersistingBaseline:     http.StatusInternalServerError,
+	appErrors.CodeConsultingEvaluations:  http.StatusInternalServerError,
+	appErrors.CodePersistingEvaluations:  http.StatusInternalServerError,
+
+	appErrors.CodeConsultingThresholds:      http.StatusInternalServerError,
+	appErrors.CodePersistingThresholds:      http.StatusInternalServerError,
+	appErrors.CodeConsultingRuleEvaluations: http.StatusInternalServerError,
+	appErrors.CodePersistingRuleEvaluations: http.StatusInternalServerError,
+	appErrors.CodeConsultingAlerts:          http.StatusInternalServerError,
+	appErrors.CodePersistingAlerts:          http.StatusInternalServerError,
 }
 
 func HandleError(w http.ResponseWriter, err error) {

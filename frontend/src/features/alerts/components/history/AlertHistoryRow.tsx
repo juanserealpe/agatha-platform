@@ -42,8 +42,8 @@ export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction, o
 
     return (
         <TableRow className={cn(item.blinking && "bg-red-50/60 hover:bg-red-50")}>
-            {/* Rojo sin clasificar: borde, ícono y texto, no solo el color de fondo. */}
-            <TableCell className={cn("border-l-4 border-l-transparent px-3", item.blinking && "border-l-alerta-roja")}>
+            {/* Rojo sin clasificar: fondo, ícono y texto, no solo el color. */}
+            <TableCell className="px-3">
                 <span className="flex items-center gap-1.5 font-data-mono text-xs font-bold text-gray-900">
                     {item.blinking && (
                         <BellRing className="size-3.5 text-red-600 motion-safe:animate-pulse" aria-hidden>

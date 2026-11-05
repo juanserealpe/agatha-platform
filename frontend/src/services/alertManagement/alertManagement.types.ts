@@ -55,6 +55,8 @@ export const MANAGEMENT_LIMITS = {
     otherTextMaxLength: 100,
     searchPageSize: 10,
     exportMaxAlerts: 10_000,
+    /** `GET /pending` sin `limit` devuelve 5; el backend recorta a 50. */
+    pendingMaxLimit: 50,
 } as const;
 
 export interface DeviceRef {
@@ -92,6 +94,29 @@ export interface AlertSearchResponse {
     page: number;
     page_size: number;
     items: AlertItem[];
+}
+
+/** `GET /pending`: las Sin clasificar más recientes y cuántas hay en total (panel). */
+export interface PendingResponse {
+    total: number;
+    items: AlertItem[];
+}
+
+/** Punto del mapa con sus alertas activas. Solo aparecen los puntos que tienen al menos una. */
+export interface ActiveDevice {
+    measuring_point_id: number;
+    /** Nombre del dispositivo; "MP-<id>" si no está registrado. */
+    pk: string;
+    /** La mayor criticidad entre sus alertas activas. */
+    level: AlertLevel;
+    /** Alguna de sus alertas está en ROJO sin clasificar. */
+    blinking: boolean;
+    alerts: AlertItem[];
+}
+
+/** `GET /active`, ordenado por `measuring_point_id`. */
+export interface ActiveResponse {
+    devices: ActiveDevice[];
 }
 
 /** Filtros del listado y la exportación. Dentro de un filtro se combinan con O; entre filtros, con Y. */

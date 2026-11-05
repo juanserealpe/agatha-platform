@@ -1,44 +1,83 @@
-import type { Alert } from "@/services/alerts";
-import { SEVERITY_RANK } from "../config/alertDisplay";
+import type { Classification } from "@/services/alertManagement";
+import type { AlertNotificationEvent } from "@/services/realtime";
+import { LEVEL_ORDER } from "../config/alertManagementDisplay";
+
+/** Banners de alerta nueva que se muestran a la vez; el resto se resume como "+N". */
+export const MAX_VISIBLE_NOTICES = 3;
+
+/** Tras volver a la normalidad, el banner queda este tiempo (para que se vea que terminó) y se cierra solo. */
+export const ENDED_NOTICE_TTL_MS = 60_000;
+
+/** Aviso en pantalla. `ended`: la alerta ya finalizó (volvió a la normalidad). */
+export type Notice = AlertNotificationEvent & { ended?: boolean };
 
 export interface NewAlertsState {
-    /** Ids ya conocidos; null hasta recibir la primera lista (que no genera avisos). */
-    seenIds: ReadonlySet<string> | null;
-    /** Alertas nuevas pendientes de que el usuario las vea o descarte. */
-    unseen: Alert[];
+    /** Avisos ya recibidos: tras una reconexión el servidor puede reenviarlos y no deben repetirse. */
+    seenMessageIds: ReadonlySet<number>;
+    /** Un aviso por alerta (el más reciente), pendiente de que el usuario lo vea o descarte. */
+    notices: Notice[];
 }
 
-export const INITIAL_NEW_ALERTS_STATE: NewAlertsState = { seenIds: null, unseen: [] };
+export const INITIAL_NEW_ALERTS_STATE: NewAlertsState = { seenMessageIds: new Set(), notices: [] };
 
 /**
- * Incorpora la lista más reciente de alertas. La primera lista solo fija la línea base
- * (lo que ya existía al abrir la pantalla no se notifica); después, todo id desconocido es nuevo.
+ * Incorpora un aviso del stream. Se identifica por `message_id`, no por alerta: una subida de nivel conserva
+ * el id de la alerta y también se avisa. Un aviso nuevo de la misma alerta reemplaza al anterior en vez de
+ * apilarse (una reactivación reemplaza también al banner de "Volvió a la normalidad").
  */
-export function ingestAlerts(state: NewAlertsState, alerts: Alert[]): NewAlertsState {
-    if (state.seenIds === null) {
-        return { seenIds: new Set(alerts.map((alert) => alert.id)), unseen: [] };
-    }
-
-    const fresh = alerts.filter((alert) => !state.seenIds!.has(alert.id));
-    if (fresh.length === 0) return state;
+export function ingestNotification(state: NewAlertsState, notice: AlertNotificationEvent): NewAlertsState {
+    if (state.seenMessageIds.has(notice.message_id)) return state;
 
     return {
-        seenIds: new Set([...state.seenIds, ...fresh.map((alert) => alert.id)]),
-        unseen: [...state.unseen, ...fresh],
+        seenMessageIds: new Set([...state.seenMessageIds, notice.message_id]),
+        notices: [...state.notices.filter((current) => current.alert_code !== notice.alert_code), notice],
     };
 }
 
-export function dismissAlert(state: NewAlertsState, alertId: string): NewAlertsState {
-    return { ...state, unseen: state.unseen.filter((alert) => alert.id !== alertId) };
+/** Reemplaza el banner de esa alerta con `update`. Misma referencia si no hay banner o `update` no cambia nada. */
+function updateNotice(state: NewAlertsState, alertCode: string, update: (notice: Notice) => Notice): NewAlertsState {
+    const index = state.notices.findIndex((notice) => notice.alert_code === alertCode);
+    if (index === -1) return state;
+
+    const next = update(state.notices[index]);
+    if (next === state.notices[index]) return state;
+    const notices = [...state.notices];
+    notices[index] = next;
+    return { ...state, notices };
 }
 
-/** La alerta a mostrar primero: la más grave y, entre iguales, la más reciente. */
-export function pickHeadline(alerts: Alert[]): Alert | null {
-    return (
-        [...alerts].sort(
-            (a, b) =>
-                SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
-                new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime()
-        )[0] ?? null
+/**
+ * La alerta se clasificó (aquí, en otra pestaña o desde la app): su banner guarda la clasificación y deja de
+ * titilar. Misma referencia si no hay banner de esa alerta o ya la tenía.
+ */
+export function classifyNotice(state: NewAlertsState, alertCode: string, classification: Classification): NewAlertsState {
+    return updateNotice(state, alertCode, (notice) =>
+        notice.classification === classification ? notice : { ...notice, classification }
+    );
+}
+
+/** La alerta finalizó: su banner pasa a "Volvió a la normalidad". Misma referencia si no hay banner o ya lo estaba. */
+export function endNotice(state: NewAlertsState, alertCode: string): NewAlertsState {
+    return updateNotice(state, alertCode, (notice) => (notice.ended ? notice : { ...notice, ended: true }));
+}
+
+/** Cierra el banner solo si sigue finalizado con ese aviso: si la alerta se reactivó, el banner nuevo se queda. */
+export function expireEndedNotice(state: NewAlertsState, alertCode: string, messageId: number): NewAlertsState {
+    const notice = state.notices.find((current) => current.alert_code === alertCode);
+    if (!notice?.ended || notice.message_id !== messageId) return state;
+    return dismissNotice(state, alertCode);
+}
+
+export function dismissNotice(state: NewAlertsState, alertCode: string): NewAlertsState {
+    return { ...state, notices: state.notices.filter((notice) => notice.alert_code !== alertCode) };
+}
+
+/** Orden de los banners: los de alertas en curso primero; luego mayor nivel y, entre iguales, el más reciente. */
+export function sortNotices(notices: readonly Notice[]): Notice[] {
+    return [...notices].sort(
+        (a, b) =>
+            Number(a.ended ?? false) - Number(b.ended ?? false) ||
+            LEVEL_ORDER.indexOf(b.level) - LEVEL_ORDER.indexOf(a.level) ||
+            Date.parse(b.occurred_at) - Date.parse(a.occurred_at)
     );
 }

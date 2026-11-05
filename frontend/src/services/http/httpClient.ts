@@ -34,6 +34,11 @@ export function apiPath(...segments: QueryScalar[]): string {
     return `/${segments.map((segment) => encodeURIComponent(String(segment))).join("/")}`;
 }
 
+/** URL completa de una ruta de la API, con la misma base que `httpClient` (p. ej. para `EventSource`). */
+export function apiUrl(path: string, query?: QueryParams): string {
+    return `${BASE_URL}${path}${buildQueryString(query)}`;
+}
+
 function isList(value: QueryValue): value is readonly QueryScalar[] {
     return Array.isArray(value);
 }
@@ -79,10 +84,28 @@ async function toApiError(response: Response, fallbackMessage = DEFAULT_ERROR_ME
     return new ApiError({ status: response.status, code, message, body });
 }
 
+/** Código del error cuando las peticiones al backend están bloqueadas (modo demo). */
+export const BACKEND_BLOCKED_CODE = "BACKEND_BLOCKED";
+
+let blockedMessage: string | null = null;
+
+/**
+ * Rechaza toda petición desde aquí en adelante, sin llegar a la red. La demo lo activa para que nunca llame
+ * al backend real: si un servicio quedó sin simular, falla a la vista en vez de traer datos reales.
+ */
+export function blockBackendRequests(message: string) {
+    blockedMessage = message;
+}
+
 async function send(method: "GET" | "POST", path: string, options: RequestOptions, body?: unknown): Promise<Response> {
+    if (blockedMessage !== null) {
+        console.error(`Petición bloqueada: ${method} ${path}`);
+        throw new ApiError({ status: 0, code: BACKEND_BLOCKED_CODE, message: blockedMessage });
+    }
+
     let response: Response;
     try {
-        response = await fetch(`${BASE_URL}${path}${buildQueryString(options.query)}`, {
+        response = await fetch(apiUrl(path, options.query), {
             method,
             headers: buildHeaders(body !== undefined),
             body: body === undefined ? undefined : JSON.stringify(body),

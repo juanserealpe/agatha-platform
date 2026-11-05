@@ -27,3 +27,22 @@ export const DEVICE_STATUS_DOT_CLASS: Record<DeviceStatus, string> = {
     delayed: "border-2 border-gray-400 bg-white",
     offline: "bg-gray-400",
 };
+
+/**
+ * Alerta activa de un sensor: mientras dure, el punto (con halo), el fondo y una píldora toman su color de
+ * criticidad (igual que en el mapa) y vuelve al de comunicación cuando la alerta finaliza. La arma la página con las alertas activas; esta
+ * feature no conoce Alert Management.
+ */
+export interface SensorAlertIndicator {
+    /** P. ej. "Alerta roja". */
+    label: string;
+    dotClass: string;
+    /** Anillo suave alrededor del punto. */
+    haloClass: string;
+    /** Fondo tenue de la tarjeta. */
+    surfaceClass: string;
+    /** Píldora con el nombre del nivel. */
+    badgeClass: string;
+    /** Roja sin clasificar: el halo pulsa (en el mapa, el punto titila). */
+    isBlinking: boolean;
+}
