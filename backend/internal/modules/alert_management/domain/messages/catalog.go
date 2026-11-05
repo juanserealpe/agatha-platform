@@ -19,7 +19,9 @@ import (
 // v2: {pk} sin "sensor" delante (devices.name ya lo trae).
 // v3: el cuerpo no repite el título y ningún texto dice qué hacer (sin zona).
 // v4: el cuerpo cita el índice de ruido y el límite que explica el mensaje.
-const MessageCatalogVersion = 4
+// v5: los avisos (banner y push) empiezan con una frase simple de qué pasa y
+// terminan con el dato ("Dato: …"); el resto de los mensajes no cambia.
+const MessageCatalogVersion = 5
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
 const LowConfidenceMark = "Sensor en ajuste: resultado preliminar."
@@ -78,7 +80,9 @@ func Key(code, variant string) string {
 }
 
 // catalog: el título dice qué pasó (y la criticidad); el cuerpo agrega el
-// detalle sin repetir el título y cita el dato que lo explica: el índice de
+// detalle sin repetir el título y cita el dato que lo explica. Los avisos
+// (KindNotification y REACTIVATED) se leen de un vistazo en un banner o un
+// push: primero una frase simple y al final "Dato: …". El dato es el índice de
 // ruido de la hora ({valor}) frente al límite normal ({normal}, corte de
 // Amarillo), al corte del nivel ({corte}) o a la salida ({cierre}). Ningún
 // texto indica qué hacer: solo el estado de la alerta (lo verifican las pruebas).
@@ -86,58 +90,58 @@ var catalog = map[string]Template{
 	Key(CodeOpen, VariantAmarillo): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Amarillo",
-		Body:  "Índice de ruido en {valor} desde las {hora_inicio}; lo normal es menos de {normal}.",
+		Body:  "El índice de ruido está por encima de lo normal desde las {hora_inicio}. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "valor", "normal"},
 	},
 	Key(CodeOpen, VariantNaranja): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Naranja",
-		Body:  "Índice de ruido en {valor} desde las {hora_inicio}; Naranja empieza en {corte} y lo normal es menos de {normal}.",
+		Body:  "El índice de ruido está muy por encima de lo normal desde las {hora_inicio}. Dato: {valor} (Naranja desde {corte}; lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "valor", "corte", "normal"},
 	},
 	Key(CodeOpen, VariantRojo): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Rojo",
-		Body:  "Índice de ruido en {valor} desde las {hora_inicio}; Rojo empieza en {corte} y lo normal es menos de {normal}.",
+		Body:  "El índice de ruido es demasiado alto desde las {hora_inicio}. Dato: {valor} (Rojo desde {corte}; lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "valor", "corte", "normal"},
 	},
 	// Sin "seguidas": con persistencia WINDOW {N} es un conteo en la ventana.
 	Key(CodeUpNaranjaPersist, ""): {
 		Code: CodeUpNaranjaPersist, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Naranja",
-		Body:  "El índice de ruido lleva {N} h por encima de lo normal (menos de {normal}); ahora está en {valor}.",
+		Body:  "El índice de ruido lleva {N} h por encima de lo normal. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"codigo", "N", "normal", "valor"},
 	},
 	Key(CodeUpNaranjaFast, ""): {
 		Code: CodeUpNaranjaFast, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Naranja",
-		Body:  "El índice de ruido pasó de {valor_anterior} a {valor}; Naranja empieza en {corte}.",
+		Body:  "El índice de ruido está subiendo más rápido de lo normal. Dato: pasó de {valor_anterior} a {valor} (Naranja desde {corte}).",
 		Vars:  []string{"codigo", "valor_anterior", "valor", "corte"},
 	},
 	Key(CodeUpRojo, ""): {
 		Code: CodeUpRojo, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Rojo",
-		Body:  "El índice de ruido pasó de {valor_anterior} a {valor}; Rojo empieza en {corte}.",
+		Body:  "El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de {valor_anterior} a {valor} (Rojo desde {corte}).",
 		Vars:  []string{"codigo", "valor_anterior", "valor", "corte"},
 	},
 	// Rojo por duración: las horas se cuentan sobre el corte de Naranja.
 	Key(CodeUpRojo, VariantPersist): {
 		Code: CodeUpRojo, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Rojo",
-		Body:  "El índice de ruido lleva {N} h por encima del límite de Naranja ({corte}); ahora está en {valor}.",
+		Body:  "El índice de ruido lleva {N} h muy por encima de lo normal. Dato: {valor} (Naranja desde {corte}).",
 		Vars:  []string{"codigo", "N", "corte", "valor"},
 	},
 	// El kind de REACTIVATED depende de si supera el máximo: lo fija la regla.
 	Key(CodeReactivated, ""): {
 		Code: CodeReactivated, Kind: entities.KindUpdate,
 		Title: "La alerta {codigo} se reactiva en {nivel}",
-		Body:  "El índice de ruido volvió a {valor}, {horas} h después de terminar; lo normal es menos de {normal}.",
+		Body:  "El índice de ruido volvió a subir {horas} h después de normalizarse. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"horas", "codigo", "nivel", "valor", "normal"},
 	},
 	Key(CodeNewAfterClassified, ""): {
 		Code: CodeNewAfterClassified, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel {nivel}",
-		Body:  "La anterior ({codigo_anterior}) ya había sido clasificada como {clasificacion}. Índice de ruido en {valor}; lo normal es menos de {normal}.",
+		Body:  "El índice de ruido otra vez está fuera de lo normal; la alerta anterior ({codigo_anterior}) se clasificó como {clasificacion}. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "nivel", "codigo_anterior", "clasificacion", "valor", "normal"},
 	},
 	Key(CodeUpDuringIntervention, ""): {
