@@ -33,15 +33,11 @@ export function AlertHistoryTable({ items, caption, isUpdating, onAction, onInte
             <TableCaption className="sr-only">{caption}</TableCaption>
             <TableHeader className="bg-tgi-verde/10">
                 <TableRow className="hover:bg-transparent">
-                    {COLUMNS.map((column, index) => (
+                    {COLUMNS.map((column) => (
                         <TableHead
                             key={column}
                             scope="col"
-                            className={cn(
-                                "px-3 font-data-mono text-xs font-bold tracking-wider text-gray-500 uppercase",
-                                // Alinea el encabezado con el borde de resaltado de la primera celda.
-                                index === 0 && "border-l-4 border-l-transparent"
-                            )}
+                            className="px-3 font-data-mono text-xs font-bold tracking-wider text-gray-500 uppercase"
                         >
                             {column}
                         </TableHead>
