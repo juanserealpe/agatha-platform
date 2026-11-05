@@ -23,7 +23,7 @@ const FOOTER_LINK_CLASS =
 
 type PanelTab = "pending" | "active";
 
-const TAB_ORDER: readonly PanelTab[] = ["pending", "active"];
+const TAB_ORDER: readonly PanelTab[] = ["active", "pending"];
 const TAB_LABEL: Record<PanelTab, string> = { pending: "Sin clasificar", active: "Activas" };
 
 interface PanelTabsProps {
@@ -122,12 +122,12 @@ interface RecentAlertsPanelProps {
 
 /**
  * Panel de alertas con dos listas:
- * - Sin clasificar (por defecto): lo que el operador tiene que atender.
- * - Activas: todas las alertas en curso, clasificadas o no, de la más urgente a la menos urgente. Una alerta
- *   clasificada puede seguir subiendo de nivel; aquí sigue visible hasta que finaliza.
+ * - Activas (por defecto): todas las alertas en curso, clasificadas o no, de la más urgente a la menos urgente.
+ *   Una alerta clasificada puede seguir subiendo de nivel; aquí sigue visible hasta que finaliza.
+ * - Sin clasificar: lo que el operador tiene pendiente de clasificar, en curso o ya finalizado.
  */
 export function RecentAlertsPanel({ className }: RecentAlertsPanelProps) {
-    const [tab, setTab] = useState<PanelTab>("pending");
+    const [tab, setTab] = useState<PanelTab>("active");
     const idPrefix = useId();
     const pending = usePendingAlerts();
     const active = useActiveAlerts();
