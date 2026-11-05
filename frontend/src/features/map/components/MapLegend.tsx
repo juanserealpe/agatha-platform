@@ -48,7 +48,8 @@ function Row({ symbol, children }: { symbol: ReactNode; children: ReactNode }) {
 }
 
 export function MapLegend() {
-    const [isExpanded, setIsExpanded] = useState(true);
+    // Cerrada por defecto: con alertas en el mapa, la leyenda abierta tapa puntos y banners.
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
         <div className="absolute bottom-6 right-3 z-[1000] w-60 overflow-hidden rounded-lg bg-white/95 text-xs text-gray-700 shadow-lg backdrop-blur">
@@ -59,6 +60,7 @@ export function MapLegend() {
                 className="flex w-full items-center px-3 py-1.5 font-medium hover:bg-gray-50"
             >
                 Leyenda
+                {!isExpanded && <span className="ml-1.5 font-normal text-gray-500">· clic para abrir</span>}
                 <ChevronDown size={14} className={`ml-auto transition-transform ${isExpanded ? "" : "rotate-180"}`} aria-hidden />
             </button>
 
