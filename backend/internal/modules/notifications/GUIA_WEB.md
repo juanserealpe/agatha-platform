@@ -8,8 +8,8 @@ frontend del Centro de Control. Cómo funciona el módulo completo: [NOTIFICATIO
 - La web abre **una** conexión Server-Sent Events (SSE) con `GET /api/notifications/stream` y la deja
   abierta.
 - Por ahí llegan dos tipos de evento:
-  - `alert.changed`: el estado completo de una alerta tras cualquier cambio. Actualiza el mapa y el panel
-    **en silencio**.
+  - `alert.changed`: el estado completo de una alerta tras cualquier cambio. Actualiza el mapa, el panel y
+    la lista de sensores **en silencio**.
   - `alert.notification`: un aviso para el operador. Muestra un banner, suena un tono y, si la pestaña
     está oculta, sale una notificación del sistema.
 - El stream **complementa** la API de alertas, no la reemplaza. Al conectar o reconectar se vuelven a pedir
@@ -38,7 +38,7 @@ source.addEventListener("ping", () => resetWatchdog());
 
 | Evento | Cuándo llega | Qué hace la web |
 |---|---|---|
-| `alert.changed` | Cualquier cambio visible de una alerta | Actualiza el mapa y el panel, sin avisar |
+| `alert.changed` | Cualquier cambio visible de una alerta | Actualiza el mapa, el panel y la lista de sensores, sin avisar |
 | `alert.notification` | Alerta nueva, subida de nivel o reactivación | Banner, sonido y notificación del navegador |
 | `resync` | Se perdieron eventos | Volver a pedir `/active` y `/pending` |
 | `ping` | Cada 25 s, sin `id` y con `data: {}` | Solo demuestra que la conexión sigue viva (watchdog, §5) |
@@ -136,6 +136,19 @@ navegador.
 - Se mantiene al cambiar de sección: un aviso que llega mientras el operador está en Historial sigue visible
   al volver al mapa.
 
+**Lista de sensores**:
+- Mientras un sensor tiene alertas activas, toma el color de la mayor (amarillo, naranja o rojo): el punto
+  lleva un halo suave, la tarjeta un fondo tenue y una píldora dice "Alerta roja", "Alerta naranja" o
+  "Alerta amarilla". El borde no cambia: queda para la selección (azul).
+- En Rojo sin clasificar, una onda sale del punto y se desvanece (en el mapa, el punto titila). La onda es
+  CSS puro y solo anima `transform` y `opacity`, que el navegador compone en GPU sin recalcular el diseño ni
+  repintar. Con "reducir movimiento" activado en el sistema queda solo el halo fijo.
+- Sale de la misma fuente que el mapa: el resumen por punto de `GET /api/alerts/active` (`level` y
+  `blinking`), que el stream mantiene al día. Cuando todas las alertas del sensor finalizan, el punto sale de
+  `/active` y el sensor vuelve solo al color de comunicación (en línea, retrasado, sin comunicación). No hace
+  falta que nadie la clasifique.
+- La comunicación se sigue mostrando en el texto: un sensor puede estar en alerta y sin comunicación.
+
 **Sonido**:
 - Tono generado con la Web Audio API, sin archivos de audio. Más notas y más agudas cuanto mayor es el
   nivel.
@@ -169,6 +182,7 @@ quedar en espera.
 | `src/features/alerts/hooks/useAlerts.ts` | `/active` y `/pending`: consultan cada 30 s solo si el stream no está en vivo |
 | `src/features/alerts/lib/newAlerts.ts`, `hooks/useNewAlerts.ts` | Estado de los banners: deduplicación por `message_id`, agrupación por alerta y orden |
 | `src/features/alerts/components/NewAlertToast.tsx` | Banner |
+| `src/features/alerts/lib/sensorAlertIndicators.ts`, `useSensorAlertIndicators` en `hooks/useAlerts.ts` | Color de alerta de cada sensor en la lista, a partir de `/active`. `MonitoringPage` se lo pasa a `SensorsPanel` |
 | `src/features/alerts/lib/alertSound.ts` | Sonido, desbloqueo del audio, una sola pestaña y silencio |
 | `src/features/alerts/lib/browserNotification.ts` | Permiso y notificación del navegador |
 | `src/features/alerts/components/RealtimeStatus.tsx` | Indicador de conexión y botones de sonido y notificaciones |

@@ -9,7 +9,7 @@ Qué se puede probar así:
 | Qué | Se ve | Cómo |
 |---|---|---|
 | Banner, sonido, notificación del navegador, indicador "En vivo" | Sí | Eventos de prueba (paso 4) |
-| Mapa y panel de alertas | **No** | Las alertas de prueba no existen en ninguna base: el frontend solo actualiza las que ya trae de `/active` y `/pending`. Hacen falta alertas reales (VPS) |
+| Mapa, panel de alertas y lista de sensores | **No** | Las alertas de prueba no existen en ninguna base: el frontend solo actualiza las que ya trae de `/active` y `/pending`. Hacen falta alertas reales (VPS) |
 | Push al celular | Sí | Comando `-test-send` (paso 5) |
 
 ## 1. Base de datos local (Docker)
