@@ -13,7 +13,6 @@ import {
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
 import { useNewAlerts } from "../hooks/useNewAlerts";
 import { MAX_VISIBLE_NOTICES, sortNotices, type Notice } from "../lib/newAlerts";
-import { noticeSummary } from "../lib/noticeSummary";
 
 interface NoticeBannerProps {
     notice: Notice;
@@ -67,7 +66,10 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
             </div>
 
             <p className="mt-1.5 text-sm font-semibold text-gray-900">{notice.title}</p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">{isEnded ? endedText(notice) : noticeSummary(notice)}</p>
+            {/* El cuerpo del catálogo empieza con la frase simple; el dato queda al final (y completo en el title). */}
+            <p className="mt-0.5 line-clamp-2 text-xs text-gray-600" title={isEnded ? undefined : notice.body}>
+                {isEnded ? endedText(notice) : notice.body}
+            </p>
 
             <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
                 <span className="truncate font-data-mono">

@@ -1,6 +1,5 @@
 import type { AlertNotificationEvent } from "@/services/realtime";
 import { LATE_NOTICE_LABEL } from "../config/alertManagementDisplay";
-import { noticeSummary } from "./noticeSummary";
 
 const NOTIFICATION_ICON = "/favicon.svg";
 
@@ -47,7 +46,7 @@ export function buildBrowserNotification(notice: AlertNotificationEvent): { titl
     return {
         title: titlePrefix + (notice.late ? `${notice.title} (${LATE_NOTICE_LABEL})` : notice.title),
         options: {
-            body: noticeSummary(notice),
+            body: notice.body,
             tag: notice.alert_code,
             // Sin esto, el reemplazo es silencioso: si la anterior sigue en el centro de notificaciones de
             // Windows, la subida a Rojo no aparece en pantalla.

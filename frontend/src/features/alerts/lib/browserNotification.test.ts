@@ -18,7 +18,7 @@ const notice = (overrides: Partial<AlertNotificationEvent> = {}): AlertNotificat
     max_level: "ROJO",
     classification: null,
     title: "La alerta ALR-000142 subió a Rojo",
-    body: "El índice de ruido pasó de 0,30 a 0,41; Rojo empieza en 0,35.",
+    body: "El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de 0,30 a 0,41 (Rojo desde 0,35).",
     late: false,
     started_at: "2026-10-30T12:00:00Z",
     evaluated_at: "2026-10-30T15:00:00Z",
@@ -40,7 +40,7 @@ describe("buildBrowserNotification", () => {
     it("usa el texto del backend y agrupa por alerta con el tag", () => {
         const { title, options } = buildBrowserNotification(notice());
         expect(title).toBe("La alerta ALR-000142 subió a Rojo");
-        expect(options).toMatchObject({ body: "El índice de ruido siguió subiendo y ya es demasiado alto.", tag: "ALR-000142", requireInteraction: true });
+        expect(options).toMatchObject({ body: notice().body, tag: "ALR-000142", requireInteraction: true });
     });
 
     it("vuelve a avisar al reemplazar la notificación de la misma alerta", () => {

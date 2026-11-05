@@ -209,6 +209,12 @@ export function alertCode(id: number): string {
     return `ALR-${String(id).padStart(6, "0")}`;
 }
 
+/** Frase inicial del cuerpo de una alerta nueva Naranja o Roja (catálogo v5). */
+const OPEN_SUMMARY: Record<"NARANJA" | "ROJO", string> = {
+    NARANJA: "El índice de ruido está muy por encima de lo normal",
+    ROJO: "El índice de ruido es demasiado alto",
+};
+
 function apiError(error: (typeof ERRORS)[keyof typeof ERRORS], body: unknown = null): ApiError {
     return new ApiError({ ...error, body });
 }
@@ -520,10 +526,11 @@ export function createDemoAlertStore({ now = () => new Date() }: DemoAlertStoreO
                 level,
                 indicator,
                 title: `Alerta nueva en ${point.name}: nivel ${LEVEL_NAME[level]}`,
+                // Mismos textos que el catálogo v5 del backend (alert_management/domain/messages).
                 body:
                     level === "AMARILLO"
-                        ? `Índice de ruido en ${formatValue(indicator)} desde las ${formatHour(startedAt)}; lo normal es menos de ${normal}.`
-                        : `Índice de ruido en ${formatValue(indicator)} desde las ${formatHour(startedAt)}; ${LEVEL_NAME[level]} empieza en ${formatValue(cut)} y lo normal es menos de ${normal}.`,
+                        ? `El índice de ruido está por encima de lo normal desde las ${formatHour(startedAt)}. Dato: ${formatValue(indicator)} (lo normal es menos de ${normal}).`
+                        : `${OPEN_SUMMARY[level]} desde las ${formatHour(startedAt)}. Dato: ${formatValue(indicator)} (${LEVEL_NAME[level]} desde ${formatValue(cut)}; lo normal es menos de ${normal}).`,
             };
             const messageId = addMessage(alert, message, evaluatedAt);
             emitChanged(alert, "OPENED", evaluatedAt);
@@ -563,7 +570,7 @@ export function createDemoAlertStore({ now = () => new Date() }: DemoAlertStoreO
                 level,
                 indicator: alert.lastIndicator,
                 title: `La alerta ${alert.code} subió a ${LEVEL_NAME[level]}`,
-                body: `El índice de ruido pasó de ${formatValue(before)} a ${formatValue(alert.lastIndicator)}; ${LEVEL_NAME[level]} empieza en ${formatValue(cut)}.`,
+                body: `${level === "ROJO" ? "El índice de ruido siguió subiendo y ya es demasiado alto" : "El índice de ruido está subiendo más rápido de lo normal"}. Dato: pasó de ${formatValue(before)} a ${formatValue(alert.lastIndicator)} (${LEVEL_NAME[level]} desde ${formatValue(cut)}).`,
             };
             const messageId = addMessage(alert, message, evaluatedAt);
             emitChanged(alert, "LEVEL_RAISED", evaluatedAt);
