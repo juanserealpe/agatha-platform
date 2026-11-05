@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { alertManagementService } from "@/services/alertManagement";
+import { sensorAlertIndicators } from "../lib/sensorAlertIndicators";
 import { alertKeys } from "./alertKeys";
 import { useAlertStreamStatus } from "./useAlertStream";
 
@@ -29,4 +31,10 @@ export function useActiveAlerts() {
         queryFn: ({ signal }) => alertManagementService.getActive(signal),
         refetchInterval: useAlertsRefetchInterval(),
     });
+}
+
+/** Color de alerta de cada sensor en la lista, desde las mismas alertas activas que pintan el mapa. */
+export function useSensorAlertIndicators() {
+    const { data } = useActiveAlerts();
+    return useMemo(() => sensorAlertIndicators(data), [data]);
 }

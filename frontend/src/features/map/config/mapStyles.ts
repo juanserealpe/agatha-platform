@@ -1,5 +1,5 @@
 import type { PathOptions } from "leaflet";
-import { SEVERITY_STYLES } from "@/features/alerts";
+import { LEVEL_ALERT_LABEL, SEVERITY_STYLES } from "@/features/alerts";
 import type { PipeMaterial } from "../data/pilotSensors";
 import type { NodeTone } from "../lib/nodeState";
 
@@ -38,9 +38,9 @@ export const WATER_STYLES = {
 
 export const NODE_TONE_STYLES: Record<NodeTone, { label: string; hex: string }> = {
     normal: { label: "Normal", hex: "#10b981" },
-    AMARILLO: { label: "Alerta amarilla", hex: SEVERITY_STYLES.AMARILLO.hex },
-    NARANJA: { label: "Alerta naranja", hex: SEVERITY_STYLES.NARANJA.hex },
-    ROJO: { label: "Alerta roja", hex: SEVERITY_STYLES.ROJO.hex },
+    AMARILLO: { label: LEVEL_ALERT_LABEL.AMARILLO, hex: SEVERITY_STYLES.AMARILLO.hex },
+    NARANJA: { label: LEVEL_ALERT_LABEL.NARANJA, hex: SEVERITY_STYLES.NARANJA.hex },
+    ROJO: { label: LEVEL_ALERT_LABEL.ROJO, hex: SEVERITY_STYLES.ROJO.hex },
     unavailable: { label: "Sin comunicación / no operativo", hex: "#9ca3af" },
 };
 

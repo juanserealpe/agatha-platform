@@ -5,17 +5,19 @@ import { Panel } from "@/shared/components/Panel";
 import { useNow } from "@/shared/hooks/useNow";
 import { useDevices } from "../hooks/useDevices";
 import { filterDevices } from "../lib/sensorSearch";
-import { getDeviceStatus } from "../lib/sensorStatus";
+import { getDeviceStatus, type SensorAlertIndicator } from "../lib/sensorStatus";
 import { SensorListItem } from "./SensorListItem";
 import { SensorSearch } from "./SensorSearch";
 
 interface SensorsPanelProps {
     selectedDeviceId: number | undefined;
+    /** Alertas activas por id de dispositivo; los sensores sin entrada se muestran por su comunicación. */
+    alerts?: ReadonlyMap<number, SensorAlertIndicator>;
     onSelect: (deviceId: number) => void;
     className?: string;
 }
 
-export function SensorsPanel({ selectedDeviceId, onSelect, className }: SensorsPanelProps) {
+export function SensorsPanel({ selectedDeviceId, alerts, onSelect, className }: SensorsPanelProps) {
     const { data: devices = [], isLoading, error } = useDevices();
     const [query, setQuery] = useState("");
     const now = useNow();
@@ -53,6 +55,7 @@ export function SensorsPanel({ selectedDeviceId, onSelect, className }: SensorsP
                             <SensorListItem
                                 device={device}
                                 status={getDeviceStatus(device.lastConnection, now)}
+                                alert={alerts?.get(device.id) ?? null}
                                 isSelected={device.id === selectedDeviceId}
                                 onSelect={onSelect}
                             />

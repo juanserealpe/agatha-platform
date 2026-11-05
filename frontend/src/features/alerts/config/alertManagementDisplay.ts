@@ -25,6 +25,13 @@ export function levelStyle(level: AlertLevel): SeverityStyle {
 /** Orden de los niveles en filtros y leyendas: de menor a mayor criticidad. */
 export const LEVEL_ORDER: readonly AlertLevel[] = ["AMARILLO", "NARANJA", "ROJO"];
 
+/** Nombre de un sensor o punto que está en ese nivel (lista de sensores, leyenda del mapa). */
+export const LEVEL_ALERT_LABEL: Record<AlertLevel, string> = {
+    AMARILLO: "Alerta amarilla",
+    NARANJA: "Alerta naranja",
+    ROJO: "Alerta roja",
+};
+
 /** Nivel de una alerta en listas y avisos: el actual o, si ya finalizó, el máximo que alcanzó. */
 export function displayLevel(alert: Pick<AlertItem, "current_level" | "max_level">): AlertLevel {
     return alert.current_level ?? alert.max_level;

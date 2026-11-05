@@ -207,6 +207,25 @@
   animation: map-node-blink 1.2s ease-in-out infinite;
 }
 
+/* Sensor en Rojo sin clasificar (lista): onda que sale del punto y se desvanece. Solo anima transform y
+   opacity, que el navegador compone en GPU sin recalcular el diseño ni repintar. */
+@keyframes sensor-alert-pulse {
+  0% { transform: scale(1); opacity: 0.7; }
+  80%, 100% { transform: scale(3); opacity: 0; }
+}
+
+.sensor-alert-pulse {
+  animation: sensor-alert-pulse 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Sin movimiento queda el halo fijo del punto. */
+  .sensor-alert-pulse {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .map-node--blink {
     animation: none;
