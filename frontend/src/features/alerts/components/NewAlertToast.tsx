@@ -1,24 +1,37 @@
 import type { CSSProperties } from "react";
-import { ArrowRight, BellRing, Clock, X } from "lucide-react";
-import type { AlertNotificationEvent } from "@/services/realtime";
+import { ArrowRight, BellRing, CircleCheck, Clock, X } from "lucide-react";
 import { RelativeTime } from "@/shared/components/RelativeTime";
 import { cn } from "@/lib/utils";
-import { LATE_NOTICE_LABEL, levelStyle, NOTICE_KIND_LABEL } from "../config/alertManagementDisplay";
+import {
+    ENDED_CLASSIFIED_TEXT,
+    ENDED_NOTICE_LABEL,
+    ENDED_UNCLASSIFIED_TEXT,
+    LATE_NOTICE_LABEL,
+    levelStyle,
+    NOTICE_KIND_LABEL,
+} from "../config/alertManagementDisplay";
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
 import { useNewAlerts } from "../hooks/useNewAlerts";
-import { MAX_VISIBLE_NOTICES, sortNotices } from "../lib/newAlerts";
+import { MAX_VISIBLE_NOTICES, sortNotices, type Notice } from "../lib/newAlerts";
+import { noticeSummary } from "../lib/noticeSummary";
 
 interface NoticeBannerProps {
-    notice: AlertNotificationEvent;
+    notice: Notice;
     onDismiss: () => void;
     onOpen: () => void;
 }
 
+function endedText(notice: Notice): string {
+    return notice.classification === null ? ENDED_UNCLASSIFIED_TEXT : ENDED_CLASSIFIED_TEXT;
+}
+
 function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
     const severity = levelStyle(notice.level);
-    const isUrgent = notice.level === "ROJO";
+    const isEnded = notice.ended === true;
+    const isUrgent = notice.level === "ROJO" && !isEnded;
     // Igual que el titileo del mapa: rojo que nadie ha clasificado.
     const pulses = isUrgent && notice.classification === null;
+    const HeaderIcon = isEnded ? CircleCheck : BellRing;
 
     return (
         <div
@@ -27,14 +40,14 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
             style={{ "--glow-color": severity.hex } as CSSProperties}
             className={cn(
                 "rounded-xl border-2 p-3 shadow-xl",
-                severity.borderClass,
-                severity.surfaceClass,
+                // Finalizada: tono neutro, ya no reclama atención.
+                isEnded ? "border-gray-300 bg-white" : cn(severity.borderClass, severity.surfaceClass),
                 pulses && "alert-glow"
             )}
         >
             <div className="flex items-center gap-2">
-                <BellRing size={16} className="shrink-0 text-gray-700" aria-hidden />
-                <p className="text-sm font-bold text-gray-900">{NOTICE_KIND_LABEL[notice.code]}</p>
+                <HeaderIcon size={16} className={cn("shrink-0", isEnded ? "text-emerald-600" : "text-gray-700")} aria-hidden />
+                <p className="text-sm font-bold text-gray-900">{isEnded ? ENDED_NOTICE_LABEL : NOTICE_KIND_LABEL[notice.code]}</p>
                 <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", severity.badgeClass)}>
                     {severity.label}
                 </span>
@@ -54,9 +67,7 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
             </div>
 
             <p className="mt-1.5 text-sm font-semibold text-gray-900">{notice.title}</p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-gray-600" title={notice.body}>
-                {notice.body}
-            </p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">{isEnded ? endedText(notice) : noticeSummary(notice)}</p>
 
             <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
                 <span className="truncate font-data-mono">
@@ -75,8 +86,9 @@ function NoticeBanner({ notice, onDismiss, onOpen }: NoticeBannerProps) {
 }
 
 /**
- * Avisos de alerta nueva y de subida de nivel, llegados por el stream. No se cierran solos: en monitoreo un
- * aviso no debe desaparecer sin que alguien lo vea. Uno por alerta, los más graves primero y como máximo tres.
+ * Avisos de alerta nueva y de subida de nivel, llegados por el stream. Mientras la alerta sigue en curso no se
+ * cierran solos: en monitoreo un aviso no debe desaparecer sin que alguien lo vea. Al volver a la normalidad
+ * pasan a un tono neutro y se cierran solos al minuto. Uno por alerta, los más graves primero y como máximo tres.
  */
 export function NewAlertToast() {
     const { notices, dismiss } = useNewAlerts();

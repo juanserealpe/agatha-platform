@@ -233,24 +233,34 @@
   }
 }
 
-/* Alerta sin atender: resplandor que pulsa alrededor de la tarjeta (el contenido no pierde opacidad) */
+/* Alerta sin atender: resplandor que pulsa alrededor de la tarjeta (el contenido no pierde opacidad).
+   El resplandor está fijo en una capa propia y solo se anima su opacity: el navegador lo compone en GPU sin
+   repintar en cada cuadro (animar box-shadow sí repinta). */
 @keyframes alert-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--glow-color) 45%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow-color) 30%, transparent),
-      0 0 14px 2px color-mix(in srgb, var(--glow-color) 45%, transparent);
-  }
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 
 .alert-glow {
+  position: relative;
+}
+
+.alert-glow::after {
+  content: "";
+  position: absolute;
+  inset: -2px; /* sobre el borde de 2px de la tarjeta */
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow-color) 30%, transparent),
+    0 0 14px 2px color-mix(in srgb, var(--glow-color) 45%, transparent);
   animation: alert-glow 1.6s ease-in-out infinite;
+  will-change: opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .alert-glow {
+  .alert-glow::after {
     animation: none;
+    opacity: 1;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--glow-color) 30%, transparent);
   }
 }

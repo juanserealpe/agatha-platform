@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { toAlertId } from "@/services/alertManagement";
 import type { AlertNotificationEvent } from "@/services/realtime";
-import { classifyNotice, dismissNotice, ingestNotification, INITIAL_NEW_ALERTS_STATE, sortNotices } from "./newAlerts";
+import {
+    classifyNotice,
+    dismissNotice,
+    endNotice,
+    expireEndedNotice,
+    ingestNotification,
+    INITIAL_NEW_ALERTS_STATE,
+    sortNotices,
+} from "./newAlerts";
 
 const notice = (messageId: number, overrides: Partial<AlertNotificationEvent> = {}): AlertNotificationEvent => ({
     message_id: messageId,
@@ -73,5 +81,30 @@ describe("classifyNotice", () => {
 
         const classified = classifyNotice(state, "ALR-000142", "CONFIRMADA");
         expect(classifyNotice(classified, "ALR-000142", "CONFIRMADA")).toBe(classified);
+    });
+});
+
+describe("endNotice / expireEndedNotice", () => {
+    it("al finalizar, el banner pasa a terminado y después se cierra", () => {
+        const ended = endNotice(ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1)), "ALR-000142");
+        expect(ended.notices[0].ended).toBe(true);
+        expect(expireEndedNotice(ended, "ALR-000142", 1).notices).toEqual([]);
+    });
+
+    it("si la alerta se reactiva antes de cerrarse, el banner nuevo se queda", () => {
+        const ended = endNotice(ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1)), "ALR-000142");
+        const reactivated = ingestNotification(ended, notice(2, { code: "REACTIVATED" }));
+        expect(expireEndedNotice(reactivated, "ALR-000142", 1)).toBe(reactivated);
+        expect(reactivated.notices[0].ended).toBeUndefined();
+    });
+
+    it("sin banner de esa alerta devuelve el mismo estado", () => {
+        expect(endNotice(INITIAL_NEW_ALERTS_STATE, "ALR-000142")).toBe(INITIAL_NEW_ALERTS_STATE);
+    });
+
+    it("los banners de alertas terminadas van después de los que siguen en curso", () => {
+        const red = notice(1, { alert_code: "ALR-1", level: "ROJO" });
+        const yellow = notice(2, { alert_code: "ALR-2" });
+        expect(ids(sortNotices([{ ...red, ended: true }, yellow]))).toEqual([2, 1]);
     });
 });
