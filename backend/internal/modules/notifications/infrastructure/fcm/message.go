@@ -1,6 +1,6 @@
 // Package fcm es el Adapter del canal móvil: envía los PushMessage por la API
 // FCM HTTP v1 con la cuenta de servicio del proyecto Firebase
-// (CONTRATO_PUSH_FCM.md). El JSON de la credencial nunca va al log ni a
+// (README.md §5). El JSON de la credencial nunca va al log ni a
 // los errores.
 package fcm
 

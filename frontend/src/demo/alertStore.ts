@@ -60,7 +60,7 @@ import {
 } from "./demoFormat";
 
 // Alert Management en memoria: guarda las alertas simuladas, responde las consultas con la forma exacta de la
-// API (ALERT_MANAGEMENT_API.MD) y emite los eventos del stream (NOTIFICATIONS_API.MD) en cada cambio. Las reglas
+// API (ALERT_MANAGEMENT_API.MD) y emite los eventos del stream (notifications README.md §4) en cada cambio. Las reglas
 // de gestión (conflictos, reenvíos, validaciones y textos) copian las del backend, para que la demo enseñe lo
 // mismo que verá el operador con datos reales. Es puro: el reloj se inyecta y no usa APIs del navegador.
 

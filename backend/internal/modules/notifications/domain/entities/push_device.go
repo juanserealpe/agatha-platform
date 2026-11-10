@@ -21,7 +21,7 @@ const (
 // ErrInvalidPushDevice: el deviceId, el token o la plataforma no son válidos.
 var ErrInvalidPushDevice = errors.New("dispositivo de push inválido")
 
-// PushDevice es el token FCM vigente de un celular (CONTRATO_PUSH_FCM.md
+// PushDevice es el token FCM vigente de un celular (README.md §5
 // §1). Un celular tiene un solo token, y un token es de un solo celular.
 type PushDevice struct {
 	// DeviceID es el id propio de la app (CEL-1A2B3C); la app no tiene login.

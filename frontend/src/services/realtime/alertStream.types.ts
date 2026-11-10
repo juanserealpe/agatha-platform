@@ -1,4 +1,4 @@
-// Contrato del stream de alertas (NOTIFICATIONS_API.MD, GET /api/notifications/stream). Los campos siguen el
+// Contrato del stream de alertas (notifications README.md §4, GET /api/notifications/stream). Los campos siguen el
 // JSON del backend tal cual (snake_case), igual que en services/alertManagement.
 // Las fechas llegan en RFC 3339 UTC, p. ej. "2026-10-30T14:00:00Z".
 

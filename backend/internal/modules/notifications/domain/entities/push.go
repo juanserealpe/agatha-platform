@@ -12,7 +12,7 @@ import (
 var ErrNotPushable = errors.New("el aviso no se puede enviar por push")
 
 // PushMessage es el mensaje solo-datos que espera la app Android
-// (CONTRATO_PUSH_FCM.md §3). Los campos vacíos se omiten al enviarlo.
+// (README.md §5.3). Los campos vacíos se omiten al enviarlo.
 type PushMessage struct {
 	// MessageID es el id del aviso: la app descarta un push repetido (FCM
 	// puede entregar dos veces si se reintenta). 0 = no se envía.

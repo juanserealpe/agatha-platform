@@ -14,7 +14,7 @@ const (
 	ClassificationFalseAlarm = "FALSA_ALERTA"
 )
 
-// PushKind dice a la app qué texto mostrar (CONTRATO_PUSH_FCM.md §3).
+// PushKind dice a la app qué texto mostrar (README.md §5.3).
 type PushKind string
 
 const (

@@ -1,5 +1,5 @@
 // Command notifications envía un push de prueba por FCM a UN celular, con el
-// formato del contrato (internal/modules/notifications/CONTRATO_PUSH_FCM.md §7), para comprobar la
+// formato del contrato (internal/modules/notifications/README.md §6.2), para comprobar la
 // credencial y la entrega en la app sin esperar una alerta:
 //
 //	notifications -test-send -device CEL-1A2B3C [-level RED] [-kind NEW]

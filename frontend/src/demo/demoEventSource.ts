@@ -1,7 +1,7 @@
 import { STREAM_EVENTS, type EventSourceLike } from "@/services/realtime";
 import type { DemoAlertStore, DemoStreamEvent } from "./alertStore";
 
-// Stream de alertas simulado con el comportamiento de GET /api/notifications/stream (NOTIFICATIONS_API.MD): `open`
+// Stream de alertas simulado con el comportamiento de GET /api/notifications/stream (notifications README.md §4): `open`
 // al conectar, cada evento con id `<epoch>-<seq>`, `ping` cada 25 s y reenvío de lo perdido con `?last_event_id=`
 // (guarda los últimos 256). La caída se simula como un servidor que no responde: el navegador se rinde (CLOSED)
 // y el cliente real reintenta con su backoff, igual que en producción.

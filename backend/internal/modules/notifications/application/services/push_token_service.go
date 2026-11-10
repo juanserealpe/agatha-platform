@@ -10,7 +10,7 @@ import (
 )
 
 // RegisterPushTokenCommand es el registro que manda la app al obtener o
-// renovar su token FCM (CONTRATO_PUSH_FCM.md §1).
+// renovar su token FCM (README.md §5.2).
 type RegisterPushTokenCommand struct {
 	DeviceID string
 	Token    string

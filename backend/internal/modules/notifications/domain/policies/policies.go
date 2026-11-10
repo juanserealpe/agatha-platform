@@ -29,7 +29,7 @@ type ChannelPolicy interface {
 	Evaluate(n entities.AlertNotice) Verdict
 }
 
-// MobilePushPolicy es la regla del push (CONTRATO_PUSH_FCM.md §4): solo
+// MobilePushPolicy es la regla del push (README.md §2): solo
 // alertas nuevas y subidas de nivel en Amarillo, Naranja o Rojo; nunca horas
 // atrasadas ni falsas alertas.
 type MobilePushPolicy struct{}
