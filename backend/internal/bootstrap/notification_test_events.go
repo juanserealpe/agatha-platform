@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync/atomic"
 	"time"
 
@@ -27,7 +26,7 @@ func testEndpointEnabled(log *logger.Logger) bool {
 	if !envBool(log, NotificationsTestEndpointEnv, false) {
 		return false
 	}
-	if os.Getenv(EnvironmentEnv) == "production" {
+	if isProductionEnvironment() {
 		log.Error("endpoint de eventos de prueba NO habilitado: AGATHA_ENV=production", "env", NotificationsTestEndpointEnv)
 		return false
 	}

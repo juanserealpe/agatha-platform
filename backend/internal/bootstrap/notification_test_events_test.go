@@ -120,6 +120,10 @@ func TestTestEndpointEnabled(t *testing.T) {
 		{"true", "development", true},
 		{"true", "", true},
 		{"true", "production", false},
+		// Mismo criterio que el -rebuild de Rule Engine y Alert Management.
+		{"true", "Production", false},
+		{"true", "PRODUCTION", false},
+		{"true", " production ", false},
 	}
 	for _, c := range cases {
 		t.Setenv(NotificationsTestEndpointEnv, c.flag)

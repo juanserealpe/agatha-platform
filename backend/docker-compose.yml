@@ -27,6 +27,9 @@ services:
 
     environment:
       AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine,alert_management,notifications
+      # Bloquea -rebuild (Rule Engine y Alert Management) y el endpoint de
+      # eventos de prueba. Fijado acá para no depender del .env del VPS.
+      AGATHA_ENV: production
       # Push FCM: el código valida sin entregar salvo que se pida "false". Solo el VPS entrega.
       FCM_VALIDATE_ONLY: "false"
       FCM_SERVICE_ACCOUNT_FILE: /run/secrets/agatha/fcm-service-account.json

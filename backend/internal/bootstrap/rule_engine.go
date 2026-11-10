@@ -22,10 +22,6 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// EnvironmentEnv es la variable con el entorno de despliegue. Con
-// "production" el backfill del Rule Engine rechaza -rebuild.
-const EnvironmentEnv = "AGATHA_ENV"
-
 // indicatorEvaluatedSubscription es el nombre de la suscripción del Rule Engine.
 const indicatorEvaluatedSubscription = "rule_engine.indicator_evaluated"
 

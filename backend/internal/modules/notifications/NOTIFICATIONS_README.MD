@@ -222,7 +222,7 @@ Plantilla con valores seguros por defecto en [`backend/.env.example`](../../../.
 
 ## Despliegue (Docker)
 
-- `docker-compose.yml` incluye `notifications` en `AGATHA_MODULES`, define `FCM_VALIDATE_ONLY=false` y fuerza `NOTIFICATIONS_TEST_ENDPOINT=false` (las variables de `environment` pisan las del `.env`).
+- `docker-compose.yml` incluye `notifications` en `AGATHA_MODULES`, define `FCM_VALIDATE_ONLY=false` y fuerza `NOTIFICATIONS_TEST_ENDPOINT=false` y `AGATHA_ENV=production` (las variables de `environment` pisan las del `.env`). Son dos bloqueos independientes del endpoint de prueba; `AGATHA_ENV` se compara sin distinguir mayúsculas ni espacios.
 - **Credencial**: va en `backend/secrets/fcm-service-account.json` del VPS, que se monta en solo lectura en `/run/secrets/agatha/`. Git y `.dockerignore` ignoran `secrets/`, así que nunca llega al repositorio ni a la imagen. El contenedor corre con un usuario sin root, así que el archivo tiene que ser legible (`chmod 444`).
 - Si falta la credencial, el push queda deshabilitado (`NoopSender`, con el error en el log) y el resto de la plataforma arranca igual.
 
