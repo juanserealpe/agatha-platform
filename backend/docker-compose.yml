@@ -36,6 +36,9 @@ services:
       # Las variables de environment pisan las del .env: el endpoint de eventos
       # de prueba no se puede encender aquí por error.
       NOTIFICATIONS_TEST_ENDPOINT: "false"
+      # El push de alertas va a TODOS los tokens registrados. Vacía aquí para
+      # que una allowlist de pruebas olvidada en el .env no filtre celulares.
+      NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST: ""
 
     # Credencial de FCM (cuenta de servicio), en solo lectura. Va en
     # ./secrets/fcm-service-account.json, fuera del repositorio y de la imagen, y

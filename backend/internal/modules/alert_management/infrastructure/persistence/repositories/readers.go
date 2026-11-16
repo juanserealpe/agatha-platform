@@ -36,7 +36,7 @@ func (s *LevelSource) ListAfter(ctx context.Context, pointID int64, after, to ti
 		Select(`r.id, r.measuring_point_id, r.event_type, r.evaluated_at, r.indicator_value, r.raw_level,
 			r.computed_level, r.level, r.in_episode, r.hours_above, r.run_amarillo, r.run_naranja, r.below_run,
 			r.threshold_version_id, r.low_confidence, r.episode_event, r.reasons::text AS reasons,
-			v.amarillo, v.naranja, v.rojo, v.exit_margin, v.escalate_amarillo_after_hours,
+			r.d_pl, v.d_pl_min, v.amarillo, v.naranja, v.rojo, v.exit_margin, v.escalate_amarillo_after_hours,
 			v.escalate_naranja_after_hours, v.persistence_mode, v.persistence_min_hours`).
 		Joins("JOIN rule_threshold_versions v ON v.id = r.threshold_version_id").
 		Where("r.measuring_point_id = ? AND r.event_type = ?", pointID, string(entities.EventTypeLeak))

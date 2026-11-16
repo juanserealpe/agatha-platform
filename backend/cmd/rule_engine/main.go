@@ -9,6 +9,18 @@
 // Con -rebuild borra antes las filas de rule_evaluations del rango/punto y las
 // recalcula (bloqueado con AGATHA_ENV=production).
 //
+// Con -reset-versions (solo junto con -backfill -rebuild) reconstruye además el
+// historial de versiones de UN punto: toma la versión vigente hoy, borra todas
+// las versiones FUGA del punto e inserta una única versión 1 con esos
+// parámetros y valid_from = su primera medición; luego recalcula todo el
+// historial con ella. Exige -point y -confirm <mismo point_id>:
+//
+//	rule_engine -backfill -rebuild -reset-versions -point 11556 -confirm 11556
+//
+// Es la segunda excepción deliberada a la no retroactividad de los umbrales (la
+// primera es la v1 sembrada), acotada a un punto y bloqueada con
+// AGATHA_ENV=production. Hacer backup antes: no se puede deshacer.
+//
 // Orden: primero processing -backfill (fuente), después rule_engine -backfill
 // y recién entonces habilitar rule_engine en AGATHA_MODULES.
 package main
@@ -39,6 +51,8 @@ func main() {
 	fromRaw := flag.String("from", "", "inicio RFC3339 en UTC, inclusivo (default: primera hora)")
 	toRaw := flag.String("to", "", "fin RFC3339 en UTC, exclusivo (default: última hora)")
 	rebuild := flag.Bool("rebuild", false, "borra rule_evaluations del rango/punto y recalcula (no en production)")
+	resetVersions := flag.Bool("reset-versions", false, "con -backfill -rebuild: colapsa las versiones de umbrales del punto en una v1 con los parámetros vigentes y valid_from = su primera medición (exige -point y -confirm; no en production)")
+	confirm := flag.Int64("confirm", 0, "con -reset-versions: repetir el valor de -point para confirmar")
 	flag.Parse()
 
 	if !*backfill {
@@ -48,6 +62,10 @@ func main() {
 	}
 	if *pointID < 0 {
 		log.Error("-point debe ser > 0")
+		os.Exit(2)
+	}
+	if *resetVersions && (!*rebuild || *pointID <= 0 || *confirm != *pointID) {
+		log.Error("-reset-versions exige -rebuild, -point y -confirm con el mismo valor que -point")
 		os.Exit(2)
 	}
 
@@ -74,6 +92,9 @@ func main() {
 		From:    from,
 		To:      to,
 		Rebuild: *rebuild,
+
+		ResetVersions:  *resetVersions,
+		ConfirmPointID: *confirm,
 	})
 	printReport(result)
 	if err != nil {
@@ -95,6 +116,10 @@ func parseTime(log *logger.Logger, name, raw string) time.Time {
 }
 
 func printReport(r ruleEngineServices.BackfillResult) {
+	if r.VersionsCollapsed > 0 {
+		fmt.Printf("Reset de versiones: %d versiones colapsadas en la versión 1 con los parámetros de la versión %d; valid_from = %s\n",
+			r.VersionsCollapsed, r.ResetSourceVersion, formatTime(r.ResetValidFrom))
+	}
 	if r.Deleted > 0 {
 		fmt.Printf("Rebuild: %d filas de rule_evaluations borradas\n", r.Deleted)
 	}

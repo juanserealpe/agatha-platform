@@ -63,7 +63,7 @@ func TestRuleEvaluation_RoundTripKeepsV3Fields(t *testing.T) {
 func TestThresholdVersion_RoundTripKeepsV2Columns(t *testing.T) {
 	p := entities.DefaultThresholdParams()
 	min, window, minHours := 12.0, 24, 18
-	p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, &min
+	p.ConfirmNaranjaWithPlanitud, p.ConfirmRojoWithPlanitud, p.DPlMin = true, true, &min
 	p.PersistenceMode, p.PersistenceWindowHours, p.PersistenceMinHours = entities.PersistenceWindow, &window, &minHours
 	v := entities.ThresholdVersion{
 		ID: 2, MeasuringPointID: 11556, EventType: entities.EventTypeLeak, Version: 2, ThresholdParams: p,

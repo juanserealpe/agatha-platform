@@ -203,3 +203,95 @@ func TestAssess_BelowRunIsReported(t *testing.T) {
 		t.Fatalf("I sobre la salida: below_run=%d, se esperaba 0", got.BelowRun)
 	}
 }
+
+func withPlanitudRojo(p entities.ThresholdParams, min float64) entities.ThresholdParams {
+	p = withPlanitud(p, min)
+	p.ConfirmRojoWithPlanitud = true
+	return p
+}
+
+// CA-4: con confirm_rojo_with_planitud, un ROJO por valor sin planitud
+// confirmada baja a AMARILLO y el motivo guarda from = ROJO.
+func TestAssess_RojoWithPlanitudBlocksUnconfirmedRojoByValue(t *testing.T) {
+	p := withPlanitudRojo(paramsV2(), 10)
+	low := floatPtr(4.6)
+
+	got := runSequence(t, p, []step{
+		{i: 0.40, level: normal, rule: none, event: evNone, hoursAbove: 0, dPl: low},
+		{i: 0.40, level: amarillo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2, dPl: low},
+	})
+	a := got[1]
+	if a.RawLevel != rojo || a.ComputedLevel != amarillo {
+		t.Fatalf("raw=%s computed=%s; se esperaba raw ROJO y computed AMARILLO", a.RawLevel, a.ComputedLevel)
+	}
+	r, ok := hasReason(a.Reasons, entities.ReasonNaranjaNotConfirmed)
+	if !ok || r.From != rojo || r.Level != amarillo || r.DPlMin != 10 || r.DPl == nil || *r.DPl != 4.6 {
+		t.Fatalf("motivo NARANJA_NOT_CONFIRMED incorrecto: %+v", a.Reasons)
+	}
+
+	// Sin d_pl (no calculado) tampoco confirma.
+	nilDPl := runSequence(t, p, []step{
+		{i: 0.40, level: normal, rule: none, event: evNone, hoursAbove: 0},
+		{i: 0.40, level: amarillo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2},
+	})
+	if r, ok := hasReason(nilDPl[1].Reasons, entities.ReasonNaranjaNotConfirmed); !ok || r.From != rojo || r.DPl != nil {
+		t.Fatalf("d_pl nil no confirma: %+v", nilDPl[1].Reasons)
+	}
+}
+
+// CA-5: con la opción en false la excepción del ROJO por valor sigue igual.
+func TestAssess_RojoByValueKeepsExceptionWithoutRojoOption(t *testing.T) {
+	p := withPlanitud(paramsV2(), 10)
+
+	got := runSequence(t, p, []step{
+		{i: 0.40, level: normal, rule: none, event: evNone, hoursAbove: 0, dPl: floatPtr(4.6)},
+		{i: 0.40, level: rojo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2, dPl: floatPtr(4.6)},
+	})
+	if _, ok := hasReason(got[1].Reasons, entities.ReasonNaranjaNotConfirmed); ok {
+		t.Fatalf("sin la opción de Rojo no hay motivo de planitud: %+v", got[1].Reasons)
+	}
+}
+
+// Con la opción activa, un ROJO por valor con planitud confirmada se mantiene.
+func TestAssess_RojoWithPlanitudConfirmedStaysRojo(t *testing.T) {
+	p := withPlanitudRojo(paramsV2(), 10)
+
+	runSequence(t, p, []step{
+		{i: 0.40, level: normal, rule: none, event: evNone, hoursAbove: 0, dPl: floatPtr(10)},
+		{i: 0.40, level: rojo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2, dPl: floatPtr(10)},
+	})
+}
+
+// CA-6: una hora limitada por planitud no borra la racha guardada (raw): la
+// hora siguiente con planitud confirmada recupera el ROJO por duración.
+func TestAssess_RojoWithPlanitudRecoversDurationAfterConfirmedHour(t *testing.T) {
+	p := withPlanitudRojo(referenceParams(), 10)
+	ok, low := floatPtr(15), floatPtr(4)
+
+	got := runSequence(t, p, []step{
+		{i: 0.30, level: normal, rule: none, event: evNone, hoursAbove: 0, dPl: ok},
+		{i: 0.30, level: naranja, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2, dPl: ok},
+		{i: 0.30, level: naranja, rule: threshold, event: evNone, inEpisode: true, hoursAbove: 3, dPl: ok},
+		{i: 0.30, level: naranja, rule: threshold, event: evNone, inEpisode: true, hoursAbove: 4, dPl: ok},
+		{i: 0.30, level: naranja, rule: threshold, event: evNone, inEpisode: true, hoursAbove: 5, dPl: ok},
+		{name: "6 h sobre NARANJA con planitud baja", i: 0.30, level: amarillo, rule: threshold, event: evNone, inEpisode: true, hoursAbove: 6, dPl: low},
+		{name: "planitud confirmada", i: 0.30, level: rojo, rule: persistence, event: evNone, inEpisode: true, hoursAbove: 7, dPl: ok},
+	})
+	limited := got[5]
+	if limited.RawLevel != naranja || limited.ComputedLevel != amarillo {
+		t.Fatalf("raw=%s computed=%s; se esperaba raw NARANJA y computed AMARILLO", limited.RawLevel, limited.ComputedLevel)
+	}
+	if r, found := hasReason(limited.Reasons, entities.ReasonNaranjaNotConfirmed); !found || r.From != rojo {
+		t.Fatalf("el motivo debe guardar from = ROJO (por duración): %+v", limited.Reasons)
+	}
+}
+
+// Con la opción de Rojo y sin la de Naranja de por medio no hay confirmación a medias:
+// un NARANJA por valor sigue exigiendo planitud (la opción de Rojo la implica).
+func TestAssess_RojoWithPlanitudStillBlocksNaranja(t *testing.T) {
+	p := withPlanitudRojo(paramsV2(), 10)
+	runSequence(t, p, []step{
+		{i: 0.26, level: normal, rule: none, event: evNone, hoursAbove: 0, dPl: floatPtr(3)},
+		{i: 0.26, level: amarillo, rule: threshold, event: evOpened, inEpisode: true, hoursAbove: 2, dPl: floatPtr(3)},
+	})
+}

@@ -400,11 +400,25 @@ func toAlertChanged(a entities.Alert, change string, evaluatedAt, now time.Time)
 		Blinking:         a.Blinking(),
 		ManagementStatus: string(a.Management.Status),
 		Classification:   string(a.Management.Classification),
+		LeakSignature:    toLeakSignature(a.LeakSignature),
 		StartedAt:        a.StartedAt.UTC(),
 		EvaluatedAt:      evaluatedAt.UTC(),
 		OccurredAt:       now,
 		SchemaVersion:    contract.SchemaVersion,
 	}
+}
+
+// toLeakSignature copia la firma de fuga al contrato (nil ⇒ null).
+func toLeakSignature(s *entities.LeakSignature) *contract.LeakSignature {
+	if s == nil {
+		return nil
+	}
+	out := contract.LeakSignature{DPlMin: s.DPlMin, Confirmed: s.Confirmed}
+	if s.DPl != nil {
+		v := *s.DPl
+		out.DPl = &v
+	}
+	return &out
 }
 
 // policy devuelve la versión vigente en la hora; sin ninguna usa la plantilla (ID 0) y avisa.

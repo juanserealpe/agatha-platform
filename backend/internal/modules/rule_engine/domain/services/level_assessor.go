@@ -114,7 +114,11 @@ func Assess(i float64, dPl *float64, p entities.ThresholdParams, history []entit
 // escalate aplica la persistencia: como máximo un nivel por regla y nunca
 // por debajo del raw. Solo escala desde un nivel que la hora actual cumple
 // (raw >= from). Después aplica la confirmación por planitud: sin confirmar,
-// un nivel >= NARANJA que no es ROJO por umbral queda en AMARILLO. Devuelve el
+// un nivel >= NARANJA queda en AMARILLO; la excepción del ROJO por umbral
+// (raw ROJO no se limita) solo rige si la versión no activa
+// confirm_rojo_with_planitud. Las rachas siguen contando sobre el raw
+// GUARDADO, así que una hora limitada no borra la duración acumulada: la
+// primera hora con planitud confirmada recupera el nivel. Devuelve el
 // nivel calculado, la regla que lo fijó y los motivos.
 func escalate(i float64, dPl *float64, raw entities.Level, runAmarillo, runNaranja int, p entities.ThresholdParams,
 ) (entities.Level, entities.Rule, []entities.Reason) {
@@ -136,7 +140,7 @@ func escalate(i float64, dPl *float64, raw entities.Level, runAmarillo, runNaran
 
 	calculated := entities.MaxLevel(raw, candidate)
 
-	if calculated.AtLeast(entities.LevelNaranja) && raw != entities.LevelRojo && !p.IsNaranjaConfirmed(dPl) {
+	if limitedByPlanitud(calculated, raw, dPl, p) {
 		reasons = append(reasons, entities.Reason{
 			Code: entities.ReasonNaranjaNotConfirmed, Level: entities.LevelAmarillo, From: calculated,
 			DPl: copyFloat(dPl), DPlMin: *p.DPlMin,
@@ -152,6 +156,20 @@ func escalate(i float64, dPl *float64, raw entities.Level, runAmarillo, runNaran
 		return calculated, entities.RulePersistence, append(reasons, r)
 	}
 	return calculated, entities.RuleThreshold, reasons
+}
+
+// limitedByPlanitud indica si la confirmación por planitud baja la hora a
+// AMARILLO. Con confirm_rojo_with_planitud no hay excepción: cualquier nivel
+// >= NARANJA (por valor o por duración) necesita planitud confirmada. Sin
+// ella, un raw ROJO nunca se limita (comportamiento anterior).
+func limitedByPlanitud(calculated, raw entities.Level, dPl *float64, p entities.ThresholdParams) bool {
+	if !calculated.AtLeast(entities.LevelNaranja) {
+		return false
+	}
+	if raw == entities.LevelRojo && !p.ConfirmRojoWithPlanitud {
+		return false
+	}
+	return !p.IsNaranjaConfirmed(dPl)
 }
 
 // runAtLeast cuenta las horas consecutivas, terminando en la actual, con

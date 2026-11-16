@@ -57,6 +57,7 @@ type ThresholdParamsResponse struct {
 	ExitHours                  int               `json:"exit_hours"`
 	Exit                       LevelCutsResponse `json:"exit"`
 	ConfirmNaranjaWithPlanitud bool              `json:"confirm_naranja_with_planitud"`
+	ConfirmRojoWithPlanitud    bool              `json:"confirm_rojo_with_planitud"`
 	DPlMin                     *float64          `json:"d_pl_min"`
 	PersistenceMode            string            `json:"persistence_mode"`
 	PersistenceWindowHours     *int              `json:"persistence_window_hours"`
@@ -138,6 +139,7 @@ func toParamsResponse(p entities.ThresholdParams) ThresholdParamsResponse {
 			Rojo:     p.ExitFor(entities.LevelRojo),
 		},
 		ConfirmNaranjaWithPlanitud: p.ConfirmNaranjaWithPlanitud,
+		ConfirmRojoWithPlanitud:    p.ConfirmRojoWithPlanitud,
 		DPlMin:                     p.DPlMin,
 		PersistenceMode:            string(p.Normalize().PersistenceMode),
 		PersistenceWindowHours:     p.PersistenceWindowHours,
@@ -240,6 +242,8 @@ func ParsePatch(raw map[string]json.RawMessage) (entities.ThresholdPatch, error)
 			patch.ExitHours, err = required[int](value)
 		case "confirm_naranja_with_planitud":
 			patch.ConfirmNaranjaWithPlanitud, err = required[bool](value)
+		case "confirm_rojo_with_planitud":
+			patch.ConfirmRojoWithPlanitud, err = required[bool](value)
 		case "persistence_mode":
 			var mode entities.Optional[string]
 			mode, err = required[string](value)

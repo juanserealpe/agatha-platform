@@ -17,7 +17,9 @@ const (
 	// v2 reemplaza a leak_threshold_exceeded / leak_threshold_cleared (v1).
 	// v3 agrega runs, escalation, below_run, d_pl y persistence_mode (aditivo:
 	// los campos v2 no cambian).
-	SchemaVersion = 3
+	// v4 agrega d_pl_min (aditivo: el d_pl ya viajaba desde v3) y el motivo
+	// NARANJA_NOT_CONFIRMED puede llevar from = ROJO.
+	SchemaVersion = 4
 )
 
 // Status de la hora evaluada (los mismos valores que Processing).
@@ -45,7 +47,8 @@ const (
 const (
 	ReasonLeakThreshold   = "LEAK_THRESHOLD"
 	ReasonLeakPersistence = "LEAK_PERSISTENCE"
-	// ReasonNaranjaNotConfirmed: NARANJA no confirmado por planitud (la hora queda en AMARILLO).
+	// ReasonNaranjaNotConfirmed: NARANJA (o ROJO, con confirm_rojo_with_planitud)
+	// no confirmado por planitud (la hora queda en AMARILLO).
 	ReasonNaranjaNotConfirmed = "NARANJA_NOT_CONFIRMED"
 )
 

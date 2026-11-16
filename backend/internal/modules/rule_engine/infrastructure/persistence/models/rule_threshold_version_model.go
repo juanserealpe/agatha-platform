@@ -28,11 +28,14 @@ type RuleThresholdVersionModel struct {
 
 	// Columnas v2 (spec Rule Engine v2, §7): los defaults reproducen el
 	// comportamiento anterior, así que las versiones existentes no cambian.
-	ConfirmNaranjaWithPlanitud bool     `gorm:"column:confirm_naranja_with_planitud;not null;default:false;check:chk_rule_threshold_versions_planitud,NOT confirm_naranja_with_planitud OR d_pl_min IS NOT NULL"`
-	DPlMin                     *float64 `gorm:"column:d_pl_min;type:numeric(5,2);check:chk_rule_threshold_versions_d_pl_min,d_pl_min IS NULL OR (d_pl_min >= 0 AND d_pl_min <= 100)"`
-	PersistenceMode            string   `gorm:"column:persistence_mode;type:text;not null;default:'STRICT';check:chk_rule_threshold_versions_persistence,persistence_mode = 'STRICT' OR (persistence_mode = 'WINDOW' AND persistence_window_hours IS NOT NULL AND persistence_min_hours IS NOT NULL AND persistence_min_hours <= persistence_window_hours)"`
-	PersistenceWindowHours     *int     `gorm:"column:persistence_window_hours;type:integer;check:chk_rule_threshold_versions_window_hours,persistence_window_hours IS NULL OR persistence_window_hours >= 1"`
-	PersistenceMinHours        *int     `gorm:"column:persistence_min_hours;type:integer;check:chk_rule_threshold_versions_window_min_hours,persistence_min_hours IS NULL OR persistence_min_hours >= 1"`
+	ConfirmNaranjaWithPlanitud bool `gorm:"column:confirm_naranja_with_planitud;not null;default:false;check:chk_rule_threshold_versions_planitud,NOT confirm_naranja_with_planitud OR d_pl_min IS NOT NULL"`
+	// ConfirmRojoWithPlanitud (v4): ROJO también exige planitud. El default false
+	// deja las versiones existentes idénticas. El CHECK ata la opción a la de NARANJA.
+	ConfirmRojoWithPlanitud bool     `gorm:"column:confirm_rojo_with_planitud;not null;default:false;check:chk_rule_threshold_versions_planitud_rojo,NOT confirm_rojo_with_planitud OR confirm_naranja_with_planitud"`
+	DPlMin                  *float64 `gorm:"column:d_pl_min;type:numeric(5,2);check:chk_rule_threshold_versions_d_pl_min,d_pl_min IS NULL OR (d_pl_min >= 0 AND d_pl_min <= 100)"`
+	PersistenceMode         string   `gorm:"column:persistence_mode;type:text;not null;default:'STRICT';check:chk_rule_threshold_versions_persistence,persistence_mode = 'STRICT' OR (persistence_mode = 'WINDOW' AND persistence_window_hours IS NOT NULL AND persistence_min_hours IS NOT NULL AND persistence_min_hours <= persistence_window_hours)"`
+	PersistenceWindowHours  *int     `gorm:"column:persistence_window_hours;type:integer;check:chk_rule_threshold_versions_window_hours,persistence_window_hours IS NULL OR persistence_window_hours >= 1"`
+	PersistenceMinHours     *int     `gorm:"column:persistence_min_hours;type:integer;check:chk_rule_threshold_versions_window_min_hours,persistence_min_hours IS NULL OR persistence_min_hours >= 1"`
 
 	ValidFrom time.Time  `gorm:"column:valid_from;type:timestamptz;not null;index:ix_rule_threshold_versions_effective,priority:3,sort:desc"`
 	ValidTo   *time.Time `gorm:"column:valid_to;type:timestamptz;check:chk_rule_threshold_versions_validity,valid_to IS NULL OR valid_to > valid_from"`

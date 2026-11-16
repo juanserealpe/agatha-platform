@@ -135,9 +135,10 @@ Cada punto tiene su propia línea de tiempo de umbrales, y se usa **la versión 
 | `exit_margin` | 0,02 | Histéresis: para salir hay que bajar de 0,14 |
 | `exit_hours` | 2 | Horas seguidas bajo la salida que **cierran** el episodio |
 | `confirm_naranja_with_planitud` | false | Si está activo, NARANJA exige planitud (`d_pl ≥ d_pl_min`) |
+| `confirm_rojo_with_planitud` | false | Si está activo (exige la de Naranja), ROJO también exige planitud: por valor **o** por duración, sin `d_pl ≥ d_pl_min` la hora queda en AMARILLO con `NARANJA_NOT_CONFIRMED` (`from` puede ser ROJO). Las rachas siguen contando sobre el raw guardado: la primera hora con planitud confirmada recupera el nivel |
 | `persistence_mode` | STRICT | STRICT = racha seguida; WINDOW = conteo en una ventana móvil |
 
-Las versiones **nunca se modifican ni son retroactivas**: una versión nueva empieza ahora o en el futuro, y la anterior se cierra en la misma transacción. La única excepción es el seed inicial: la v1 de cada punto empieza en su primera medición, para que el backfill tenga umbrales para todo el histórico.
+Las versiones **nunca se modifican ni son retroactivas**: una versión nueva empieza ahora o en el futuro, y la anterior se cierra en la misma transacción. La primera excepción es el seed inicial: la v1 de cada punto empieza en su primera medición, para que el backfill tenga umbrales para todo el histórico. La segunda, deliberada, es `cmd/rule_engine -backfill -rebuild -reset-versions -point N -confirm N`: colapsa las versiones de **un** punto en una v1 con los parámetros vigentes hoy y `valid_from` = su primera medición, y recalcula todo el historial (bloqueado en producción; hacer backup antes, y exportar la gestión de operadores porque el `-rebuild` de Alert Management la borra).
 
 ### El algoritmo (`domain/services.Assess`, función pura)
 
@@ -176,13 +177,13 @@ Las horas de un mismo punto se procesan de a una, con un lock por punto: cada ho
 | `indicator_value` | I de la hora (`null` si no se calculó) |
 | `raw_level` / `computed_level` / `episode_level` | Umbral solo / umbral + persistencia / nivel del episodio (con HOLD). **Alert Management usa `computed_level`** |
 | `in_episode`, `episode_event` | `OPENED`, `CLEARED` o `NONE` |
-| `reasons[]` | Por qué el computed: `LEAK_THRESHOLD`, `LEAK_PERSISTENCE` (con `hours`), `NARANJA_NOT_CONFIRMED` |
+| `reasons[]` | Por qué el computed: `LEAK_THRESHOLD`, `LEAK_PERSISTENCE` (con `hours`), `NARANJA_NOT_CONFIRMED` (`from` puede ser ROJO con `confirm_rojo_with_planitud`) |
 | `thresholds`, `exit`, `threshold_version_id` | Cortes y salidas de la versión usada |
 | `hours_above` | Horas del episodio, incluida esta |
 | `runs`, `escalation` | Horas acumuladas y umbral de escalamiento: faltan `escalation − runs` horas para subir |
 | `below_run` | Horas seguidas bajo la salida |
-| `d_pl`, `persistence_mode`, `low_confidence` | Planitud, modo y confianza |
-| `occurred_at`, `schema_version` (3) | Trazabilidad |
+| `d_pl`, `d_pl_min` (v4), `persistence_mode`, `low_confidence` | Planitud de la hora, mínimo de la versión vigente (ambos en toda hora calculada), modo y confianza |
+| `occurred_at`, `schema_version` (4) | Trazabilidad |
 
 Con `NO_CALCULABLE`, los niveles van vacíos, sin `reasons` ni umbrales, y `runs` en 0. Así se distingue "sin datos" de "bajo el umbral".
 
@@ -191,7 +192,7 @@ Con `NO_CALCULABLE`, los niveles van vacíos, sin `reasons` ni umbrales, y `runs
 | Entrada | Qué hace |
 |---|---|
 | Catch-up (al arrancar y minuto :50) | Por punto, interpreta **publicando** las horas de `feature_evaluations` posteriores a su última fila. Un punto sin ninguna fila se saltea (hay que correr el backfill) |
-| `cmd/rule_engine -backfill [-point] [-from] [-to] [-rebuild]` | Histórico desde `feature_evaluations`, con el mismo caso de uso, **sin publicar**. Idempotente. `-rebuild` bloqueado en producción |
+| `cmd/rule_engine -backfill [-point] [-from] [-to] [-rebuild] [-reset-versions -point N -confirm N]` | Histórico desde `feature_evaluations`, con el mismo caso de uso, **sin publicar**. Idempotente. `-rebuild` y `-reset-versions` bloqueados en producción |
 | API `/api/rule-engine/...` | Ver, versionar y simular umbrales. `simulate` corre el histórico con umbrales propuestos sin guardar ni publicar |
 
 ---
@@ -254,10 +255,11 @@ Cada hora emite como máximo un mensaje de "evento" (crear, subir, reactivar) y 
 
 | Orden | Mensaje | Tipo (`kind`) |
 |---|---|---|
-| 1 | `OPEN`, `UP_NARANJA_*`, `UP_ROJO`, `REACTIVATED`, `NEW_AFTER_CLASSIFIED`, `UP_DURING_INTERVENTION` | NOTIFICACION (salvo reactivación sin superar el máximo e intervención) |
+| 1 | `OPEN` (`SIN_FIRMA` si la hora quedó limitada por la planitud), `UP_NARANJA_*`, `UP_ROJO` (con la planitud recién confirmada anteponen la firma de fuga), `REACTIVATED`, `NEW_AFTER_CLASSIFIED`, `UP_DURING_INTERVENTION` | NOTIFICACION (salvo reactivación sin superar el máximo e intervención) |
 | 2 | `NO_CALC_START` / `NO_CALC_END` | ACTUALIZACION |
 | 3 | `DOWNGRADE` / `ROJO_HELD` | ACTUALIZACION |
 | 4 | `OSCILLATING` | ACTUALIZACION |
+| 4b | `NO_LEAK_SHAPE` (una vez por racha de horas limitadas por la planitud) | ACTUALIZACION |
 | 5 | `ALMOST_NORMAL` / `ONE_HOUR_NORMAL` / `BACK_ABNORMAL` | ACTUALIZACION |
 | 6 | `DOWNGRADE_START` | ACTUALIZACION |
 | 7 | `COUNTDOWN` ("si sigue así, sube en N h") | ACTUALIZACION |
@@ -379,7 +381,7 @@ Los backfill nunca publican eventos: el histórico no genera avisos.
 | `RULE_ENGINE_BACKFILL_BATCH_SIZE` | 500 | Rule Engine |
 | `ALERT_MANAGEMENT_CATCHUP_MINUTE` | 55 | Alert Management |
 | `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE` | 500 | Alert Management |
-| `AGATHA_ENV` | — | Los dos: `production` bloquea `-rebuild` |
+| `AGATHA_ENV` | — | Los dos: `production` bloquea `-rebuild` (y `-reset-versions` en el Rule Engine) |
 
 ---
 

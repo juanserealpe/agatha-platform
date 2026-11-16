@@ -22,6 +22,7 @@ var (
 	ErrDuplicateVersion = fmt.Errorf("memory: violación de UNIQUE (measuring_point_id, event_type, version): %w", repositories.ErrConflict)
 	ErrOverlap          = fmt.Errorf("memory: violación de EXCLUDE (vigencias solapadas): %w", repositories.ErrConflict)
 	ErrNotFound         = errors.New("memory: versión inexistente")
+	ErrForeignKey       = errors.New("memory: violación de FK (rule_evaluations referencia la versión)")
 )
 
 // ThresholdRepository guarda las versiones en memoria.

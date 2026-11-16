@@ -271,3 +271,28 @@ func TestItem_DurationHours(t *testing.T) {
 		t.Fatalf("activa: duration_hours = %d (hasta la última hora procesada)", got)
 	}
 }
+
+// leak_signature sale en la fila y el detalle; sin firma es null.
+func TestItem_LeakSignature(t *testing.T) {
+	dPl := 4.6
+	a := entities.Alert{State: entities.AlertActive, StartedAt: time.Now(),
+		LeakSignature: &entities.LeakSignature{DPl: &dPl, DPlMin: 10, Confirmed: false}}
+	item := toItem(ports.AlertSummary{Alert: a})
+	if item.LeakSignature == nil || item.LeakSignature.DPl == nil || *item.LeakSignature.DPl != 4.6 || item.LeakSignature.DPlMin != 10 || item.LeakSignature.Confirmed {
+		t.Fatalf("firma = %+v", item.LeakSignature)
+	}
+	raw, _ := json.Marshal(toDetail(ports.AlertDetail{AlertSummary: ports.AlertSummary{Alert: a}}))
+	if !strings.Contains(string(raw), `"leak_signature":{"d_pl":4.6,"d_pl_min":10,"confirmed":false}`) {
+		t.Fatalf("detalle = %s", raw)
+	}
+	a.LeakSignature = nil
+	raw, _ = json.Marshal(toItem(ports.AlertSummary{Alert: a}))
+	if !strings.Contains(string(raw), `"leak_signature":null`) {
+		t.Fatalf("sin firma = %s", raw)
+	}
+	a.LeakSignature = &entities.LeakSignature{DPlMin: 10}
+	raw, _ = json.Marshal(toItem(ports.AlertSummary{Alert: a}))
+	if !strings.Contains(string(raw), `"leak_signature":{"d_pl":null,"d_pl_min":10,"confirmed":false}`) {
+		t.Fatalf("sin d_pl = %s", raw)
+	}
+}

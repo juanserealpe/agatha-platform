@@ -112,7 +112,8 @@ Respuesta `200`:
       "management_status": "SIN_CLASIFICAR",
       "label": null,
       "label_other_text": null,
-      "available_actions": ["CONFIRM", "FALSE_ALERT", "VIEW"]
+      "available_actions": ["CONFIRM", "FALSE_ALERT", "VIEW"],
+      "leak_signature": { "d_pl": 4.6, "d_pl_min": 10, "confirmed": false }
     }
   ]
 }
@@ -136,6 +137,8 @@ Sin resultados: `total: 0` e `items: []`.
 | Acción | `available_actions` | Ver abajo |
 
 Campos útiles que no son columnas: `started_at` (inicio), `current_level` (color actual, `null` si finalizó), `blinking` (`true` = ROJO sin clasificar, para resaltar la fila) y `duration_hours`.
+
+**`leak_signature`** (en la fila y en el detalle) describe la **última hora calculada** de la alerta: `d_pl` es el % de registros de las últimas 24 h con planitud alta (`null` si la hora no lo trajo), `d_pl_min` el mínimo de la versión de umbrales y `confirmed` es `true` si la hora no se limitó y `d_pl >= d_pl_min`. Es `null` cuando el punto no tiene `d_pl_min` (la regla de planitud no está activa), no hay datos todavía o la alerta es anterior a este campo. Es solo informativo: no cambia el nivel ni las acciones.
 
 **`duration_hours`** es la duración de la alerta en horas: el tiempo transcurrido desde `started_at` hasta el fin (o hasta la última hora procesada, si sigue en curso), **sin** las pausas entre un fin y una reactivación. Es el mismo número del mensaje de fin ("Duró N h") y lo que suman los colores. **Usar este campo; no calcular la duración en el front** (del primer color al último incluiría las pausas). No es `hours_calculated` del detalle: esas son las horas evaluadas, que cuentan también la hora de inicio y no cuentan las horas sin datos.
 
@@ -322,6 +325,10 @@ POST /api/alerts/123/observations        ({id} = ID de la alerta)
 `text` tiene de 1 a 500 caracteres. Las observaciones solo se agregan: no se editan ni se borran (RN-08). La respuesta es `201` con `outcome: SAVED`.
 
 ---
+
+### Evento `alert_management.alert_changed`
+
+El mismo objeto viaja en la foto de la alerta que se publica con cada cambio visible, como `leak_signature` (misma forma o `null`), junto a `current_level`, `max_level`, `blinking`, `management_status`, etc. La foto se publica solo cuando cambia algo visible (nivel, estado, horas sin datos o gestión): un cambio de `confirmed` sin cambio de nivel no publica por sí mismo; el valor vigente siempre está en `GET /api/alerts/{id}`.
 
 ## Fuera de alcance
 

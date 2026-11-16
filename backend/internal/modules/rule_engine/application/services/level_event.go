@@ -63,6 +63,7 @@ func LevelEvaluatedFromRow(row entities.RuleEvaluation, p entities.ThresholdPara
 		},
 		BelowRun:        row.BelowRun,
 		DPl:             copyFloat(row.DPl),
+		DPlMin:          copyFloat(p.DPlMin),
 		PersistenceMode: string(p.Normalize().PersistenceMode),
 		LowConfidence:   row.LowConfidence,
 		OccurredAt:      occurredAt,

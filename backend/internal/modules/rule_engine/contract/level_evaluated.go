@@ -53,7 +53,7 @@ type Reason struct {
 //
 // Con Status = NO_CALCULABLE no hay fila: RuleEvaluationID = 0, IndicatorValue
 // = nil, niveles y EpisodeEvent vacíos, sin Reasons ni umbrales; Runs y
-// BelowRun en 0, Escalation y DPl null, PersistenceMode vacío. Distingue
+// BelowRun en 0, Escalation y DPl null, DPlMin omitido, PersistenceMode vacío. Distingue
 // "sin datos" de "bajo el umbral"; qué hacer con la hora lo decide el consumidor.
 type LevelEvaluated struct {
 	// RuleEvaluationID es el id de la fila de rule_evaluations (0 si NO_CALCULABLE).
@@ -95,6 +95,11 @@ type LevelEvaluated struct {
 	BelowRun int `json:"below_run"`
 	// DPl es el % de registros con planitud alta de la hora (null si no se calculó).
 	DPl *float64 `json:"d_pl"`
+	// v4 (aditivo): DPlMin es el % mínimo de planitud de la versión vigente en
+	// la hora (se omite si la versión no lo define). Junto con DPl permite
+	// explicar la limitación por planitud en TODA hora, no solo cuando hay un
+	// motivo NARANJA_NOT_CONFIRMED.
+	DPlMin *float64 `json:"d_pl_min,omitempty"`
 	// PersistenceMode es STRICT o WINDOW (vacío con NO_CALCULABLE).
 	PersistenceMode string `json:"persistence_mode"`
 

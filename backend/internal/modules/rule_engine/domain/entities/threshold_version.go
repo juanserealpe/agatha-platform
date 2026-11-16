@@ -32,6 +32,11 @@ type ThresholdParams struct {
 	// asigna si el d_pl de la hora es >= DPlMin; si no, la hora queda en
 	// AMARILLO con el motivo NARANJA_NOT_CONFIRMED.
 	ConfirmNaranjaWithPlanitud bool
+	// ConfirmRojoWithPlanitud: ROJO (por valor o por duración) también exige
+	// planitud confirmada (d_pl >= DPlMin). Sin ella, la excepción histórica
+	// sigue: un ROJO por umbral no se limita. Exige ConfirmNaranjaWithPlanitud
+	// (no existe un Rojo confirmado sin un Naranja confirmado).
+	ConfirmRojoWithPlanitud bool
 	// DPlMin es el % mínimo de registros con planitud alta (0–100). Obligatorio
 	// si ConfirmNaranjaWithPlanitud.
 	DPlMin *float64
@@ -104,6 +109,9 @@ func (p ThresholdParams) Validate() error {
 	if p.ConfirmNaranjaWithPlanitud && p.DPlMin == nil {
 		return domain.ErrPlanitudConfig
 	}
+	if p.ConfirmRojoWithPlanitud && !p.ConfirmNaranjaWithPlanitud {
+		return domain.ErrRojoPlanitudConfig
+	}
 	return p.validatePersistence()
 }
 
@@ -154,6 +162,16 @@ func (p ThresholdParams) IsNaranjaConfirmed(dPl *float64) bool {
 		return true
 	}
 	return dPl != nil && p.DPlMin != nil && *dPl >= *p.DPlMin
+}
+
+// IsRojoConfirmed indica si el d_pl de la hora confirma ROJO. Sin
+// ConfirmRojoWithPlanitud, siempre (excepción histórica del ROJO por umbral);
+// con ella, se exige la misma confirmación que para NARANJA.
+func (p ThresholdParams) IsRojoConfirmed(dPl *float64) bool {
+	if !p.ConfirmRojoWithPlanitud {
+		return true
+	}
+	return p.IsNaranjaConfirmed(dPl)
 }
 
 // HistoryDepth es K: cuántas horas calculadas anteriores hacen falta para
@@ -227,6 +245,7 @@ type ThresholdPatch struct {
 	ExitMargin                 Optional[float64]
 	ExitHours                  Optional[int]
 	ConfirmNaranjaWithPlanitud Optional[bool]
+	ConfirmRojoWithPlanitud    Optional[bool]
 	DPlMin                     Optional[*float64]
 	PersistenceMode            Optional[PersistenceMode]
 	PersistenceWindowHours     Optional[*int]
@@ -245,6 +264,7 @@ func (patch ThresholdPatch) ApplyTo(base ThresholdParams) ThresholdParams {
 		ExitMargin:                 patch.ExitMargin.or(base.ExitMargin),
 		ExitHours:                  patch.ExitHours.or(base.ExitHours),
 		ConfirmNaranjaWithPlanitud: patch.ConfirmNaranjaWithPlanitud.or(base.ConfirmNaranjaWithPlanitud),
+		ConfirmRojoWithPlanitud:    patch.ConfirmRojoWithPlanitud.or(base.ConfirmRojoWithPlanitud),
 		DPlMin:                     copyFloatPtr(patch.DPlMin.or(base.DPlMin)),
 		PersistenceMode:            patch.PersistenceMode.or(base.PersistenceMode),
 		PersistenceWindowHours:     copyIntPtr(patch.PersistenceWindowHours.or(base.PersistenceWindowHours)),

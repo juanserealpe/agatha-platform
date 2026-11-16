@@ -153,6 +153,11 @@ func TestThresholdParams_ValidatePlanitudAndWindow(t *testing.T) {
 	}{
 		{"plantilla", func(*ThresholdParams) {}, nil},
 		{"planitud sin d_pl_min", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud = true }, domain.ErrPlanitudConfig},
+		{"rojo con planitud sin naranja", func(p *ThresholdParams) { p.ConfirmRojoWithPlanitud, p.DPlMin = true, f(10) }, domain.ErrRojoPlanitudConfig},
+		{"rojo con planitud y naranja", func(p *ThresholdParams) {
+			p.ConfirmNaranjaWithPlanitud, p.ConfirmRojoWithPlanitud, p.DPlMin = true, true, f(10)
+		}, nil},
+		{"naranja sin rojo", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, f(10) }, nil},
 		{"d_pl_min > 100", func(p *ThresholdParams) { p.DPlMin = f(101) }, domain.ErrPlanitudConfig},
 		{"planitud válida", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, f(12) }, nil},
 		{"modo desconocido", func(p *ThresholdParams) { p.PersistenceMode = "ROLLING" }, domain.ErrPersistenceConfig},
@@ -214,12 +219,16 @@ func TestThresholdPatch_NewFields(t *testing.T) {
 	min := 12.0
 	got := ThresholdPatch{
 		ConfirmNaranjaWithPlanitud: Some(true),
+		ConfirmRojoWithPlanitud:    Some(true),
 		DPlMin:                     Some(&min),
 		PersistenceMode:            Some(PersistenceWindow),
 		PersistenceWindowHours:     Some(intPtr(24)),
 		PersistenceMinHours:        Some(intPtr(18)),
 	}.ApplyTo(base)
 
+	if !got.ConfirmRojoWithPlanitud {
+		t.Fatalf("confirm_rojo_with_planitud no aplicado: %+v", got)
+	}
 	if !got.ConfirmNaranjaWithPlanitud || *got.DPlMin != 12 || got.PersistenceMode != PersistenceWindow ||
 		*got.PersistenceWindowHours != 24 || *got.PersistenceMinHours != 18 {
 		t.Fatalf("parche no aplicado: %+v", got)
@@ -229,7 +238,7 @@ func TestThresholdPatch_NewFields(t *testing.T) {
 		t.Fatal("ApplyTo comparte el puntero de d_pl_min con el parche")
 	}
 
-	if again := (ThresholdPatch{}).ApplyTo(got); !again.ConfirmNaranjaWithPlanitud || again.PersistenceMode != PersistenceWindow {
+	if again := (ThresholdPatch{}).ApplyTo(got); !again.ConfirmNaranjaWithPlanitud || !again.ConfirmRojoWithPlanitud || again.PersistenceMode != PersistenceWindow {
 		t.Fatal("un parche vacío copia los campos nuevos de la base")
 	}
 }

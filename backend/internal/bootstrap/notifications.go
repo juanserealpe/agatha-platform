@@ -144,7 +144,7 @@ func newPushSender(log *logger.Logger) notificationPorts.PushSender {
 	case cfg.ValidateOnly:
 		log.Info("push FCM en modo validación: FCM valida los mensajes y no los entrega", "project_id", cfg.ProjectID,
 			"enable_env", FCMValidateOnlyEnv+"=false")
-	case strings.Trim(os.Getenv(NotificationsPushAllowlistEnv), " ,") == "":
+	case strings.Trim(os.Getenv(NotificationsPushAllowlistEnv), " ,") == "" || isProductionEnvironment():
 		log.Warn("push FCM real habilitado para TODOS los celulares registrados", "project_id", cfg.ProjectID)
 	default:
 		log.Info("push FCM real habilitado solo para la allowlist", "project_id", cfg.ProjectID)
@@ -152,7 +152,10 @@ func newPushSender(log *logger.Logger) notificationPorts.PushSender {
 	return sender
 }
 
-// pushAllowlist lee los deviceId permitidos (vacía = todos los celulares).
+// pushAllowlist lee los deviceId permitidos (vacía = todos los celulares). Es
+// solo para probar desde local: en producción (AGATHA_ENV=production) se
+// ignora, porque una allowlist olvidada en el .env deja sin push a todo
+// celular que no esté en ella (así se perdió el push de AGATHA QA, 13/11/2026).
 func pushAllowlist(log *logger.Logger) []string {
 	var ids []string
 	for _, part := range strings.Split(os.Getenv(NotificationsPushAllowlistEnv), ",") {
@@ -160,9 +163,15 @@ func pushAllowlist(log *logger.Logger) []string {
 			ids = append(ids, id)
 		}
 	}
-	if len(ids) > 0 {
-		log.Warn("push limitado a la allowlist", "devices", strings.Join(ids, ","))
+	if len(ids) == 0 {
+		return nil
 	}
+	if isProductionEnvironment() {
+		log.Warn("allowlist de push ignorada en producción: el push va a todos los celulares registrados",
+			"env", NotificationsPushAllowlistEnv, "ignored_devices", len(ids))
+		return nil
+	}
+	log.Warn("push limitado a la allowlist", "devices", strings.Join(ids, ","))
 	return ids
 }
 

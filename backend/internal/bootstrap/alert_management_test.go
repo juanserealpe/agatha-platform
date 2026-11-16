@@ -140,3 +140,28 @@ func TestAlertManagement_EndToEndFromProcessing(t *testing.T) {
 type noDevices struct{}
 
 func (noDevices) Get(context.Context, int64) (*alertEntities.Device, error) { return nil, nil }
+
+func TestToLevelNotice_CarriesPlanitudAndTheLimitedLevel(t *testing.T) {
+	i, dPl, dPlMin := 0.36, 4.6, 10.0
+	n := toLevelNotice(ruleEngineContract.LevelEvaluated{
+		MeasuringPointID: 11556, EventType: "FUGA", Status: "CALCULATED", IndicatorValue: &i,
+		RawLevel: "ROJO", ComputedLevel: "AMARILLO", DPl: &dPl, DPlMin: &dPlMin,
+		Reasons: []ruleEngineContract.Reason{
+			{Code: ruleEngineContract.ReasonLeakThreshold, Level: "ROJO"},
+			{Code: ruleEngineContract.ReasonNaranjaNotConfirmed, Level: "AMARILLO", Data: ruleEngineContract.ReasonData{From: "ROJO", DPl: &dPl, DPlMin: 10}},
+		},
+	})
+	if n.DPl == nil || *n.DPl != 4.6 || n.DPlMin == nil || *n.DPlMin != 10 || n.LimitedFrom != alertEntities.LevelRojo {
+		t.Fatalf("notice = %+v", n)
+	}
+	// El puntero es propio: cambiar el evento no cambia el aviso.
+	dPl = 99
+	if *n.DPl != 4.6 {
+		t.Fatal("DPl comparte memoria con el evento")
+	}
+
+	plain := toLevelNotice(ruleEngineContract.LevelEvaluated{Status: "CALCULATED", IndicatorValue: &i})
+	if plain.DPl != nil || plain.DPlMin != nil || plain.Limited() {
+		t.Fatalf("sin planitud: notice = %+v", plain)
+	}
+}

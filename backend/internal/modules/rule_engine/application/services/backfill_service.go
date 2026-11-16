@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -32,6 +34,20 @@ type BackfillCommand struct {
 	To      time.Time // cero ⇒ hasta la última (fin exclusivo)
 	// Rebuild borra rule_evaluations del rango/punto y lo recalcula. Nunca en production.
 	Rebuild bool
+
+	// ResetVersions reconstruye el historial de versiones del punto antes del
+	// rebuild: toma la versión vigente HOY, borra TODAS las versiones FUGA del
+	// punto e inserta una única versión 1 con esos mismos parámetros y
+	// valid_from = su primera medición. Así el histórico completo se interpreta
+	// con los parámetros vigentes.
+	//
+	// Es la SEGUNDA excepción deliberada a la no retroactividad de los umbrales
+	// (la primera es la v1 sembrada por SeedInitialThresholds), acotada a UN
+	// punto y bloqueada con AGATHA_ENV=production. Exige Rebuild, PointID,
+	// ConfirmPointID == PointID y el historial completo (sin From ni To).
+	ResetVersions bool
+	// ConfirmPointID es el valor de -confirm: debe repetir PointID.
+	ConfirmPointID int64
 }
 
 // PointBackfill es el resumen de un punto.
@@ -53,6 +69,13 @@ type BackfillResult struct {
 	PointBackfill
 	Deleted int64
 	Points  []PointBackfill
+
+	// Solo con ResetVersions: cuántas versiones se colapsaron, el número de la
+	// versión cuyos parámetros se aplicaron al histórico y el valid_from de la
+	// versión 1 nueva.
+	VersionsCollapsed  int
+	ResetSourceVersion int
+	ResetValidFrom     *time.Time
 }
 
 // BackfillService interpreta el histórico de feature_evaluations (24 h,
@@ -68,6 +91,10 @@ type BackfillService struct {
 	evaluations repositories.RuleEvaluationRepository
 	cfg         BackfillConfig
 	log         *logger.Logger
+
+	// resetter y clock solo se usan con ResetVersions (WithHistoryResetter).
+	resetter repositories.HistoryResetter
+	clock    ports.Clock
 }
 
 func NewBackfillService(
@@ -83,13 +110,23 @@ func NewBackfillService(
 	return &BackfillService{evaluator: evaluator, source: source, evaluations: evaluations, cfg: cfg, log: log}
 }
 
+// WithHistoryResetter habilita BackfillCommand.ResetVersions. Sin él, pedir el
+// reinicio falla con ErrResetUnavailable (nunca se ignora en silencio).
+func (s *BackfillService) WithHistoryResetter(resetter repositories.HistoryResetter, clock ports.Clock) *BackfillService {
+	s.resetter, s.clock = resetter, clock
+	return s
+}
+
 // Backfill corre el histórico. Un error aborta la corrida: lo ya guardado
 // queda (es idempotente) y repetirla retoma donde quedó.
 func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (BackfillResult, error) {
 	result := BackfillResult{PointBackfill: PointBackfill{HoursByLevel: map[entities.Level]int{}}}
 
-	if cmd.Rebuild && strings.EqualFold(strings.TrimSpace(s.cfg.Environment), ProductionEnvironment) {
+	if (cmd.Rebuild || cmd.ResetVersions) && strings.EqualFold(strings.TrimSpace(s.cfg.Environment), ProductionEnvironment) {
 		return result, domain.ErrRebuildForbidden
+	}
+	if err := s.validateReset(cmd); err != nil {
+		return result, err
 	}
 	if !cmd.From.IsZero() && !cmd.To.IsZero() && !cmd.From.Before(cmd.To) {
 		return result, domain.ErrInvalidTimeRange
@@ -108,6 +145,12 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 		}
 	}
 
+	if cmd.ResetVersions {
+		if err := s.resetVersions(ctx, cmd.PointID, &result); err != nil {
+			return result, err
+		}
+	}
+
 	if cmd.Rebuild {
 		var pointFilter *int64
 		if cmd.PointID > 0 {
@@ -118,7 +161,7 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 			s.log.Error("[BackfillService] Error borrando rule_evaluations para el rebuild", "error", err)
 			return result, domain.ErrPersistingRuleEvaluations
 		}
-		result.Deleted = deleted
+		result.Deleted += deleted
 		s.log.Warn("[BackfillService] Rebuild: filas de rule_evaluations borradas",
 			"measuring_point_id", cmd.PointID, "from", from, "to", to, "deleted", deleted)
 	}
@@ -138,6 +181,112 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 		"episodes_closed", result.EpisodesClosed, "deleted", result.Deleted)
 
 	return result, nil
+}
+
+// validateReset aplica las guardas de ResetVersions (CA-11) antes de escribir
+// nada: exige -rebuild, un punto concreto, la confirmación explícita de ese
+// mismo punto y el historial completo.
+func (s *BackfillService) validateReset(cmd BackfillCommand) error {
+	if !cmd.ResetVersions {
+		return nil
+	}
+	switch {
+	case !cmd.Rebuild:
+		return domain.ErrResetRequiresRebuild
+	case cmd.PointID <= 0:
+		return domain.ErrResetRequiresPoint
+	case cmd.ConfirmPointID != cmd.PointID:
+		return domain.ErrResetNotConfirmed
+	case !cmd.From.IsZero() || !cmd.To.IsZero():
+		return domain.ErrResetFullHistory
+	case s.resetter == nil || s.clock == nil:
+		return domain.ErrResetUnavailable
+	}
+	return nil
+}
+
+// resetVersions colapsa el historial de versiones FUGA del punto en una sola
+// versión 1, en UNA transacción: lee (y bloquea) las versiones, toma la
+// vigente hoy, borra las filas de rule_evaluations del punto (la FK a la
+// versión es RESTRICT, así que van ANTES que las versiones), borra las
+// versiones e inserta la v1 con los parámetros de la vigente y valid_from = la
+// primera medición del punto (now si no tiene). Si algo falla no queda nada
+// escrito. El rebuild normal recalcula después las filas.
+func (s *BackfillService) resetVersions(ctx context.Context, pointID int64, result *BackfillResult) error {
+	now := s.clock.Now().UTC()
+
+	err := s.resetter.Transaction(ctx, func(tx repositories.HistoryResetTx) error {
+		versions, err := tx.LockVersions(ctx, pointID, entities.EventTypeLeak)
+		if err != nil {
+			return err
+		}
+
+		var current *entities.ThresholdVersion
+		for n := range versions {
+			switch {
+			case versions[n].ValidFrom.After(now):
+				return domain.ErrResetFutureVersions
+			case versions[n].IsEffectiveAt(now):
+				current = &versions[n]
+			}
+		}
+		if current == nil {
+			return domain.ErrThresholdsNotFound
+		}
+
+		validFrom := now
+		first, err := tx.FirstMeasurementAt(ctx, pointID)
+		if err != nil {
+			return err
+		}
+		if first != nil {
+			validFrom = first.UTC()
+		}
+
+		deleted, err := tx.DeleteEvaluations(ctx, pointID, entities.EventTypeLeak)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.DeleteVersions(ctx, pointID, entities.EventTypeLeak); err != nil {
+			return err
+		}
+		if _, err := tx.InsertVersion(ctx, entities.ThresholdVersion{
+			MeasuringPointID: pointID,
+			EventType:        entities.EventTypeLeak,
+			Version:          1,
+			// ApplyTo con un parche vacío copia los parámetros (y sus punteros).
+			ThresholdParams: entities.ThresholdPatch{}.ApplyTo(current.ThresholdParams),
+			ValidFrom:       validFrom,
+			Reason:          fmt.Sprintf("Reconstrucción: parámetros de la versión %d aplicados al histórico", current.Version),
+			CreatedBy:       entities.SystemCreatedBy,
+			CreatedAt:       now,
+		}); err != nil {
+			return err
+		}
+
+		result.VersionsCollapsed, result.ResetSourceVersion = len(versions), current.Version
+		result.ResetValidFrom = &validFrom
+		result.Deleted += deleted
+		return nil
+	})
+	if err == nil {
+		s.log.Warn("[BackfillService] Reset de versiones: historial de umbrales colapsado en la versión 1 (excepción a la no retroactividad)",
+			"measuring_point_id", pointID, "versions_collapsed", result.VersionsCollapsed,
+			"source_version", result.ResetSourceVersion, "valid_from", result.ResetValidFrom)
+		return nil
+	}
+
+	*result = BackfillResult{PointBackfill: PointBackfill{HoursByLevel: map[entities.Level]int{}}}
+	switch {
+	case errors.Is(err, domain.ErrResetFutureVersions), errors.Is(err, domain.ErrThresholdsNotFound):
+		return err
+	case errors.Is(err, repositories.ErrConflict):
+		return domain.ErrThresholdConflict
+	default:
+		s.log.Error("[BackfillService] Error reconstruyendo las versiones de umbrales (rollback)",
+			"measuring_point_id", pointID, "error", err)
+		return domain.ErrPersistingThresholds
+	}
 }
 
 func (s *BackfillService) backfillPoint(ctx context.Context, pointID int64, from, to time.Time) (PointBackfill, error) {

@@ -196,6 +196,19 @@ func TestPushAllowlist_ParsesTheEnv(t *testing.T) {
 	}
 }
 
+// En producción la allowlist se ignora: una que quedó de las pruebas en el
+// .env del VPS no puede dejar sin push a los demás celulares.
+func TestPushAllowlist_IgnoredInProduction(t *testing.T) {
+	log := logger.New("NotificationsTest", "Error")
+	t.Setenv(NotificationsPushAllowlistEnv, "CEL-DEBUG")
+	for _, env := range []string{"production", " Production "} {
+		t.Setenv(EnvironmentEnv, env)
+		if got := pushAllowlist(log); got != nil {
+			t.Fatalf("AGATHA_ENV=%q: allowlist = %v, se esperaba nil (todos)", env, got)
+		}
+	}
+}
+
 // Sin credencial, o con una que no sirve, el push queda deshabilitado y la
 // plataforma arranca igual.
 func TestNewPushSender_FallsBackToNoop(t *testing.T) {

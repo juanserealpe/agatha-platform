@@ -27,6 +27,10 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "d_pl_min debe estar entre 0 y 100 y es obligatorio con confirm_naranja_with_planitud",
 	}
+	ErrRojoPlanitudConfig = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "confirm_rojo_with_planitud exige confirm_naranja_with_planitud",
+	}
 	ErrPersistenceConfig = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
 		Message: "persistence_mode debe ser STRICT o WINDOW; con WINDOW, persistence_window_hours y persistence_min_hours son obligatorios, >= 1 y min <= ventana",
@@ -102,6 +106,33 @@ var (
 
 	ErrRebuildForbidden = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
-		Message: "-rebuild no está permitido con AGATHA_ENV=production",
+		Message: "-rebuild y -reset-versions no están permitidos con AGATHA_ENV=production",
+	}
+
+	// -reset-versions: guardas de la reconstrucción del historial de versiones
+	// de UN punto (segunda excepción deliberada a la no retroactividad).
+	ErrResetRequiresRebuild = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-reset-versions solo es válido junto con -backfill -rebuild",
+	}
+	ErrResetRequiresPoint = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-reset-versions exige -point: no se reconstruyen todos los puntos a la vez",
+	}
+	ErrResetNotConfirmed = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-reset-versions exige -confirm <point_id> igual al valor de -point",
+	}
+	ErrResetFullHistory = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-reset-versions reconstruye todo el historial del punto: no admite -from ni -to",
+	}
+	ErrResetFutureVersions = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el punto tiene versiones programadas a futuro: no se reconstruye el historial para no descartarlas",
+	}
+	ErrResetUnavailable = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-reset-versions no está disponible: falta el repositorio de reconstrucción de versiones",
 	}
 )

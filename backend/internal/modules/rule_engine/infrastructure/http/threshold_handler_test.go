@@ -128,6 +128,23 @@ func TestCreate_PlanitudAndWindow(t *testing.T) {
 	}
 }
 
+func TestCreate_RojoWithPlanitud(t *testing.T) {
+	s := newServer()
+	code, body := s.do(t, http.MethodPost, "/api/rule-engine/points/11556/thresholds", `{"patch": {
+		"confirm_naranja_with_planitud": true, "confirm_rojo_with_planitud": true, "d_pl_min": 10},
+		"reason": "r", "created_by": "c"}`)
+	if code != http.StatusCreated || body["confirm_rojo_with_planitud"] != true || body["d_pl_min"].(float64) != 10 {
+		t.Fatalf("status = %d, body = %v", code, body)
+	}
+
+	// La versión sin la opción la devuelve en false (aditivo).
+	code, body = newServer().do(t, http.MethodPost, "/api/rule-engine/points/11556/thresholds",
+		`{"patch": {"amarillo": 0.16}, "reason": "r", "created_by": "c"}`)
+	if code != http.StatusCreated || body["confirm_rojo_with_planitud"] != false {
+		t.Fatalf("status = %d, body = %v; se esperaba confirm_rojo_with_planitud false", code, body)
+	}
+}
+
 // Casos 2 y 3 más las validaciones del cuerpo: 400 sin escribir nada.
 func TestCreate_Rejections(t *testing.T) {
 	past := now.Add(-time.Hour).Format(time.RFC3339)
@@ -144,6 +161,7 @@ func TestCreate_Rejections(t *testing.T) {
 		{"tipo inválido", `{"patch": {"min_hours": 2.5}, "reason": "r", "created_by": "c"}`},
 		{"campo raíz desconocido", `{"patch": {}, "reason": "r", "created_by": "c", "extra": 1}`},
 		{"planitud sin d_pl_min", `{"patch": {"confirm_naranja_with_planitud": true}, "reason": "r", "created_by": "c"}`},
+		{"rojo con planitud sin naranja", `{"patch": {"confirm_rojo_with_planitud": true, "d_pl_min": 10}, "reason": "r", "created_by": "c"}`},
 		{"WINDOW incompleto", `{"patch": {"persistence_mode": "WINDOW"}, "reason": "r", "created_by": "c"}`},
 		{"JSON roto", `{"patch":`},
 	}

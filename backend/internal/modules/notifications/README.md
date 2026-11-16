@@ -179,7 +179,7 @@ Solo datos (sin bloque `notification`, la app arma el texto), `android.priority 
 Implementa `NoticeChannel` detrás de `MobilePushPolicy`. Por cada aviso:
 
 1. Lee `devices.name` del punto (solo lectura) para `sensorId` y `pk`; si falla, envía sin ellos.
-2. Arma el `PushMessage` y lista `push_devices`, filtrado por `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` si está definida.
+2. Arma el `PushMessage` y lista `push_devices`, filtrado por `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` si está definida y no es producción (con `AGATHA_ENV=production` la allowlist se ignora y el push va a todos los tokens).
 3. Envía un mensaje por token, hasta 4 en paralelo; un celular que falla no frena a los demás.
 4. **Reintentos**, solo en errores reintentables: hasta 4 intentos, esperas de 1 s, 2 s y 4 s, o `Retry-After` si es mayor (tope 30 s).
 5. **Limpieza**: `UNREGISTERED` borra ese token (si el celular no registró otro mientras tanto) y no cuenta como falla. Un error definitivo no borra nada.
@@ -281,7 +281,7 @@ Habilitación: `notifications` en `AGATHA_MODULES`. No exige `alert_management` 
 | `FCM_SERVICE_ACCOUNT_FILE` | — | Ruta del JSON de la cuenta de servicio (solo lectura). Prioridad |
 | `FCM_SERVICE_ACCOUNT_JSON_BASE64` | — | Respaldo: el mismo JSON en base64 |
 | `FCM_VALIDATE_ONLY` | `true` | Valida sin entregar. El compose del VPS pone `false`; así un backend local con la credencial no llega a los celulares del piloto |
-| `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` | — | `deviceId` separados por coma. Vacía = todos |
+| `NOTIFICATIONS_PUSH_DEVICE_ALLOWLIST` | — | `deviceId` separados por coma, solo para pruebas locales. Vacía = todos. Ignorada con `AGATHA_ENV=production`, y el `docker-compose.yml` la fija vacía |
 | `NOTIFICATIONS_TEST_ENDPOINT` | `false` | Habilita el endpoint de prueba si `AGATHA_ENV` ≠ `production`. **Nunca en el VPS** |
 
 **Docker**: `docker-compose.yml` incluye `notifications` en `AGATHA_MODULES`, define `FCM_VALIDATE_ONLY=false` y fuerza `NOTIFICATIONS_TEST_ENDPOINT=false` y `AGATHA_ENV=production` (las variables de `environment` pisan el `.env`). Son dos bloqueos independientes del endpoint de prueba; `AGATHA_ENV` se compara sin distinguir mayúsculas ni espacios.

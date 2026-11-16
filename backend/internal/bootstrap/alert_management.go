@@ -156,10 +156,15 @@ func toLevelNotice(e ruleEngineContract.LevelEvaluated) alertEntities.LevelNotic
 		EscalationNaranja:  e.Escalation.NaranjaAfterHours,
 		BelowRun:           e.BelowRun,
 		LowConfidence:      e.LowConfidence,
+		DPl:                copyFloat(e.DPl),
+		DPlMin:             copyFloat(e.DPlMin),
 	}
 	for _, r := range e.Reasons {
-		if r.Code == ruleEngineContract.ReasonLeakPersistence {
+		switch r.Code {
+		case ruleEngineContract.ReasonLeakPersistence:
 			n.PersistenceHours = r.Data.Hours
+		case ruleEngineContract.ReasonNaranjaNotConfirmed:
+			n.LimitedFrom = alertEntities.Level(r.Data.From)
 		}
 	}
 	return n
@@ -187,4 +192,13 @@ type busAlertChangePublisher struct {
 func (p busAlertChangePublisher) PublishAlertChanged(ctx context.Context, c alertContract.AlertChanged) error {
 	eventbus.PublishTyped(ctx, p.bus, alertContract.TopicAlertChanged, c)
 	return nil
+}
+
+// copyFloat copia el puntero: el aviso no comparte memoria con el evento.
+func copyFloat(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
 }

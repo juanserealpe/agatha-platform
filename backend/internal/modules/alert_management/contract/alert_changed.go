@@ -15,6 +15,16 @@ const (
 	ChangeLabeled       = "LABELED"
 )
 
+// LeakSignature es la firma de fuga de la última hora calculada de la alerta:
+// DPl es el % de registros de las últimas 24 h con planitud alta (null si no
+// se calculó), DPlMin el mínimo de la versión de umbrales y Confirmed indica
+// que la hora no se limitó y DPl >= DPlMin.
+type LeakSignature struct {
+	DPl       *float64 `json:"d_pl"`
+	DPlMin    float64  `json:"d_pl_min"`
+	Confirmed bool     `json:"confirmed"`
+}
+
 // AlertChanged es la foto de una alerta después de un cambio visible (nivel,
 // estado, horas sin datos o gestión). La consume el canal web para actualizar
 // el mapa y el panel sin consultar la API.
@@ -36,8 +46,11 @@ type AlertChanged struct {
 	Blinking         bool   `json:"blinking"`
 	ManagementStatus string `json:"management_status"`
 	// Classification: CONFIRMADA o FALSA_ALERTA; vacío = sin clasificar.
-	Classification string    `json:"classification"`
-	StartedAt      time.Time `json:"started_at"`
+	Classification string `json:"classification"`
+	// LeakSignature es la de la última hora calculada; null si no hay d_pl_min
+	// (la regla de planitud no está activa para el punto) o datos.
+	LeakSignature *LeakSignature `json:"leak_signature"`
+	StartedAt     time.Time      `json:"started_at"`
 	// EvaluatedAt es la hora (UTC) del procesamiento que produjo la foto; en
 	// los cambios de gestión, la última hora procesada de la alerta.
 	EvaluatedAt   time.Time `json:"evaluated_at"`

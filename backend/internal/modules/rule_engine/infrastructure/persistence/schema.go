@@ -22,7 +22,8 @@ const ExcludeConstraint = "ex_rule_threshold_versions_no_overlap"
 //  0. upgradeRuleEvaluationsToV2: convierte una rule_evaluations del esquema v1
 //     (columna emitted) antes de que AutoMigrate vea las columnas NOT NULL nuevas.
 //  1. AutoMigrate: tablas, CHECK, UNIQUE, índices y FK (tags de los modelos).
-//  2. SQL idempotente: btree_gist + EXCLUDE USING gist (no expresable con tags).
+//  2. ensureRojoPlanitudColumn: confirm_rojo_with_planitud + su CHECK, aditivo.
+//  3. SQL idempotente: btree_gist + EXCLUDE USING gist (no expresable con tags).
 func Migrate(db *gorm.DB) error {
 	if err := upgradeRuleEvaluationsToV2(db); err != nil {
 		return err
@@ -30,6 +31,10 @@ func Migrate(db *gorm.DB) error {
 
 	if err := db.AutoMigrate(&models.RuleThresholdVersionModel{}, &models.RuleEvaluationModel{}); err != nil {
 		return fmt.Errorf("automigrate rule_engine: %w", err)
+	}
+
+	if err := ensureRojoPlanitudColumn(db); err != nil {
+		return err
 	}
 
 	if err := db.Exec(`CREATE EXTENSION IF NOT EXISTS btree_gist`).Error; err != nil {
@@ -53,6 +58,32 @@ END $$;`).Error
 		return fmt.Errorf("crear %s: %w", ExcludeConstraint, err)
 	}
 
+	return nil
+}
+
+// RojoPlanitudConstraint ata confirm_rojo_with_planitud a confirm_naranja_with_planitud.
+const RojoPlanitudConstraint = "chk_rule_threshold_versions_planitud_rojo"
+
+// ensureRojoPlanitudColumn garantiza, de forma aditiva e idempotente, la
+// columna confirm_rojo_with_planitud (NOT NULL DEFAULT false: las versiones
+// existentes quedan en false y se comportan igual) y su CHECK. AutoMigrate ya
+// los crea por los tags del modelo; esto cubre una tabla previa donde el
+// constraint no se hubiera agregado.
+func ensureRojoPlanitudColumn(db *gorm.DB) error {
+	err := db.Exec(`
+ALTER TABLE rule_threshold_versions
+	ADD COLUMN IF NOT EXISTS confirm_rojo_with_planitud boolean NOT NULL DEFAULT false;
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '` + RojoPlanitudConstraint + `') THEN
+		ALTER TABLE rule_threshold_versions
+			ADD CONSTRAINT ` + RojoPlanitudConstraint + `
+			CHECK (NOT confirm_rojo_with_planitud OR confirm_naranja_with_planitud);
+	END IF;
+END $$;`).Error
+	if err != nil {
+		return fmt.Errorf("agregar confirm_rojo_with_planitud: %w", err)
+	}
 	return nil
 }
 

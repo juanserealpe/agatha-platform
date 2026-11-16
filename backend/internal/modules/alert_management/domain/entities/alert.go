@@ -70,9 +70,38 @@ type Runtime struct {
 	LastTrend        string      `json:"last_trend,omitempty"`
 	LastMessageAt    *time.Time  `json:"last_message_at,omitempty"`
 	InNoCalc         bool        `json:"in_no_calc,omitempty"`
+	// Limited: la última hora calculada quedó limitada por la planitud (para
+	// anunciar la confirmación en la subida siguiente).
+	Limited bool `json:"limited,omitempty"`
+	// NoLeakSent: NO_LEAK_SHAPE ya salió en la racha de horas limitadas en curso.
+	NoLeakSent bool `json:"no_leak_sent,omitempty"`
 	// PausedHours son las horas entre cada fin y su reactivación: no suman a
 	// la duración (se conservan entre reactivaciones).
 	PausedHours int `json:"paused_hours,omitempty"`
+}
+
+// LeakSignature es la firma de fuga de la última hora calculada de la alerta:
+// el % de registros de las últimas 24 h con planitud alta (DPl, nil si no se
+// calculó) frente al mínimo de la versión (DPlMin). Confirmed = la hora no se
+// limitó y DPl >= DPlMin.
+type LeakSignature struct {
+	DPl       *float64
+	DPlMin    float64
+	Confirmed bool
+}
+
+// LeakSignatureOf arma la firma de una hora; nil si la versión no define d_pl_min.
+func LeakSignatureOf(n LevelNotice) *LeakSignature {
+	if n.DPlMin == nil {
+		return nil
+	}
+	s := LeakSignature{DPlMin: *n.DPlMin}
+	if n.DPl != nil {
+		v := *n.DPl
+		s.DPl = &v
+		s.Confirmed = !n.Limited() && v >= *n.DPlMin
+	}
+	return &s
 }
 
 // Alert es una alerta de un dispositivo y un evento.
@@ -110,6 +139,8 @@ type Alert struct {
 
 	LowConfidenceAtOpen bool
 	Runtime             Runtime
+	// LeakSignature describe la última hora calculada (nil sin d_pl_min o sin datos).
+	LeakSignature *LeakSignature
 
 	PolicyVersionID          int64
 	ThresholdVersionIDAtOpen int64

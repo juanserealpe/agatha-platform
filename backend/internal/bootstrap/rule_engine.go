@@ -50,9 +50,11 @@ type RuleEngineModule struct {
 type ruleEngineDeps struct {
 	thresholds  ruleEngineRepositories.ThresholdRepository
 	evaluations ruleEngineRepositories.RuleEvaluationRepository
-	source      ports.IndicatorSource
-	clock       ports.Clock
-	backfill    ruleEngineServices.BackfillConfig
+	// resetter lo usa cmd/rule_engine -reset-versions (nil en el test de punta a punta).
+	resetter ruleEngineRepositories.HistoryResetter
+	source   ports.IndicatorSource
+	clock    ports.Clock
+	backfill ruleEngineServices.BackfillConfig
 	// catchUpMinute es el minuto (UTC) del catch-up horario.
 	catchUpMinute int
 }
@@ -84,6 +86,7 @@ func NewRuleEngineModule(platform *Platform) (*RuleEngineModule, error) {
 	return wireRuleEngine(platform.EventBus, ruleEngineDeps{
 		thresholds:  ruleEngineRepositoriesImpl.NewThresholdRepository(platform.DB),
 		evaluations: ruleEngineRepositoriesImpl.NewRuleEvaluationRepository(platform.DB),
+		resetter:    ruleEngineRepositoriesImpl.NewHistoryResetter(platform.DB),
 		source:      ruleEngineRepositoriesImpl.NewIndicatorReader(platform.DB),
 		clock:       ports.ClockFunc(time.Now),
 		backfill: ruleEngineServices.BackfillConfig{
@@ -112,8 +115,9 @@ func wireRuleEngine(bus eventbus.Bus, deps ruleEngineDeps, log *logger.Logger) *
 		Thresholds: thresholds,
 		Simulator:  ruleEngineServices.NewSimulationService(deps.thresholds, deps.source, memorySandbox, deps.clock, log),
 		Evaluator:  evaluator,
-		Backfiller: ruleEngineServices.NewBackfillService(evaluator, deps.source, deps.evaluations, deps.backfill, log),
-		CatchUp:    catchUp,
+		Backfiller: ruleEngineServices.NewBackfillService(evaluator, deps.source, deps.evaluations, deps.backfill, log).
+			WithHistoryResetter(deps.resetter, deps.clock),
+		CatchUp: catchUp,
 		NewScheduler: func() *ruleEngineScheduling.CatchUpScheduler {
 			return ruleEngineScheduling.NewCatchUpScheduler(catchUp, log, deps.catchUpMinute)
 		},

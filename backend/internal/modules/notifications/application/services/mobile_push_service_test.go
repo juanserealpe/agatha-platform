@@ -63,13 +63,13 @@ func newPushFixture(devices ports.DeviceDirectory, cfg services.MobilePushConfig
 
 func TestMobilePushService_SendsToEveryPhone(t *testing.T) {
 	f := newPushFixture(devicesByPoint{11556: "Sensor PK34-470"}, services.MobilePushConfig{},
-		phone("CEL-1", "a"), phone("CEL-2", "b"))
+		phone("CEL-1", "a"), phone("CEL-2", "b"), phone("CEL-3", "c"))
 	if err := f.svc.DeliverNotice(context.Background(), notice()); err != nil {
 		t.Fatal(err)
 	}
 	sent := f.sender.Sent()
-	if len(sent) != 2 || f.sender.Attempts("a") != 1 || f.sender.Attempts("b") != 1 {
-		t.Fatalf("envíos = %+v", sent)
+	if len(sent) != 3 || f.sender.Attempts("a") != 1 || f.sender.Attempts("b") != 1 || f.sender.Attempts("c") != 1 {
+		t.Fatalf("envíos = %+v: se esperaba uno por token", sent)
 	}
 	want := entities.PushMessage{MessageID: 9, AlertID: "ALR-000142", Level: entities.PushLevelRed, Kind: entities.PushKindLevelUp,
 		SensorID: "Sensor PK34-470", PK: "34+470", Event: entities.PushEventLeak}
@@ -145,17 +145,21 @@ func TestMobilePushService_DoesNotRetryPermanentErrors(t *testing.T) {
 }
 
 func TestMobilePushService_RemovesUnregisteredTokens(t *testing.T) {
-	f := newPushFixture(devicesByPoint{}, services.MobilePushConfig{}, phone("CEL-1", "a"), phone("CEL-2", "b"))
+	f := newPushFixture(devicesByPoint{}, services.MobilePushConfig{},
+		phone("CEL-1", "a"), phone("CEL-2", "b"), phone("CEL-3", "c"))
 	f.sender.FailNext("a", ports.ErrPushTokenUnregistered)
 	if err := f.svc.DeliverNotice(context.Background(), notice()); err != nil {
 		t.Fatalf("un token borrado no es una falla: %v", err)
 	}
 	got, _ := f.store.List(context.Background())
-	if want := []entities.PushDevice{phone("CEL-2", "b")}; !reflect.DeepEqual(got, want) {
+	if want := []entities.PushDevice{phone("CEL-2", "b"), phone("CEL-3", "c")}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("celulares = %+v, se esperaba %+v", got, want)
 	}
 	if f.sender.Attempts("a") != 1 {
 		t.Fatal("UNREGISTERED no se reintenta")
+	}
+	if f.sender.Attempts("b") != 1 || f.sender.Attempts("c") != 1 {
+		t.Fatal("un token borrado no frena el envío a los demás")
 	}
 }
 

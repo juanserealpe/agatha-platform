@@ -97,6 +97,9 @@ type builder struct {
 	in  DecideInput
 	at  time.Time
 	err error
+	// prevLimited: la hora calculada anterior de la alerta estaba limitada por
+	// la planitud (si ahora sube, la planitud acaba de confirmarse).
+	prevLimited bool
 }
 
 // message renderiza la clave. kind vacío ⇒ el del catálogo.
@@ -141,6 +144,28 @@ func (b *builder) cut(l entities.Level) string {
 
 // normal es el límite de lo normal: el corte de Amarillo.
 func (b *builder) normal() string { return b.cut(entities.LevelAmarillo) }
+
+// canExplainLimit: la hora quedó limitada y trae d_pl y d_pl_min para citarlos.
+func (b *builder) canExplainLimit() bool {
+	n := b.in.Notice
+	return n.Limited() && n.DPl != nil && n.DPlMin != nil
+}
+
+// signature agrega a los parámetros d_pl y d_pl_min (porcentajes con coma).
+func (b *builder) signature(params map[string]string) map[string]string {
+	n := b.in.Notice
+	params["d_pl"] = messages.FormatPercent(*n.DPl)
+	params["d_pl_min"] = messages.FormatPercent(*n.DPlMin)
+	return params
+}
+
+// limit agrega a los parámetros el nivel que el índice daría solo ({from}),
+// su corte y la firma de fuga.
+func (b *builder) limit(params map[string]string) map[string]string {
+	params["from"] = messages.LevelName(b.in.Notice.LimitedFrom)
+	params["corte"] = b.cut(b.in.Notice.LimitedFrom)
+	return b.signature(params)
+}
 
 func (b *builder) noCalc(d *Decision) {
 	a := cloneAlert(*b.in.Active)
@@ -213,12 +238,23 @@ func (b *builder) withoutAlert(d *Decision, firstHour bool) {
 		},
 	}
 
+	a.LeakSignature = entities.LeakSignatureOf(n)
+	a.Runtime.Limited = n.Limited()
+
 	if withinWindow {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeNewAfterClassified, ""), map[string]string{
 			"pk": b.in.Device.PK, "nivel": messages.LevelName(level), "codigo_anterior": last.Code,
 			"clasificacion": messages.ClassificationName(last.Management.Classification),
 			"valor":         b.value(), "normal": b.normal(),
 		}, "", level, true))
+	} else if b.canExplainLimit() && level == entities.LevelAmarillo {
+		// Abre en Amarillo porque la planitud limitó la hora: el aviso lo dice
+		// y NO_LEAK_SHAPE no repite lo mismo en esta racha.
+		a.Runtime.NoLeakSent = true
+		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeOpen, messages.VariantNoLeakSignature), b.limit(map[string]string{
+			"pk": b.in.Device.PK, "hora_inicio": messages.FormatHour(started),
+			"valor": b.value(), "normal": b.normal(),
+		}), "", level, true))
 	} else {
 		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeOpen, string(level)), map[string]string{
 			"pk": b.in.Device.PK, "hora_inicio": messages.FormatHour(started),
@@ -268,7 +304,9 @@ func (b *builder) reactivate(d *Decision, last entities.Alert, computed entities
 		PrevZone:    entities.ZoneAbove,
 		Recent:      []entities.HourValue{{At: b.at, I: n.Value()}},
 		PausedHours: paused,
+		Limited:     n.Limited(),
 	}
+	a.LeakSignature = entities.LeakSignatureOf(n)
 
 	kind := entities.KindUpdate
 	if level.Rank() > previousMax.Rank() {
@@ -299,6 +337,12 @@ func (b *builder) withAlert(d *Decision) {
 	a.LastEvaluatedAt = b.at
 	a.HoursCalculated++
 	d.State.PendingRunStartedAt = nil
+	b.prevLimited = a.Runtime.Limited
+	a.Runtime.Limited = n.Limited()
+	if !n.Limited() {
+		a.Runtime.NoLeakSent = false
+	}
+	a.LeakSignature = entities.LeakSignatureOf(n)
 	wasNoCalc := a.Runtime.InNoCalc
 	a.Runtime.InNoCalc = false
 	d.Alert = &a
@@ -349,6 +393,9 @@ func (b *builder) withAlert(d *Decision) {
 		return
 	}
 	if primary {
+		return
+	}
+	if b.noLeakShape(d, &a) {
 		return
 	}
 	if !a.Runtime.Oscillating {
@@ -422,28 +469,41 @@ func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level, previ
 	d.CloseSegmentAt = &at
 	d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentUp, Level: level, StartedAt: at}
 
+	// Con la hora anterior limitada, la subida anuncia que la planitud se confirmó.
+	confirmed := b.prevLimited && n.DPl != nil && n.DPlMin != nil && !n.Limited()
+	upKey := func(code, variant string, params map[string]string) (string, map[string]string) {
+		if !confirmed {
+			return messages.Key(code, variant), params
+		}
+		return messages.Key(code, messages.ConfirmedVariant(variant)), b.signature(params)
+	}
+
 	switch {
 	case a.InIntervention() && level.Rank() <= p.InterventionSilentMaxLevel.Rank():
 		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpDuringIntervention, ""), map[string]string{
 			"nivel": messages.LevelName(level), "valor": b.value(), "corte": b.cut(level),
 		}, "", level, true))
 	case level == entities.LevelRojo && n.PersistenceHours > 0:
-		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpRojo, messages.VariantPersist), map[string]string{
+		key, params := upKey(messages.CodeUpRojo, messages.VariantPersist, map[string]string{
 			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "valor": b.value(),
 			"corte": b.cut(entities.LevelNaranja),
-		}, "", level, true))
+		})
+		d.Messages = append(d.Messages, b.message(a, key, params, "", level, true))
 	case level == entities.LevelRojo:
-		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpRojo, ""), map[string]string{
+		key, params := upKey(messages.CodeUpRojo, "", map[string]string{
 			"codigo": a.Code, "valor_anterior": messages.FormatValue(previous), "valor": b.value(), "corte": b.cut(level),
-		}, "", level, true))
+		})
+		d.Messages = append(d.Messages, b.message(a, key, params, "", level, true))
 	case n.PersistenceHours > 0:
-		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpNaranjaPersist, ""), map[string]string{
+		key, params := upKey(messages.CodeUpNaranjaPersist, "", map[string]string{
 			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "valor": b.value(), "normal": b.normal(),
-		}, "", level, true))
+		})
+		d.Messages = append(d.Messages, b.message(a, key, params, "", level, true))
 	default:
-		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpNaranjaFast, ""), map[string]string{
+		key, params := upKey(messages.CodeUpNaranjaFast, "", map[string]string{
 			"codigo": a.Code, "valor_anterior": messages.FormatValue(previous), "valor": b.value(), "corte": b.cut(level),
-		}, "", level, true))
+		})
+		d.Messages = append(d.Messages, b.message(a, key, params, "", level, true))
 	}
 }
 
@@ -504,6 +564,21 @@ func (b *builder) oscillation(d *Decision, a *entities.Alert) bool {
 		"hora": messages.FormatHour(rt.Flips[0]), "cambios": strconv.Itoa(len(rt.Flips)),
 		"normal": b.normal(), "valor": b.value(),
 	}, "", a.CurrentLevel, true))
+	return true
+}
+
+// noLeakShape: una vez por racha de horas limitadas, con la alerta en Amarillo,
+// dice qué nivel daría el índice y la firma de fuga. La racha termina con una
+// hora que no está limitada (Runtime.NoLeakSent vuelve a false); si otra regla
+// de mayor prioridad ocupó la hora, se intenta en la siguiente. No es aviso.
+func (b *builder) noLeakShape(d *Decision, a *entities.Alert) bool {
+	if !b.canExplainLimit() || a.Runtime.NoLeakSent || a.CurrentLevel != entities.LevelAmarillo {
+		return false
+	}
+	a.Runtime.NoLeakSent = true
+	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeNoLeakShape, ""), b.limit(map[string]string{
+		"valor": b.value(),
+	}), "", a.CurrentLevel, true))
 	return true
 }
 
