@@ -49,12 +49,15 @@ https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28
 |---|---|---|---|
 | `b1` | B1 fuga 500-1200 Hz | — | Una por lectura (~15 min) |
 | `b2` | B2 fuga 1200-2000 Hz | — | Una por lectura (~15 min) |
+| `planitud` | Planitud espectral | — | Una por lectura (~15 min) |
 | `indicador` | Indicador de fuga I, ventana de 24 h | — (de 0 a 1) | Una por hora |
 | `densidad` | Densidad D, ventana de 24 h | % (de 0 a 100) | Una por hora |
 
 ```
-https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28T00:00:00Z&endDate=2026-07-31T00:00:00Z&variables=b1,b2,indicador,densidad
+https://129.213.118.230/api/dashboard/series?deviceId=11556&startDate=2026-07-28T00:00:00Z&endDate=2026-07-31T00:00:00Z&variables=b1,b2,planitud,indicador,densidad
 ```
+
+Detalle de la planitud en `explicacion_variable_planitud.MD`.
 
 **Umbral del indicador de fuga: pendiente.** La gráfica del indicador debe llevar una línea de umbral, pero su valor **está por validarse** y el endpoint todavía no lo devuelve. Hasta que se defina:
 

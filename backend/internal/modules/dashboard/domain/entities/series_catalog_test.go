@@ -37,6 +37,25 @@ func TestSeriesCatalog_EveryDefinitionIsConsistentWithItsSource(t *testing.T) {
 	}
 }
 
+func TestSeriesCatalog_IncludesSpectralFlatnessNextToB2(t *testing.T) {
+	catalog := SeriesCatalog()
+
+	for i, d := range catalog {
+		if d.Key != "planitud" {
+			continue
+		}
+		if d.Source != SourceMeasurement || d.MetricID != 18 || d.Unit != "-" {
+			t.Fatalf("planitud mal definida (se esperaba measurement, metric_id 18, unidad -): %+v", d)
+		}
+		if i == 0 || catalog[i-1].Key != "b2" {
+			t.Fatalf("planitud debe ir justo después de b2 (sección Fuga), está en la posición %d", i)
+		}
+		return
+	}
+
+	t.Fatal("el catálogo no tiene la variable planitud")
+}
+
 func TestSeriesCatalog_ReturnsACopy(t *testing.T) {
 	first := SeriesCatalog()
 	first[0].Key = "modificada"

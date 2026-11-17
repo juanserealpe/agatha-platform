@@ -14,6 +14,7 @@ package entities
 var seriesCatalog = []SeriesDefinition{
 	{Key: "b1", Name: "B1 fuga 500-1200Hz", Unit: "-", Source: SourceMeasurement, MetricID: 12},
 	{Key: "b2", Name: "B2 fuga 1200-2000Hz", Unit: "-", Source: SourceMeasurement, MetricID: 13},
+	{Key: "planitud", Name: "Planitud espectral", Unit: "-", Source: SourceMeasurement, MetricID: 18},
 	{Key: "densidad", Name: "Densidad (D, 24 h)", Unit: "%", Source: SourceEvaluation, Column: "d", WindowHours: 24},
 	{Key: "indicador", Name: "Indicador I (24 h)", Unit: "-", Source: SourceEvaluation, Column: "i", WindowHours: 24},
 	{Key: "temperatura", Name: "Temperatura", Unit: "°C", Source: SourceMeasurement, MetricID: 20},
