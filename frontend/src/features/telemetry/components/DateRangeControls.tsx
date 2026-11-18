@@ -1,15 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { CustomRangeDialog } from "./CustomRangeDialog";
 import { QUICK_RANGE_OPTIONS, type QuickRange } from "../lib/dateRanges";
+import type { AppliedRange } from "../lib/customRange";
 
 interface DateRangeControlsProps {
     activeQuickRange: QuickRange | null;
+    /** Rango personalizado vigente, o null si hay un rango rápido activo. */
+    customRange: AppliedRange | null;
     onQuickRangeSelect: (range: QuickRange) => void;
-    onCustomRangeApply: (range: { startDate: string; endDate: string }) => void;
+    onCustomRangeApply: (range: AppliedRange) => void;
 }
 
 export function DateRangeControls({
     activeQuickRange,
+    customRange,
     onQuickRangeSelect,
     onCustomRangeApply,
 }: DateRangeControlsProps) {
@@ -26,7 +30,7 @@ export function DateRangeControls({
                     {opt.label}
                 </Button>
             ))}
-            <CustomRangeDialog onApply={onCustomRangeApply} />
+            <CustomRangeDialog applied={customRange} onApply={onCustomRangeApply} />
         </div>
     );
 }
