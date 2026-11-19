@@ -7,6 +7,7 @@ import (
 	"time"
 
 	alertContract "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/contract"
+	alertEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/entities"
 	notificationPorts "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/application/ports"
 	notificationEntities "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/domain/entities"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
@@ -49,7 +50,12 @@ func newBusTestEventEmitter(bus eventbus.Bus, clock notificationPorts.Clock) *bu
 	return &busTestEventEmitter{bus: bus, clock: clock}
 }
 
+// testAlertCode: las alertas reales llevan su código real (la app abre el
+// detalle por código); las inventadas, ALR-PRUEBA-…
 func testAlertCode(alertID int64) string {
+	if alertID > 0 {
+		return alertEntities.AlertCode(alertID)
+	}
 	return fmt.Sprintf("ALR-PRUEBA-%06d", -alertID)
 }
 
@@ -74,13 +80,16 @@ func (e *busTestEventEmitter) Emit(ctx context.Context, ev notificationEntities.
 		status = "CLASIFICADA_SIN_ETIQUETA"
 	}
 
-	eventbus.PublishTyped(ctx, e.bus, alertContract.TopicAlertChanged, alertContract.AlertChanged{
-		AlertID: alertID, AlertCode: result.AlertCode, MeasuringPointID: ev.MeasuringPointID, EventType: ev.EventType,
-		Change: result.Change, State: state, CurrentLevel: ev.Level, MaxLevel: ev.Level,
-		Blinking:         state == "ACTIVA" && ev.Level == notificationEntities.LevelRojo && ev.Classification == "",
-		ManagementStatus: status, Classification: ev.Classification,
-		StartedAt: evaluated, EvaluatedAt: evaluated, OccurredAt: now, SchemaVersion: alertContract.SchemaVersion,
-	})
+	// Sobre una alerta real no se publica alert_changed: pisaría su estado.
+	if !ev.TargetsRealAlert() {
+		eventbus.PublishTyped(ctx, e.bus, alertContract.TopicAlertChanged, alertContract.AlertChanged{
+			AlertID: alertID, AlertCode: result.AlertCode, MeasuringPointID: ev.MeasuringPointID, EventType: ev.EventType,
+			Change: result.Change, State: state, CurrentLevel: ev.Level, MaxLevel: ev.Level,
+			Blinking:         state == "ACTIVA" && ev.Level == notificationEntities.LevelRojo && ev.Classification == "",
+			ManagementStatus: status, Classification: ev.Classification,
+			StartedAt: evaluated, EvaluatedAt: evaluated, OccurredAt: now, SchemaVersion: alertContract.SchemaVersion,
+		})
+	}
 
 	if ev.Notifies() {
 		result.MessageID = -e.seq.Add(1)

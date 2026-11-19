@@ -220,17 +220,18 @@ Solo existe con `NOTIFICATIONS_TEST_ENDPOINT=true` y `AGATHA_ENV` distinto de `p
 | `level` | sí | `AMARILLO`, `NARANJA`, `ROJO` |
 | `code` | no (def. `OPEN`) | Código del catálogo (§4.1). Publica `alert_notification` y su `alert_changed` |
 | `change` | no | Cambio silencioso: `LEVEL_LOWERED`, `FINISHED`, `NO_DATA_STARTED`, `NO_DATA_ENDED`, `CLASSIFIED`, `LABELED`. Excluyente con `code` |
-| `alert_id` | no | Negativo, de un evento anterior: repite sobre la misma alerta. No acepta positivos |
+| `alert_id` | no | Negativo, de un evento anterior: repite sobre la misma alerta. Positivo: una alerta real (solo con `code`) para probar que el aviso abre su detalle |
 | `event_type` | no (def. `FUGA`) | `FUGA`, `MOVIMIENTO` |
 | `classification` | con `CLASSIFIED`/`LABELED` | `CONFIRMADA`, `FALSA_ALERTA` |
 | `late` | no | `true`: aviso atrasado (pasa `WebPolicy`, no `MobilePushPolicy`) |
 
-Valores sin distinguir mayúsculas; **cuerpo estricto** (un campo desconocido da `400`). Responde `202` (la entrega es asíncrona) con `{ "alert_id": -1, "alert_code": "ALR-PRUEBA-000001", "message_id": -2, "change": "OPENED" }`. Ids siempre negativos y código `ALR-PRUEBA-…`, para que nunca se confundan con una alerta real.
+Valores sin distinguir mayúsculas; **cuerpo estricto** (un campo desconocido da `400`). Responde `202` (la entrega es asíncrona) con `{ "alert_id": -1, "alert_code": "ALR-PRUEBA-000001", "message_id": -2, "change": "OPENED" }`. Sin `alert_id` o con uno negativo, ids negativos y código `ALR-PRUEBA-…`, para que nunca se confundan con una alerta real. Con un `alert_id` positivo se usa el código real (`ALR-000023`; la app abre el detalle por código) y se publica **solo el aviso**, nunca `alert_changed`, para no pisar el estado real de esa alerta en el mapa ni el panel; `change` con id positivo da `400`. No se verifica que la alerta exista.
 
 ```bash
 curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"level":"AMARILLO"}'
 curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":-1,"level":"ROJO","code":"UP_ROJO"}'
 curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":-1,"level":"ROJO","change":"CLASSIFIED","classification":"CONFIRMADA"}'
+curl -X POST localhost:8080/api/notifications/test-event -d '{"measuring_point_id":11556,"alert_id":23,"level":"ROJO","code":"UP_ROJO"}'
 curl -N localhost:8080/api/notifications/stream   # ver el stream crudo
 ```
 

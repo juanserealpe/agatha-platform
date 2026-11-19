@@ -109,6 +109,27 @@ func TestTestEventEmitter_SilentChange(t *testing.T) {
 	}
 }
 
+// Sobre una alerta real: el aviso lleva su código real (la app abre el detalle
+// por código) y no se publica alert_changed, para no pisar su estado real.
+func TestTestEventEmitter_RealAlertOnlySendsTheNotice(t *testing.T) {
+	web, push, results := emitTestEvents(t,
+		notificationEntities.TestEvent{MeasuringPointID: 11556, AlertID: 23, Level: "ROJO", Code: "UP_ROJO"})
+
+	r := results[0]
+	if r.AlertID != 23 || r.AlertCode != "ALR-000023" || r.MessageID >= 0 {
+		t.Fatalf("resultado = %+v: código real, mensaje de prueba negativo", r)
+	}
+	if len(web.changes) != 0 {
+		t.Fatalf("web recibió cambios %v: no se toca el estado de la alerta real", web.changes)
+	}
+	if !reflect.DeepEqual(web.notices, []string{"UP_ROJO"}) || !reflect.DeepEqual(push.notices, []string{"UP_ROJO"}) {
+		t.Fatalf("avisos web %v, push %v", web.notices, push.notices)
+	}
+	if n := web.lastNotice; n.AlertID != 23 || n.AlertCode != "ALR-000023" || n.Title == "" {
+		t.Fatalf("aviso = %+v", n)
+	}
+}
+
 func TestTestEndpointEnabled(t *testing.T) {
 	log := logger.New("NotificationsTest", "Error")
 	cases := []struct {

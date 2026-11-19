@@ -60,10 +60,10 @@ func TestTestEventHandler_ChangeOnlyHasNullMessageID(t *testing.T) {
 
 func TestTestEventHandler_RejectsInvalidRequests(t *testing.T) {
 	cases := map[string]string{
-		"JSON inválido":     `{`,
-		"campo desconocido": `{"measuring_point_id":1,"level":"ROJO","nivel":"ROJO"}`,
-		"evento inválido":   `{"measuring_point_id":1,"level":"VERDE"}`,
-		"alerta real":       `{"measuring_point_id":1,"alert_id":142,"level":"ROJO"}`,
+		"JSON inválido":      `{`,
+		"campo desconocido":  `{"measuring_point_id":1,"level":"ROJO","nivel":"ROJO"}`,
+		"evento inválido":    `{"measuring_point_id":1,"level":"VERDE"}`,
+		"cambio alerta real": `{"measuring_point_id":1,"alert_id":142,"level":"ROJO","change":"FINISHED"}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

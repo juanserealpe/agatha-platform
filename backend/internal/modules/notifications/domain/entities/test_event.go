@@ -43,7 +43,9 @@ var silentChanges = map[string]bool{
 // cambio (alert_changed); con Change, solo el cambio.
 type TestEvent struct {
 	MeasuringPointID int64
-	// AlertID es negativo: nunca choca con una alerta real. 0 = uno nuevo.
+	// AlertID negativo: alerta inventada (nunca choca con una real); 0 = una
+	// nueva. Positivo: una alerta real, solo para probar el aviso y que abra su
+	// detalle (ver TargetsRealAlert).
 	AlertID        int64
 	EventType      string
 	Level          string
@@ -55,6 +57,10 @@ type TestEvent struct {
 
 // Notifies dice si el evento incluye un aviso (banner, sonido, push).
 func (e TestEvent) Notifies() bool { return e.Code != "" }
+
+// TargetsRealAlert dice si el aviso apunta a una alerta real: se publica solo
+// el aviso, nunca alert_changed, para no pisar su estado real en los clientes.
+func (e TestEvent) TargetsRealAlert() bool { return e.AlertID > 0 }
 
 // ChangeKind es el cambio que se publica en alert_changed.
 func (e TestEvent) ChangeKind() string {
@@ -85,8 +91,8 @@ func NewTestEvent(e TestEvent) (TestEvent, error) {
 	switch {
 	case e.MeasuringPointID <= 0:
 		return invalid("measuring_point_id debe ser positivo")
-	case e.AlertID > 0:
-		return invalid("alert_id debe ser negativo (los de prueba nunca son alertas reales)")
+	case e.AlertID > 0 && e.Change != "":
+		return invalid("con una alerta real (alert_id positivo) solo se manda code: un change pisaría su estado real")
 	case e.EventType != EventLeak && e.EventType != EventMovement:
 		return invalid("event_type debe ser FUGA o MOVIMIENTO")
 	case e.Level != LevelAmarillo && e.Level != LevelNaranja && e.Level != LevelRojo:

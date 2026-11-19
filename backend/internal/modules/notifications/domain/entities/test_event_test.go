@@ -38,10 +38,25 @@ func TestNewTestEvent_UpCodesRaiseTheLevel(t *testing.T) {
 	}
 }
 
+// Con un id real solo se manda el aviso: sirve para probar que el clic abre el
+// detalle de esa alerta, sin tocar su estado en el mapa ni en el panel.
+func TestNewTestEvent_RealAlertOnlyNotifies(t *testing.T) {
+	got, err := entities.NewTestEvent(entities.TestEvent{MeasuringPointID: 11556, AlertID: 23, Level: "ROJO", Code: "UP_ROJO"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.TargetsRealAlert() || !got.Notifies() {
+		t.Fatalf("evento = %+v", got)
+	}
+	if fake, _ := entities.NewTestEvent(entities.TestEvent{MeasuringPointID: 1, AlertID: -1, Level: "ROJO"}); fake.TargetsRealAlert() {
+		t.Fatal("un id negativo no es una alerta real")
+	}
+}
+
 func TestNewTestEvent_RejectsInvalidRequests(t *testing.T) {
 	cases := map[string]entities.TestEvent{
 		"sin punto":                 {Level: "ROJO"},
-		"alerta real (id positivo)": {MeasuringPointID: 1, AlertID: 142, Level: "ROJO"},
+		"cambio sobre alerta real":  {MeasuringPointID: 1, AlertID: 142, Level: "ROJO", Change: "FINISHED"},
 		"evento desconocido":        {MeasuringPointID: 1, Level: "ROJO", EventType: "INCENDIO"},
 		"nivel normal":              {MeasuringPointID: 1, Level: "NORMAL"},
 		"code y change":             {MeasuringPointID: 1, Level: "ROJO", Code: "OPEN", Change: "FINISHED"},
