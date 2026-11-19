@@ -6,7 +6,7 @@ import { useNow } from "@/shared/hooks/useNow";
 import { formatColombiaDateTime, toIsoString } from "@/shared/lib/formatDate";
 import { cn } from "@/lib/utils";
 import { levelStyle } from "../../config/alertManagementDisplay";
-import { MESSAGE_KIND_LABEL, OPENED_BY_LABEL } from "../../config/alertExplanations";
+import { MESSAGE_KIND_DESCRIPTION, MESSAGE_KIND_LABEL, OPENED_BY_LABEL } from "../../config/alertExplanations";
 import { formatDuration, segmentDurationMs, totalDurationMs } from "../../lib/timeline";
 import { LevelBadge } from "../badges/LevelBadge";
 import { StepHeading } from "./StepHeading";
@@ -20,7 +20,8 @@ function MessageItem({ message }: { message: TimelineMessage }) {
     return (
         <li className="flex flex-col gap-0.5 rounded-md bg-gray-50 px-2.5 py-2">
             <span className="font-data-mono text-xs text-gray-500">
-                <DateTime value={message.at} /> · {MESSAGE_KIND_LABEL[message.kind] ?? message.kind}
+                <DateTime value={message.at} /> ·{" "}
+                <span title={MESSAGE_KIND_DESCRIPTION[message.kind]}>{MESSAGE_KIND_LABEL[message.kind] ?? message.kind}</span>
             </span>
             <span className="text-sm font-medium text-gray-900">{message.title}</span>
             {message.body && <span className="text-sm whitespace-pre-line text-gray-700">{message.body}</span>}

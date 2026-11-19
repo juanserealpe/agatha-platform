@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANOMALY_PHRASE, EVENT_EXPLANATION, formatAnomalyScore } from "../config/alertExplanations";
+import { ANOMALY_PHRASE, EVENT_EXPLANATION, formatAnomalyScore, leakSignatureText } from "../config/alertExplanations";
 import { formatDuration, segmentDurationMs, totalDurationMs } from "./timeline";
 
 const HOUR = 3_600_000;
@@ -55,7 +55,7 @@ describe("formatDuration", () => {
 
 describe("textos en lenguaje claro", () => {
     it("cada evento tiene título y una frase por nivel", () => {
-        expect(EVENT_EXPLANATION.FUGA.title).toBe("Posible fuga");
+        expect(EVENT_EXPLANATION.FUGA.title).toBe("Anomalía acústica");
         expect(EVENT_EXPLANATION.MOVIMIENTO.title).toBe("Posible movimiento del terreno");
         for (const phrases of Object.values(ANOMALY_PHRASE)) {
             expect(Object.keys(phrases)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
@@ -65,6 +65,17 @@ describe("textos en lenguaje claro", () => {
     it("ningún texto presenta el indicador como probabilidad o porcentaje", () => {
         const texts = [...Object.values(EVENT_EXPLANATION).map((e) => e.description), ...Object.values(ANOMALY_PHRASE).flatMap(Object.values)];
         texts.forEach((text) => expect(text).not.toMatch(/%|probabilidad/i));
+    });
+
+    it("firma de fuga: confirmada, no confirmada y sin dato", () => {
+        expect(leakSignatureText({ d_pl: 12.34, d_pl_min: 10, confirmed: true })).toEqual({
+            title: "Con firma de fuga",
+            text: "El 12,3 % de los registros de las últimas 24 h tiene firma de fuga (mínimo 10 %): el sonido se parece al de una fuga.",
+        });
+        expect(leakSignatureText({ d_pl: 4.6, d_pl_min: 10, confirmed: false })?.title).toBe("Sin firma de fuga");
+        expect(leakSignatureText({ d_pl: null, d_pl_min: 10, confirmed: false })).toBeNull();
+        expect(leakSignatureText(null)).toBeNull();
+        expect(leakSignatureText(undefined)).toBeNull();
     });
 
     it("el puntaje se muestra como número, no como porcentaje", () => {

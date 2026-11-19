@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertLevel, LevelOpenedBy, MessageKind } from "@/services/alertManagement";
+import type { AlertEvent, AlertLevel, LeakSignature, LevelOpenedBy, MessageKind } from "@/services/alertManagement";
 
 // Textos en lenguaje claro para quien monitorea sin ser experto. Se ajustan aquí, sin tocar componentes.
 // El indicador del backend es un PUNTAJE DE ANOMALÍA, no una probabilidad calibrada de fuga: ningún texto
@@ -6,8 +6,9 @@ import type { AlertEvent, AlertLevel, LevelOpenedBy, MessageKind } from "@/servi
 
 export const EVENT_EXPLANATION: Record<AlertEvent, { title: string; description: string }> = {
     FUGA: {
-        title: "Posible fuga",
-        description: "El sensor acústico escuchó en el ducto un sonido distinto al habitual, que puede indicar un escape de gas.",
+        title: "Anomalía acústica",
+        description:
+            "El sensor acústico escuchó en el ducto un sonido distinto al habitual en este punto. No siempre es una fuga: otras fuentes de ruido también lo producen.",
     },
     MOVIMIENTO: {
         title: "Posible movimiento del terreno",
@@ -46,6 +47,37 @@ export const MESSAGE_KIND_LABEL: Record<MessageKind, string> = {
     FIN: "Fin",
     GESTION: "Gestión",
 };
+
+/** Al pasar el cursor: distingue un cambio que se avisó de una actualización que solo queda registrada. */
+export const MESSAGE_KIND_DESCRIPTION: Record<MessageKind, string> = {
+    NOTIFICACION: "Cambio en la alerta que se avisó al operador: la alerta abrió o subió de nivel.",
+    ACTUALIZACION: "Actualización del estado de la alerta. Queda registrada, sin aviso.",
+    RESUMEN: "Resumen de la alerta.",
+    FIN: "La medición volvió a lo normal y la alerta terminó.",
+    GESTION: "Acción del operador: clasificación o etiqueta.",
+};
+
+const PERCENT_FORMATTER = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 });
+
+/**
+ * Firma de fuga (planitud espectral) en lenguaje claro, con el mismo vocabulario del catálogo del backend.
+ * null si no hay dato para mostrar. Como el catálogo, no afirma que sea una fuga.
+ */
+export function leakSignatureText(signature: LeakSignature | null | undefined): { title: string; text: string } | null {
+    if (!signature || signature.d_pl === null) return null;
+    const value = `${PERCENT_FORMATTER.format(signature.d_pl)} %`;
+    const min = `${PERCENT_FORMATTER.format(signature.d_pl_min)} %`;
+    if (signature.confirmed) {
+        return {
+            title: "Con firma de fuga",
+            text: `El ${value} de los registros de las últimas 24 h tiene firma de fuga (mínimo ${min}): el sonido se parece al de una fuga.`,
+        };
+    }
+    return {
+        title: "Sin firma de fuga",
+        text: `Solo el ${value} de los registros de las últimas 24 h tiene firma de fuga (se necesita ${min}): el sonido es anómalo, pero no se parece al de una fuga.`,
+    };
+}
 
 const ANOMALY_FORMATTER = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 });
 

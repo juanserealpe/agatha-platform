@@ -88,7 +88,7 @@ describe("summarizeFilters", () => {
                 },
                 deviceName
             )
-        ).toEqual(["PK34+500", "01/10/2026 – 08/10/2026", "Naranja, Rojo", "Fuga", "Sin clasificar"]);
+        ).toEqual(["PK34+500", "01/10/2026 – 08/10/2026", "Naranja, Rojo", "Anomalía acústica", "Sin clasificar"]);
     });
 
     it("rango abierto", () => {
