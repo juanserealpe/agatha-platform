@@ -72,7 +72,9 @@ function SegmentItem({ segment, isLast, now }: { segment: LevelSegment; isLast: 
 }
 
 // Cierre del evento: la medición volvió a lo normal. Usa el verde de "normal" del mapa, no un color de severidad.
-function EndItem({ endedAt }: { endedAt: string }) {
+// La insignia es neutra a propósito: no es un nivel más, así que no debe leerse como "bajó de Rojo a Normal"
+// (el backend finaliza por medición normal aunque el rojo siga sin clasificar).
+function EndItem({ endedAt, pendingClassification }: { endedAt: string; pendingClassification: boolean }) {
     return (
         <li className="flex gap-3">
             <span className="flex flex-col items-center pt-1" aria-hidden>
@@ -80,11 +82,11 @@ function EndItem({ endedAt }: { endedAt: string }) {
             </span>
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="gap-1.5 bg-emerald-50 font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                        <span className="size-1.5 rounded-full bg-alerta-verde" aria-hidden />
-                        Normal
-                    </Badge>
-                    <span className="text-xs text-gray-500">La alerta terminó</span>
+                    <Badge className="bg-gray-100 font-semibold text-gray-700 ring-1 ring-gray-200">Finalizada</Badge>
+                    <span className="text-xs text-gray-500">La medición volvió a lo normal</span>
+                    {pendingClassification && (
+                        <span className="text-xs font-semibold text-gray-900">Pendiente de clasificación</span>
+                    )}
                 </div>
                 <p className="mt-1 font-data-mono text-xs text-gray-600">
                     <DateTime value={endedAt} />
@@ -98,10 +100,12 @@ interface EventTimelineProps {
     levels: LevelSegment[];
     /** Fin de la alerta; null mientras sigue en curso. */
     endedAt: string | null;
+    /** Finalizó sin clasificar: se avisa en el cierre para que no parezca un caso resuelto. */
+    pendingClassification: boolean;
 }
 
 /** Colores por los que pasó la alerta hasta volver a lo normal, con fechas, duración y mensajes (RN-20). */
-export function EventTimeline({ levels, endedAt }: EventTimelineProps) {
+export function EventTimeline({ levels, endedAt, pendingClassification }: EventTimelineProps) {
     const titleId = useId();
     const now = useNow();
 
@@ -130,7 +134,7 @@ export function EventTimeline({ levels, endedAt }: EventTimelineProps) {
                             now={now}
                         />
                     ))}
-                    {endedAt && <EndItem endedAt={endedAt} />}
+                    {endedAt && <EndItem endedAt={endedAt} pendingClassification={pendingClassification} />}
                 </ol>
             )}
         </section>
