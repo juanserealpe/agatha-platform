@@ -28,6 +28,7 @@ export type {
     Classification,
     ClassificationRequest,
     ConfirmedLabel,
+    LeakSignature,
     DeviceRef,
     ExistingManagement,
     ExportedFile,

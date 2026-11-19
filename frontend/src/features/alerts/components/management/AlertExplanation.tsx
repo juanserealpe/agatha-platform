@@ -7,13 +7,21 @@ import {
     ANOMALY_SCORE_NOTE,
     EVENT_EXPLANATION,
     formatAnomalyScore,
+    leakSignatureText,
 } from "../../config/alertExplanations";
 import { LevelBadge } from "../badges/LevelBadge";
 import { StepHeading } from "./StepHeading";
 
 type ExplanationDetail = Pick<
     AlertDetail,
-    "event" | "max_level" | "current_level" | "opening_indicator_value" | "last_indicator_value" | "levels" | "trigger_variables"
+    | "event"
+    | "max_level"
+    | "current_level"
+    | "opening_indicator_value"
+    | "last_indicator_value"
+    | "levels"
+    | "trigger_variables"
+    | "leak_signature"
 >;
 
 function Score({ label, value, level }: { label: string; value: number; level: AlertLevel }) {
@@ -100,6 +108,7 @@ function ExplanationBody({ detail }: { detail: ExplanationDetail }) {
     const event = EVENT_EXPLANATION[detail.event];
     const openingLevel = detail.levels[0]?.level ?? detail.max_level;
     const lastLevel = detail.current_level ?? detail.levels.at(-1)?.level ?? detail.max_level;
+    const leak = detail.event === "FUGA" ? leakSignatureText(detail.leak_signature) : null;
 
     return (
         <div className="flex flex-col gap-3">
@@ -107,6 +116,11 @@ function ExplanationBody({ detail }: { detail: ExplanationDetail }) {
                 <strong className="text-gray-900">{event.title}.</strong> {event.description}
             </p>
             <p className="text-sm text-gray-800">{ANOMALY_PHRASE[detail.event][detail.max_level]}</p>
+            {leak && (
+                <p className="text-sm text-gray-800">
+                    <strong className="text-gray-900">{leak.title}.</strong> {leak.text}
+                </p>
+            )}
 
             <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Score label="Nivel de anomalía al abrir" value={detail.opening_indicator_value} level={openingLevel} />

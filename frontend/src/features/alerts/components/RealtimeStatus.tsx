@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Bell, BellOff, BellRing, RefreshCw, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
+import { Bell, BellOff, BellRing, RefreshCw, Volume2, VolumeX } from "lucide-react";
 import type { StreamStatus } from "@/services/realtime";
 import { cn } from "@/lib/utils";
 import { useAlertStreamStatus } from "../hooks/useAlertStream";
@@ -26,8 +26,9 @@ const POLLING_NOTE = "Mientras tanto, las alertas se actualizan cada 30 s.";
 const STATUS_STYLES: Record<StreamStatus, StatusStyle> = {
     live: {
         label: "En vivo",
-        description: "Conectado en tiempo real: las alertas llegan al instante.",
-        Icon: Wifi,
+        description: "Avisos de alertas en tiempo real: llegan al instante. No indica el estado de los sensores.",
+        // Campana y no Wi-Fi: el Wi-Fi se confundía con la conexión de los sensores.
+        Icon: BellRing,
         className: "border-emerald-200 bg-emerald-50 text-emerald-700",
     },
     connecting: {
@@ -53,8 +54,8 @@ const STATUS_STYLES: Record<StreamStatus, StatusStyle> = {
     },
     offline: {
         label: "Sin conexión",
-        description: `No se pudo conectar al tiempo real; se sigue intentando. ${POLLING_NOTE}`,
-        Icon: WifiOff,
+        description: `No se pudo conectar a los avisos en tiempo real; se sigue intentando. ${POLLING_NOTE}`,
+        Icon: BellOff,
         className: "border-gray-300 bg-gray-100 text-gray-700",
     },
 };

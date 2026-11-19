@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_RANGE, getRangeDates, type QuickRange } from "../lib/dateRanges";
+import type { AppliedRange } from "../lib/customRange";
 
 interface DateRangeValue {
     quickRange: QuickRange | null;
@@ -34,7 +35,7 @@ export function useDateRangeState() {
         setState({ quickRange: range, ...getRangeDates(range) });
     }
 
-    function selectCustomRange(range: { startDate: string; endDate: string }) {
+    function selectCustomRange(range: AppliedRange) {
         setState({ quickRange: null, ...range });
     }
 

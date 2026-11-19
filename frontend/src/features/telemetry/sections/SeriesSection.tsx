@@ -52,6 +52,7 @@ function AvailableSeriesSection({ sectionKey, config, deviceId }: SeriesSectionP
         <div className="flex flex-col gap-3">
             <DateRangeControls
                 activeQuickRange={quickRange}
+                customRange={quickRange === null ? { startDate, endDate } : null}
                 onQuickRangeSelect={selectQuickRange}
                 onCustomRangeApply={selectCustomRange}
             />

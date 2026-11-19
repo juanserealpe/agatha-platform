@@ -118,7 +118,11 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
             {/* Contexto del evento en todos los modos: para clasificar hay que entender qué pasó. En los pasos
                 la explicación va plegada para que el formulario quede a la vista. */}
             <AlertExplanation detail={detail} collapsed={inStep} />
-            <EventTimeline levels={detail.levels} endedAt={detail.in_progress ? null : detail.ended_at} />
+            <EventTimeline
+                levels={detail.levels}
+                endedAt={detail.in_progress ? null : detail.ended_at}
+                pendingClassification={detail.management_status === "SIN_CLASIFICAR"}
+            />
             {body}
         </>
     );

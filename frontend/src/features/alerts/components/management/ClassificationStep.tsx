@@ -1,14 +1,14 @@
 import { useId, useState, type FormEvent } from "react";
-import { Loader2, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import type { AlertDetail, Classification, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { CLASSIFICATION_LABEL } from "../../config/alertManagementDisplay";
 import { CLASSIFICATION_OPTIONS } from "../../config/classificationOptions";
 import { useClassifyAlert } from "../../hooks/useAlertManagementMutations";
 import { allowedClassifications, validateClassificationForm } from "../../lib/classificationForm";
+import { ConfirmClassificationDialog } from "./ConfirmClassificationDialog";
 import { ManagementNotice } from "./ManagementNotice";
 import { StepHeading } from "./StepHeading";
 
@@ -26,7 +26,7 @@ interface ClassificationStepProps {
 
 /**
  * Paso 1 (obligatorio): clasificación. Es irreversible, así que no hay opción preseleccionada y se pide
- * una confirmación explícita antes de enviarla (HU-2.2).
+ * una confirmación explícita en una ventana aparte antes de enviarla (HU-2.2).
  */
 export function ClassificationStep({ detail, onSaved, onCancel }: ClassificationStepProps) {
     const titleId = useId();
@@ -40,19 +40,30 @@ export function ClassificationStep({ detail, onSaved, onCancel }: Classification
     function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         if (classification === null || errors.length > 0 || classify.isPending) return;
-        if (!confirming) {
-            setConfirming(true);
-            return;
-        }
-        classify.mutate({ classification, observation: NO_OBSERVATION }, { onSuccess: onSaved });
+        classify.reset();
+        setConfirming(true);
+    }
+
+    function handleConfirm() {
+        if (classification === null) return;
+        classify.mutate(
+            { classification, observation: NO_OBSERVATION },
+            // Ante un error se cierra la confirmación y el aviso queda junto a la opción elegida, que se conserva.
+            { onSuccess: onSaved, onError: () => setConfirming(false) }
+        );
+    }
+
+    function handleConfirmOpenChange(open: boolean) {
+        // Mientras se guarda no se puede cerrar: el resultado debe verse en el paso.
+        if (!open && classify.isPending) return;
+        setConfirming(open);
     }
 
     return (
         <form onSubmit={handleSubmit} noValidate aria-labelledby={titleId} className="flex flex-col gap-4">
             <StepHeading id={titleId} step={1} title="Clasificación de la alerta" aside="Obligatoria" />
 
-            {/* Mientras se confirma, la opción queda fija: se confirma exactamente lo que se ve. */}
-            <fieldset disabled={classify.isPending || confirming}>
+            <fieldset disabled={classify.isPending}>
                 <RadioGroup
                     aria-labelledby={titleId}
                     aria-required
@@ -86,40 +97,29 @@ export function ClassificationStep({ detail, onSaved, onCancel }: Classification
 
             {classify.isError && <ManagementNotice tone="error">{SAVE_ERROR}</ManagementNotice>}
 
-            {confirming && classification !== null ? (
-                <DialogFooter className="-mx-5 -mb-5 items-center px-5 sm:justify-between">
-                    <p role="status" className="flex items-start gap-1.5 text-sm text-gray-800">
-                        <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
-                        <span>
-                            ¿Confirma que la alerta es <strong>{CLASSIFICATION_LABEL[classification]}</strong>? Después no se podrá
-                            modificar.
-                        </span>
-                    </p>
-                    <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                        <Button type="button" variant="outline" onClick={() => setConfirming(false)} disabled={classify.isPending}>
-                            Volver
-                        </Button>
-                        <Button type="submit" autoFocus disabled={classify.isPending}>
-                            {classify.isPending && <Loader2 className="animate-spin" aria-hidden />}
-                            {classify.isPending ? "Guardando…" : "Sí, clasificar"}
-                        </Button>
-                    </div>
-                </DialogFooter>
-            ) : (
-                <DialogFooter className="-mx-5 -mb-5 items-center px-5 sm:justify-between">
-                    <p className="flex items-center gap-1.5 text-xs text-gray-600">
-                        <Lock className="size-3.5" aria-hidden />
-                        Esta clasificación no se puede modificar.
-                    </p>
-                    <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                        <Button type="button" variant="outline" onClick={onCancel}>
-                            Ahora no
-                        </Button>
-                        <Button type="submit" disabled={errors.length > 0}>
-                            Guardar clasificación
-                        </Button>
-                    </div>
-                </DialogFooter>
+            <DialogFooter className="-mx-5 -mb-5 items-center px-5 sm:justify-between">
+                <p className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <Lock className="size-3.5" aria-hidden />
+                    Esta clasificación no se puede modificar.
+                </p>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                    <Button type="button" variant="outline" onClick={onCancel}>
+                        Ahora no
+                    </Button>
+                    <Button type="submit" disabled={errors.length > 0 || classify.isPending}>
+                        Guardar clasificación
+                    </Button>
+                </div>
+            </DialogFooter>
+
+            {classification !== null && (
+                <ConfirmClassificationDialog
+                    open={confirming}
+                    onOpenChange={handleConfirmOpenChange}
+                    classification={classification}
+                    pending={classify.isPending}
+                    onConfirm={handleConfirm}
+                />
             )}
         </form>
     );
