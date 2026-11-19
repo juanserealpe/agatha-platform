@@ -41,6 +41,15 @@ type RuleEngineModule struct {
 	// NewScheduler crea el catch-up horario (al arrancar + minuto RULE_ENGINE_CATCHUP_MINUTE).
 	NewScheduler func() *ruleEngineScheduling.CatchUpScheduler
 
+	// Movimiento (REQ alertas por movimiento, §6).
+	MotionThresholds *ruleEngineServices.MotionThresholdService
+	MotionEvaluator  *ruleEngineServices.MotionEvaluationService
+	// MotionBackfiller lo usa cmd/rule_engine -backfill -motion.
+	MotionBackfiller *ruleEngineServices.MotionBackfillService
+	MotionSimulator  *ruleEngineServices.MotionSimulationService
+	// NewMotionScheduler crea el MotionScheduler (al arrancar + minuto RULE_ENGINE_MOTION_MINUTE).
+	NewMotionScheduler func() *ruleEngineScheduling.MotionScheduler
+
 	bus eventbus.Bus
 	log *logger.Logger
 }
@@ -57,6 +66,12 @@ type ruleEngineDeps struct {
 	backfill ruleEngineServices.BackfillConfig
 	// catchUpMinute es el minuto (UTC) del catch-up horario.
 	catchUpMinute int
+
+	// Movimiento: nil en los tests que solo prueban FUGA.
+	motionThresholds  ruleEngineRepositories.MotionThresholdRepository
+	motionEvaluations ruleEngineRepositories.MotionEvaluationRepository
+	rawSource         ports.RawMeasurementSource
+	motionMinute      int
 }
 
 // NewRuleEngineModule migra rule_threshold_versions y rule_evaluations (y
@@ -83,6 +98,15 @@ func NewRuleEngineModule(platform *Platform) (*RuleEngineModule, error) {
 		logRuleEngine.Info("versión 1 de umbrales creada para los puntos existentes (seed)", "points", seeded)
 	}
 
+	motionSeeded, err := ruleEnginePersistence.SeedInitialMotionThresholds(platform.DB)
+	if err != nil {
+		logDB.Error("falló el seed de umbrales de movimiento del Rule Engine", "error", err)
+		return nil, err
+	}
+	if motionSeeded > 0 {
+		logRuleEngine.Info("versión 1 de movimiento creada para los puntos existentes (seed)", "points", motionSeeded)
+	}
+
 	return wireRuleEngine(platform.EventBus, ruleEngineDeps{
 		thresholds:  ruleEngineRepositoriesImpl.NewThresholdRepository(platform.DB),
 		evaluations: ruleEngineRepositoriesImpl.NewRuleEvaluationRepository(platform.DB),
@@ -94,6 +118,11 @@ func NewRuleEngineModule(platform *Platform) (*RuleEngineModule, error) {
 			BatchSize:   envInt(logRuleEngine, "RULE_ENGINE_BACKFILL_BATCH_SIZE", 500),
 		},
 		catchUpMinute: envMinute(logRuleEngine, "RULE_ENGINE_CATCHUP_MINUTE", ruleEngineScheduling.DefaultCatchUpMinute),
+
+		motionThresholds:  ruleEngineRepositoriesImpl.NewMotionThresholdRepository(platform.DB),
+		motionEvaluations: ruleEngineRepositoriesImpl.NewMotionEvaluationRepository(platform.DB),
+		rawSource:         ruleEngineRepositoriesImpl.NewRawMeasurementReader(platform.DB),
+		motionMinute:      envMinute(logRuleEngine, "RULE_ENGINE_MOTION_MINUTE", ruleEngineScheduling.DefaultMotionMinute),
 	}, logRuleEngine), nil
 }
 
@@ -111,7 +140,27 @@ func wireRuleEngine(bus eventbus.Bus, deps ruleEngineDeps, log *logger.Logger) *
 
 	catchUp := ruleEngineServices.NewCatchUpService(evaluator, deps.source, deps.evaluations, deps.backfill.BatchSize, log)
 
+	motionThresholds := ruleEngineServices.NewMotionThresholdService(deps.motionThresholds, deps.clock, log)
+	motionEvaluator := ruleEngineServices.NewMotionEvaluationService(
+		deps.motionThresholds,
+		deps.motionEvaluations,
+		motionThresholds,
+		deps.rawSource,
+		busMotionEventPublisher{bus: bus},
+		deps.clock,
+		log,
+	)
+
 	return &RuleEngineModule{
+		MotionThresholds: motionThresholds,
+		MotionEvaluator:  motionEvaluator,
+		MotionBackfiller: ruleEngineServices.NewMotionBackfillService(motionEvaluator,
+			ruleEngineServices.MotionBackfillConfig{Environment: deps.backfill.Environment}),
+		MotionSimulator: ruleEngineServices.NewMotionSimulationService(deps.motionThresholds, deps.rawSource, deps.clock, log),
+		NewMotionScheduler: func() *ruleEngineScheduling.MotionScheduler {
+			return ruleEngineScheduling.NewMotionScheduler(motionEvaluator, log, deps.motionMinute)
+		},
+
 		Thresholds: thresholds,
 		Simulator:  ruleEngineServices.NewSimulationService(deps.thresholds, deps.source, memorySandbox, deps.clock, log),
 		Evaluator:  evaluator,
@@ -136,6 +185,7 @@ func memorySandbox(seed ruleEngineEntities.ThresholdVersion) (ruleEngineReposito
 // autenticación de usuarios todavía: created_by viaja en el cuerpo.
 func (m *RuleEngineModule) RegisterRoutes(mux *http.ServeMux) {
 	ruleEngineHTTP.NewThresholdHandler(m.Thresholds, m.Simulator, m.log).RegisterRoutes(mux)
+	ruleEngineHTTP.NewMotionHandler(m.MotionThresholds, m.MotionSimulator, m.log).RegisterRoutes(mux)
 }
 
 // SubscribeIndicatorEvaluated suscribe el Rule Engine a processing.indicator_evaluated.
@@ -189,5 +239,17 @@ type busLevelEventPublisher struct {
 
 func (p busLevelEventPublisher) PublishLevelEvaluated(ctx context.Context, e ruleEngineContract.LevelEvaluated) error {
 	eventbus.PublishTyped(ctx, p.bus, ruleEngineContract.TopicLevelEvaluated, e)
+	return nil
+}
+
+// busMotionEventPublisher es el adaptador de MotionEventPublisher hacia el bus.
+// Hasta que Alert Management se suscriba (entrega 2 del requerimiento de
+// movimiento, parte AM), publicar es un no-op del bus.
+type busMotionEventPublisher struct {
+	bus eventbus.Bus
+}
+
+func (p busMotionEventPublisher) PublishMotionEvaluated(ctx context.Context, e ruleEngineContract.MotionEvaluated) error {
+	eventbus.PublishTyped(ctx, p.bus, ruleEngineContract.TopicMotionEvaluated, e)
 	return nil
 }

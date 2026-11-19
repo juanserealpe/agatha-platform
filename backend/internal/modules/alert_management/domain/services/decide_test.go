@@ -449,8 +449,9 @@ func TestDecide_FalseAlarmKeepsNotifyingRises(t *testing.T) {
 	}
 }
 
-// Escenario 12: con etiqueta de intervención sube a naranja sin notificar; el rojo sí.
-func TestDecide_InterventionSilentUntilNaranja(t *testing.T) {
+// CA-5 (catálogo v7, §7.3.5): con MANTENIMIENTO_PROGRAMADO las subidas
+// emiten su UP_* normal como Notificación (ya no existe UP_DURING_INTERVENTION).
+func TestDecide_ScheduledWorkStillNotifiesRises(t *testing.T) {
 	w := newWorld(t)
 	w.feed(
 		calc(0, 0.17, A, A, none, inEpisode(false)),
@@ -459,13 +460,13 @@ func TestDecide_InterventionSilentUntilNaranja(t *testing.T) {
 	w.active.Management = entities.Management{Status: entities.StatusClassifiedAndLabel,
 		Classification: entities.ClassificationFalseAlarm, Label: entities.LabelScheduledWork}
 	w.feed(calc(2, 0.27, O, O, none), calc(3, 0.40, R, R, none))
-	if got := w.codeAt(messages.CodeUpDuringIntervention); !slices.Equal(got, []time.Time{h(2)}) {
-		t.Fatalf("UP_DURING_INTERVENTION en %v", got)
+	if got := w.codeAt(messages.CodeUpNaranjaFast); !slices.Equal(got, []time.Time{h(2)}) {
+		t.Fatalf("UP_NARANJA_FAST en %v", got)
 	}
 	if got := w.codeAt(messages.CodeUpRojo); !slices.Equal(got, []time.Time{h(3)}) {
 		t.Fatalf("UP_ROJO en %v", got)
 	}
-	if w.notifications() != 2 { // OPEN + UP_ROJO
+	if w.notifications() != 3 { // OPEN + UP_NARANJA_FAST + UP_ROJO
 		t.Fatalf("notificaciones = %d", w.notifications())
 	}
 }
@@ -730,14 +731,6 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 		}, messages.CodeRojoHeld, "El índice de ruido lleva 6 h por debajo del límite de Rojo (0,35) y está en 0,20, pero una alerta roja sin clasificar no baja de nivel."},
 		{"sin datos", noCalcGap, messages.CodeNoCalcStart, "No se puede evaluar desde las 08:00 del 24/08; la alerta sigue en Naranja. Último índice de ruido: 0,20."},
 		{"vuelven los datos", noCalcGap, messages.CodeNoCalcEnd, "Índice de ruido en 0,20; la alerta sigue en Naranja."},
-		{"intervención", func(t *testing.T) *world {
-			w := newWorld(t)
-			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
-			w.active.Management = entities.Management{Status: entities.StatusClassifiedAndLabel,
-				Classification: entities.ClassificationFalseAlarm, Label: entities.LabelScheduledWork}
-			w.feed(calc(2, 0.27, O, O, none))
-			return w
-		}, messages.CodeUpDuringIntervention, "Índice de ruido en 0,27; Naranja empieza en 0,25. Por la intervención registrada, esta subida no se notifica."},
 		{"reactivación", func(t *testing.T) *world {
 			w := finishedAt(t)
 			w.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.18, A, A, opened, hoursAbove(2)))

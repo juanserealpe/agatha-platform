@@ -21,6 +21,15 @@
 // primera es la v1 sembrada), acotada a un punto y bloqueada con
 // AGATHA_ENV=production. Hacer backup antes: no se puede deshacer.
 //
+// Con -motion carga, en cambio, el histórico de motion_evaluations desde
+// raw_measurements (no depende de Processing), con la misma evaluación que el
+// MotionScheduler y sin publicar. Retoma desde la última fila de cada punto:
+//
+//	rule_engine -backfill -motion [-point 11556] [-from ...] [-to ...] [-rebuild]
+//
+// -from solo aplica a un punto sin filas o con -rebuild (que borra [from, to)).
+// -rebuild está bloqueado con AGATHA_ENV=production; -reset-versions no aplica.
+//
 // Orden: primero processing -backfill (fuente), después rule_engine -backfill
 // y recién entonces habilitar rule_engine en AGATHA_MODULES.
 package main
@@ -53,6 +62,7 @@ func main() {
 	rebuild := flag.Bool("rebuild", false, "borra rule_evaluations del rango/punto y recalcula (no en production)")
 	resetVersions := flag.Bool("reset-versions", false, "con -backfill -rebuild: colapsa las versiones de umbrales del punto en una v1 con los parámetros vigentes y valid_from = su primera medición (exige -point y -confirm; no en production)")
 	confirm := flag.Int64("confirm", 0, "con -reset-versions: repetir el valor de -point para confirmar")
+	motion := flag.Bool("motion", false, "con -backfill: carga motion_evaluations desde raw_measurements en vez de rule_evaluations")
 	flag.Parse()
 
 	if !*backfill {
@@ -66,6 +76,11 @@ func main() {
 	}
 	if *resetVersions && (!*rebuild || *pointID <= 0 || *confirm != *pointID) {
 		log.Error("-reset-versions exige -rebuild, -point y -confirm con el mismo valor que -point")
+		os.Exit(2)
+	}
+
+	if *motion && *resetVersions {
+		log.Error("-reset-versions no aplica con -motion")
 		os.Exit(2)
 	}
 
@@ -86,6 +101,18 @@ func main() {
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
+
+	if *motion {
+		result, err := module.MotionBackfiller.Backfill(ctx, ruleEngineServices.MotionBackfillCommand{
+			PointID: *pointID, From: from, To: to, Rebuild: *rebuild,
+		})
+		printMotionReport(result)
+		if err != nil {
+			log.Error("el backfill de movimiento falló (lo guardado queda; repetirlo retoma)", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	result, err := module.Backfiller.Backfill(ctx, ruleEngineServices.BackfillCommand{
 		PointID: *pointID,
@@ -151,4 +178,28 @@ func formatTime(t *time.Time) string {
 		return "—"
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func printMotionReport(r ruleEngineServices.MotionBackfillResult) {
+	if r.Deleted > 0 {
+		fmt.Printf("Rebuild: %d filas de motion_evaluations borradas\n", r.Deleted)
+	}
+	if len(r.Points) == 0 {
+		fmt.Println("Resultado: no hay puntos con umbrales de movimiento")
+		return
+	}
+	fmt.Printf("%-10s %6s %7s %6s %8s %8s %6s %7s  %s\n",
+		"punto", "horas", "nuevas", "dupl.", "sin umbr", "no calc", "abren", "cierran", "rango")
+	for _, p := range r.Points {
+		note := ""
+		if p.WithoutMeasurements {
+			note = "  (sin mediciones de pitch/roll)"
+		}
+		if p.Err != nil {
+			note += "  ERROR: " + p.Err.Error()
+		}
+		fmt.Printf("%-10d %6d %7d %6d %8d %8d %6d %7d  [%s, %s]%s\n",
+			p.PointID, p.Hours, p.Saved, p.Duplicates, p.NoThresholds, p.NoCalculable,
+			p.Opened, p.Cleared, formatTime(p.First), formatTime(p.Last), note)
+	}
 }

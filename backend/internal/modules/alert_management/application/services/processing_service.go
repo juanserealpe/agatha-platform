@@ -60,8 +60,11 @@ type ProcessingService struct {
 	devices   ports.DeviceDirectory
 	publisher ports.NotificationPublisher
 	changes   ports.AlertChangePublisher
-	clock     ports.Clock
-	log       *logger.Logger
+	// motions completa las horas de movimiento que faltan antes de un evento
+	// en vivo (nil ⇒ solo se procesa la hora recibida).
+	motions ports.MotionSource
+	clock   ports.Clock
+	log     *logger.Logger
 
 	mu    sync.Mutex
 	locks map[int64]*sync.Mutex
@@ -82,6 +85,13 @@ func NewProcessingService(
 // sin él solo se publican los avisos.
 func (s *ProcessingService) WithChangePublisher(p ports.AlertChangePublisher) *ProcessingService {
 	s.changes = p
+	return s
+}
+
+// WithMotionSource permite completar, antes de una hora de movimiento en
+// vivo, las horas que faltan desde la última procesada (evento perdido).
+func (s *ProcessingService) WithMotionSource(m ports.MotionSource) *ProcessingService {
+	s.motions = m
 	return s
 }
 
@@ -136,13 +146,18 @@ func (s *ProcessingService) Process(ctx context.Context, notice entities.LevelNo
 			current = *state
 		}
 
-		active, err := tx.GetActive(ctx, notice.MeasuringPointID, notice.EventType)
+		active, err := tx.GetActive(ctx, notice.MeasuringPointID)
 		if err != nil {
 			return err
 		}
+		motion, err := tx.GetState(ctx, notice.MeasuringPointID, entities.EventTypeMovement)
+		if err != nil {
+			return err
+		}
+		motionInEpisode := motion != nil && motion.InEpisode
 
 		for _, n := range withGaps(current, notice) {
-			if current, active, err = s.apply(ctx, tx, current, active, n, policy, dev, source, now, &result, &pending, &changed); err != nil {
+			if current, active, err = s.apply(ctx, tx, current, active, n, policy, dev, source, now, motionInEpisode, &result, &pending, &changed); err != nil {
 				return err
 			}
 		}
@@ -212,11 +227,12 @@ func (s *ProcessingService) apply(
 	device entities.Device,
 	source entities.Source,
 	now time.Time,
+	motionInEpisode bool,
 	result *ProcessResult,
 	pending *[]contract.AlertNotification,
 	changed *[]contract.AlertChanged,
 ) (entities.ProcessingState, *entities.Alert, error) {
-	in := domainServices.DecideInput{State: state, Active: active, Notice: notice, Policy: policy, Device: device}
+	in := domainServices.DecideInput{State: state, Active: active, Notice: notice, Policy: policy, Device: device, MotionInEpisode: motionInEpisode}
 
 	var segment *entities.Segment
 	var err error
@@ -225,18 +241,39 @@ func (s *ProcessingService) apply(
 			return state, active, err
 		}
 		in.Segment = segment
-	} else if state.LastAlertID != nil && notice.EpisodeEvent == entities.EpisodeOpened {
-		last, err := tx.GetAlert(ctx, *state.LastAlertID, false)
-		if err != nil && err != ports.ErrNotFound {
+	} else if notice.EpisodeEvent == entities.EpisodeOpened {
+		// La reactivación busca la última FINALIZADA del punto, de cualquier origen (§7.3.4).
+		if in.Last, err = tx.GetLastFinished(ctx, notice.MeasuringPointID); err != nil {
 			return state, active, err
 		}
-		in.Last = last
 	}
 
 	d, err := domainServices.Decide(in)
 	if err != nil {
 		return state, active, err
 	}
+	return s.persist(ctx, tx, d, segment, active, entities.EventTypeLeak, notice.EvaluatedAt, policy, source, now, result, pending, changed)
+}
+
+// persist guarda la decisión de una hora (de cualquiera de los dos flujos)
+// dentro de la transacción y junta los avisos y cambios a publicar.
+func (s *ProcessingService) persist(
+	ctx context.Context,
+	tx ports.AlertTx,
+	d domainServices.Decision,
+	segment *entities.Segment,
+	active *entities.Alert,
+	flow entities.EventType,
+	evaluatedAt time.Time,
+	policy entities.Policy,
+	source entities.Source,
+	now time.Time,
+	result *ProcessResult,
+	pending *[]contract.AlertNotification,
+	changed *[]contract.AlertChanged,
+) (entities.ProcessingState, *entities.Alert, error) {
+	state := d.State
+	var err error
 	result.Hours++
 	result.Decisions = append(result.Decisions, d.Outcome)
 
@@ -290,7 +327,7 @@ func (s *ProcessingService) apply(
 		}
 	}
 
-	late := now.Sub(notice.EvaluatedAt) > time.Duration(policy.LateNotificationMaxHours)*time.Hour
+	late := now.Sub(evaluatedAt) > time.Duration(policy.LateNotificationMaxHours)*time.Hour
 	for _, m := range d.Messages {
 		m.AlertID = alert.ID
 		m.SegmentID = segmentID
@@ -308,7 +345,7 @@ func (s *ProcessingService) apply(
 		}
 		m.ID = id
 		result.Notifications++
-		*pending = append(*pending, toAlertNotification(alert, m, source, late, now))
+		*pending = append(*pending, toAlertNotification(alert, m, flow, source, late, now))
 	}
 
 	// Decide trabaja sobre una copia: active conserva el nivel anterior.
@@ -317,13 +354,13 @@ func (s *ProcessingService) apply(
 		previous = active.CurrentLevel
 	}
 	if change := changeOf(d, previous, alert.CurrentLevel); change != "" && source != entities.SourceBackfill {
-		*changed = append(*changed, toAlertChanged(alert, change, notice.EvaluatedAt, now))
+		*changed = append(*changed, toAlertChanged(alert, change, evaluatedAt, now))
 	}
 
 	if d.Outcome == domainServices.OutcomeOpened || d.Outcome == domainServices.OutcomeReactivated || d.Outcome == domainServices.OutcomeFinished {
 		s.log.Info("[ProcessingService] Alerta "+string(d.Outcome),
-			"alert", alert.Code, "measuring_point_id", alert.MeasuringPointID, "evaluated_at", notice.EvaluatedAt,
-			"level", alert.CurrentLevel, "max_level", alert.MaxLevel, "source", source)
+			"alert", alert.Code, "measuring_point_id", alert.MeasuringPointID, "evaluated_at", evaluatedAt,
+			"flow", flow, "events", alert.Events, "level", alert.CurrentLevel, "max_level", alert.MaxLevel, "source", source)
 	}
 
 	if alert.State == entities.AlertActive {
@@ -332,14 +369,16 @@ func (s *ProcessingService) apply(
 	return d.State, nil, nil
 }
 
-// toAlertNotification arma el evento del contrato con la alerta ya actualizada.
-func toAlertNotification(a entities.Alert, m entities.Message, source entities.Source, late bool, now time.Time) contract.AlertNotification {
+// toAlertNotification arma el evento del contrato con la alerta ya
+// actualizada. event_type es el flujo del mensaje (MOVIMIENTO si vino de ese
+// flujo), no el origen de la alerta: el contrato v1 no cambia (§3).
+func toAlertNotification(a entities.Alert, m entities.Message, flow entities.EventType, source entities.Source, late bool, now time.Time) contract.AlertNotification {
 	return contract.AlertNotification{
 		MessageID:        m.ID,
 		AlertID:          a.ID,
 		AlertCode:        a.Code,
 		MeasuringPointID: a.MeasuringPointID,
-		EventType:        string(a.EventType),
+		EventType:        string(flow),
 		StartedAt:        a.StartedAt.UTC(),
 		EvaluatedAt:      m.EvaluatedAt.UTC(),
 		Code:             m.Code,

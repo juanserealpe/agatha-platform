@@ -152,14 +152,46 @@ func (s *AlertStore) SetManagement(id int64, m entities.Management) {
 	s.d.alerts[id] = a
 }
 
-// ResetPoint borra los datos del punto (rebuild).
-func (s *AlertStore) ResetPoint(_ context.Context, pointID int64, eventType entities.EventType) (int64, error) {
+// CountPoint cuenta lo que ResetPoint borraría.
+func (s *AlertStore) CountPoint(_ context.Context, pointID int64) (ports.ResetCounts, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var c ports.ResetCounts
+	ids := map[int64]bool{}
+	for id, a := range s.d.alerts {
+		if a.MeasuringPointID != pointID {
+			continue
+		}
+		ids[id] = true
+		c.Alerts++
+		if a.Management.Classified() {
+			c.Classified++
+		}
+		if a.Management.Label != "" {
+			c.Labeled++
+		}
+	}
+	for _, m := range s.d.messages {
+		if ids[m.AlertID] {
+			c.Messages++
+		}
+	}
+	for _, o := range s.d.observations {
+		if ids[o.AlertID] {
+			c.Observations++
+		}
+	}
+	return c, nil
+}
+
+// ResetPoint borra los datos del punto, de los dos flujos (rebuild).
+func (s *AlertStore) ResetPoint(_ context.Context, pointID int64) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var deleted int64
 	removed := map[int64]bool{}
 	for id, a := range s.d.alerts {
-		if a.MeasuringPointID == pointID && a.EventType == eventType {
+		if a.MeasuringPointID == pointID {
 			removed[id] = true
 			delete(s.d.alerts, id)
 			deleted++
@@ -188,7 +220,8 @@ func (s *AlertStore) ResetPoint(_ context.Context, pointID int64, eventType enti
 		}
 	}
 	s.d.observations = obs
-	delete(s.d.states, stateKey{pointID, eventType})
+	delete(s.d.states, stateKey{pointID, entities.EventTypeLeak})
+	delete(s.d.states, stateKey{pointID, entities.EventTypeMovement})
 	return deleted, nil
 }
 
@@ -209,13 +242,27 @@ func (t *tx) SaveState(_ context.Context, st entities.ProcessingState) error {
 	return nil
 }
 
-func (t *tx) GetActive(_ context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error) {
+func (t *tx) GetActive(_ context.Context, pointID int64) (*entities.Alert, error) {
 	for _, a := range t.d.alerts {
-		if a.MeasuringPointID == pointID && a.EventType == eventType && a.State == entities.AlertActive {
+		if a.MeasuringPointID == pointID && a.State == entities.AlertActive {
 			return &a, nil
 		}
 	}
 	return nil, nil
+}
+
+func (t *tx) GetLastFinished(_ context.Context, pointID int64) (*entities.Alert, error) {
+	var last *entities.Alert
+	for _, a := range t.d.alerts {
+		if a.MeasuringPointID != pointID || a.State != entities.AlertFinished || a.EndedAt == nil {
+			continue
+		}
+		if last == nil || a.EndedAt.After(*last.EndedAt) || (a.EndedAt.Equal(*last.EndedAt) && a.ID > last.ID) {
+			c := a
+			last = &c
+		}
+	}
+	return last, nil
 }
 
 func (t *tx) GetAlert(_ context.Context, id int64, _ bool) (*entities.Alert, error) {
@@ -228,8 +275,8 @@ func (t *tx) GetAlert(_ context.Context, id int64, _ bool) (*entities.Alert, err
 
 func (t *tx) InsertAlert(_ context.Context, a entities.Alert) (int64, error) {
 	if a.State == entities.AlertActive {
-		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID, a.EventType); active != nil {
-			return 0, ports.ErrConflict // índice único parcial: una ACTIVA por (punto, evento)
+		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID); active != nil {
+			return 0, ports.ErrConflict // índice único parcial: una ACTIVA por punto
 		}
 	}
 	a.ID = t.d.next()
@@ -242,6 +289,11 @@ func (t *tx) UpdateProcessing(_ context.Context, a entities.Alert) error {
 	current, ok := t.d.alerts[a.ID]
 	if !ok {
 		return ports.ErrNotFound
+	}
+	if a.State == entities.AlertActive {
+		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID); active != nil && active.ID != a.ID {
+			return ports.ErrConflict // índice único parcial: una ACTIVA por punto
+		}
 	}
 	a.Management = current.Management // la gestión no se toca desde el procesamiento
 	a.Code = current.Code

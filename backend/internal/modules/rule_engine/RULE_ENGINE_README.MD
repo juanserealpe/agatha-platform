@@ -342,6 +342,51 @@ rule_engine -backfill -rebuild -reset-versions -point 11556 -confirm 11556
 
 **Orden de inicialización**: `baseline -backfill` → `processing -backfill` → `rule_engine -backfill` (migra, siembra la v1 con amarillo 0,16 si `rule_threshold_versions` está vacía e interpreta) → habilitar `rule_engine` en `AGATHA_MODULES` (el catch-up completa, publicando, las horas calculadas entre el backfill y el arranque). Si el módulo ya corrió en vivo antes del backfill, las horas históricas serán "tardías" respecto de las vivas: usá `-rebuild` fuera de producción.
 
+## Movimiento (`REQ_ALERTAS_MOVIMIENTO` v1.0, entrega 1)
+
+Flujo independiente de FUGA: lee `raw_measurements` (no depende de Processing), interpreta el movimiento del sensor (pitch, roll, deriva) y la temperatura de la tubería hora a hora, guarda **una fila por punto y hora** en `motion_evaluations` (también `NO_CALCULABLE`) y publica `rule_engine.motion_evaluated` v1. La especificación y sus anexos están en `domain/services/testdata/motion/` (`REQ_ALERTAS_MOVIMIENTO.md`, `motion_ref.py`, `motion_input.csv`, `motion_expected.csv`). Lo consume Alert Management (`alert_management.motion_evaluated`; ver su README).
+
+**Export de FUGA para el test de §12.3** (`internal/bootstrap/motion_alerts_test.go`): con `testdata/motion/rule_evaluations_11556.csv` el test corre también con el histórico real de FUGA. Se genera desde `psql` (solo lectura):
+
+```sql
+\copy (SELECT r.id, r.measuring_point_id, to_char(r.evaluated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS evaluated_at,
+  r.indicator_value, r.raw_level, r.computed_level, r.level, r.in_episode, r.hours_above, r.run_amarillo, r.run_naranja,
+  r.below_run, r.threshold_version_id, r.low_confidence, r.episode_event, r.reasons::text AS reasons, r.d_pl, v.d_pl_min,
+  v.amarillo, v.naranja, v.rojo, v.exit_margin, v.escalate_amarillo_after_hours, v.escalate_naranja_after_hours,
+  v.persistence_mode, v.persistence_min_hours
+FROM rule_evaluations r JOIN rule_threshold_versions v ON v.id = r.threshold_version_id
+WHERE r.measuring_point_id = 11556 AND r.event_type = 'FUGA' ORDER BY r.evaluated_at) TO 'rule_evaluations_11556.csv' WITH CSV HEADER
+```
+
+### Algoritmo (`domain/services.MotionAssess`, puro)
+
+`MotionAssess(window []RawRecord, prev MotionState, p MotionParams, t) MotionEvaluation`: la hora t cubre [t − 1 h, t) y la ventana es [t − 169 h, t). Reproduce `motion_ref.py` (§5): cobertura, variables, hueco, desplazamiento sostenido (solo si hubo una hora con `jump` en [t − 6 h, t]), retorno, salto, cambio brusco, quieto, temperatura y episodio. Donde el texto y la referencia difieren, manda la referencia (§12.1): la tolerancia 1e-9 solo en cambio brusco y quieto, `dp_1h` exige 4 registros, la búsqueda del inicio usa 6 h fijas.
+
+- Los niveles y saltos de las horas anteriores **se recalculan desde la ventana**: el estado que viaja entre filas es solo el de §5.4 (`entities.MotionState`, incluidos los `pending_gaps`).
+- `MotionStateValue` es el enum de `motion_state` (`MotionState` es el estado que se arrastra).
+- `MotionReason.Data()` arma el `data` canónico de cada código (grados redondeados a 3 decimales, fechas RFC 3339); lo usan el mapper y el evento.
+
+### Tablas
+
+- `motion_threshold_versions` (§6.1): un parámetro por columna (nombres = `entities.MotionParamFields`, la tabla única que usan el parche, la API, el seed y la validación); grados y °C/h en `NUMERIC(6,4)`, horas y registros `INT`, `temp_mode` TEXT, `alerts_enabled` BOOLEAN. `UNIQUE (punto, versión)`, `EXCLUDE USING gist` de vigencias (`ex_motion_threshold_versions_no_overlap`) y `CHECK`s de §6.1. Mismo versionado que FUGA (solo se agrega, nunca retroactiva, `FOR UPDATE NOWAIT` ⇒ 409).
+- `motion_evaluations` (§6.2): clave, variables, estado, resultado y trazabilidad (`threshold_version_id` FK, `algorithm_version = motion-v1`, `trigger` LIVE | CATCH_UP | BACKFILL, `input_max_ts`). `UNIQUE (punto, evaluated_at)`. Grados en `double precision` para que el estado vuelva idéntico. Nombres que difieren de §6.2 porque §5.3 y §5.4 repiten nombres: `shift_sign` es el del estado y `shift_sign_hour` el de la hora; `gap_from`/`gap_to` son los del estado y el hueco evaluado en la hora va en `gap_eval_from`, `gap_eval_to`, `dp_gap`, `dr_gap`. Columnas extra: `shift_records_2h`.
+- **Seed** (`SeedInitialMotionThresholds`, solo con la tabla vacía): v1 de cada punto de `devices` con `valid_from` = su primera medición de pitch o roll. El MP-11556 (`MotionPilotPointID`) con los valores de §5.2 (`DefaultMotionParams`); el resto, la de punto nuevo (`NewPointMotionParams`: `alerts_enabled = false`, `SOLO_MOVIMIENTO`). Un punto de `devices` sin versión recibe esa v1 con `valid_from = now` en la pasada del scheduler.
+
+### Ejecución
+
+| Trigger | Acción | Componente |
+|---|---|---|
+| `MotionScheduler` (al arrancar + minuto `RULE_ENGINE_MOTION_MINUTE`, 40) | Da la v1 de punto nuevo a los puntos de `devices` sin versión; por cada punto con versión evalúa, en orden, desde la última fila + 1 h hasta el inicio de la hora actual (LIVE la última, CATCH_UP las anteriores) y publica. Punto sin filas ⇒ Warn "correr rule_engine -backfill -motion" | `MotionEvaluationService.RunLive` |
+| `cmd/rule_engine -backfill -motion [-point] [-from] [-to] [-rebuild]` | Histórico con la MISMA evaluación, `trigger = BACKFILL`, sin publicar. Retoma desde la última fila; sin filas arranca en la primera medición (o en `-from`). `-rebuild` borra [from, to) y recalcula (bloqueado con `AGATHA_ENV=production`; avisa si quedan filas posteriores a `-to`) | `MotionBackfillService.Backfill` |
+| `GET /api/rule-engine/points/{id}/motion-thresholds`, `GET …/history`, `POST …` (`patch`, `valid_from`, `reason`, `created_by`) | Versiones de movimiento; mismos errores que FUGA (400, 404, 409). `params` va como objeto por nombre | `MotionHandler` → `MotionThresholdService` |
+| `POST /api/rule-engine/points/{id}/motion-thresholds/simulate` (`{patch, from, to}`) | En memoria, sin escribir: episodios (apertura, cierre, motivos, tramo de temperatura estable) con los parámetros propuestos y con los vigentes, y la comparación (`new_episodes`, `removed_episodes`) | `MotionHandler` → `MotionSimulationService` |
+
+Las horas se evalúan bajo un lock por punto. El backfill y el catch-up leen `raw_measurements` **por tramos de 168 horas** (una consulta por tramo, con su ventana de 169 h) y cortan la ventana de cada hora en memoria: el resultado es idéntico a una consulta por hora. Un `Save` que choca con una fila existente (`ON CONFLICT DO NOTHING`) sigue desde el estado de ESA fila.
+
+### Evento `rule_engine.motion_evaluated` v1 (`contract/motion_evaluated.go`)
+
+Uno por punto y hora evaluada en vivo (LIVE o CATCH_UP), también NORMAL y NO_CALCULABLE, después del commit. No se publica en backfill, en duplicados ni con `alerts_enabled = false` (modo sombra). Campos de §6.3: `shift.pitch`/`shift.roll` = nivel actual − referencia (3 decimales) mientras `displaced`; `episode_opened_at` dentro del episodio y en la hora de CLEARED; `temp_stable` según las reglas de la fila. Clave de idempotencia: `(measuring_point_id, evaluated_at)`. Adaptador al bus: `busMotionEventPublisher` en `internal/bootstrap/rule_engine.go`.
+
 ## Migración
 
 `persistence.Migrate` (desde `NewRuleEngineModule`, idempotente, en cada arranque como los demás módulos):
@@ -350,6 +395,7 @@ rule_engine -backfill -rebuild -reset-versions -point 11556 -confirm 11556
 1. `AutoMigrate` de ambos modelos: tablas, `CHECK`, `UNIQUE`, índices y la FK (tags).
 2. SQL idempotente para lo que GORM no expresa: `CREATE EXTENSION IF NOT EXISTS btree_gist` y el `EXCLUDE` (dentro de un `DO $$ … IF NOT EXISTS (pg_constraint) …`). En Supabase `btree_gist` está disponible; el rol debe poder crear extensiones.
 3. `SeedInitialThresholds`: solo si `rule_threshold_versions` está vacía (y existen `devices` y `raw_measurements`).
+4. `migrateMotion`: `AutoMigrate` de `motion_threshold_versions` y `motion_evaluations` + `EXCLUDE` de vigencias de movimiento. Después, `SeedInitialMotionThresholds` (solo con la tabla vacía).
 
 ## Errores (`domain/errors.go`)
 
@@ -366,9 +412,11 @@ No importa `modules/processing` (ni su `contract/`), `modules/ingestion`, `modul
 | Entrypoint | Rule Engine |
 |---|---|
 | `cmd/platform` | Módulo `rule_engine` de `AGATHA_MODULES` (suscripción + HTTP `/api/rule-engine` + catch-up horario). **Requiere `processing`**. No está en el default |
-| `cmd/rule_engine` | `-backfill [-point] [-from] [-to] [-rebuild] [-reset-versions -point N -confirm N]`; sale al terminar. No suscribe al bus |
+| `cmd/rule_engine` | `-backfill [-point] [-from] [-to] [-rebuild] [-reset-versions -point N -confirm N]`; con `-motion`, el histórico de `motion_evaluations` (`-reset-versions` no aplica); sale al terminar. No suscribe al bus |
 
-Variables: `AGATHA_ENV` (`production` bloquea `-rebuild` y `-reset-versions`), `RULE_ENGINE_BACKFILL_BATCH_SIZE` (500, también el lote del catch-up), `RULE_ENGINE_CATCHUP_MINUTE` (50).
+Movimiento: repos `MotionThresholdRepository`, `MotionEvaluationRepository` y `RawMeasurementReader` (solo lectura de `raw_measurements` y `devices`) + `busMotionEventPublisher` → `MotionThresholdService`, `MotionEvaluationService`, `MotionBackfillService`, `MotionSimulationService` y `NewMotionScheduler` (Runner de `NewApplication`); `RegisterRoutes` monta también `MotionHandler`.
+
+Variables: `AGATHA_ENV` (`production` bloquea `-rebuild` y `-reset-versions`), `RULE_ENGINE_BACKFILL_BATCH_SIZE` (500, también el lote del catch-up), `RULE_ENGINE_CATCHUP_MINUTE` (50), `RULE_ENGINE_MOTION_MINUTE` (40).
 
 ## Tests
 
@@ -388,3 +436,10 @@ Variables: `AGATHA_ENV` (`production` bloquea `-rebuild` y `-reset-versions`), `
 - `infrastructure/events/indicator_evaluated_subscriber_test.go`: delega al caso de uso y registra sus errores.
 - `internal/bootstrap/rule_engine_test.go`: traducción del contrato y **de punta a punta con el bus real** (secuencia que cruza el umbral con ventanas de 6 h y un `NO_CALCULABLE` ⇒ filas correctas y una `level_evaluated` por hora de 24 h, en orden, con `OPENED`/`CLEARED`).
 - `infrastructure/persistence/repositories/repositories_integration_test.go` (`-tags integration`, `DATABASE_URL`, **no corrido** con los cambios v2: falta cubrir `NOWAIT` ⇒ conflicto, los `CHECK` nuevos y `GetDPl`): EXCLUDE y CHECK (incluido `episode_event`), cierre + creación en la misma TX y rollback, timeline, idempotencia de `Save`, `computed_level`/`episode_event`/`reasons` ida y vuelta, posición, borrado.
+- **Movimiento:**
+  - `domain/services/motion_assess_golden_test.go`: prueba dorada (§12.1), las 3 182 horas de `motion_expected.csv` con igualdad exacta de estados y fechas, numéricos ≤ 1e-6 y los mismos motivos con sus datos.
+  - `domain/services/motion_assess_test.go`: los sintéticos de CA-6 (`TEMP_NOT_STABILIZED` a las 36 h; `TEMP_STILL_STABLE` a las 6, 18 y 30 h; hueco evaluado en la siguiente hora calculada; sin desplazamiento nuevo 24 h después de un retorno; `MOV_NEW_POSITION`; `SOLO_MOVIMIENTO` sin `temp_state`; `MOV_ABRUPT` una vez por cambio; movimiento lento en un eje y en los dos sin episodio).
+  - `application/services/motion_services_test.go`: backfill completo del MP-11556 por tramos igual a la referencia y sin publicar; retoma e idempotencia; rebuild; rebuild bloqueado en production; catch-up + LIVE con el evento de §6.3; repetir no crea filas ni eventos (CA-8); modo sombra con filas y sin eventos (CA-7); punto sin filas salteado; punto nuevo con v1 en sombra; versiones (copia, cierre, validaciones); simulación y comparación.
+  - `infrastructure/persistence/mappers/motion_mappers_test.go`: ida y vuelta exacta de las 3 182 filas reales (estado, motivos y huecos pendientes) y de una versión; forma `[{code, data}]`.
+  - `infrastructure/http/motion_handler_test.go` y `infrastructure/scheduling/motion_scheduler_test.go`: rutas, parche tipado, rechazos 400/404, simulate; minuto 40 y corrida al arrancar.
+  - **No corrido contra PostgreSQL**: migración, `CHECK`s, `EXCLUDE`, seed y repositorios GORM de movimiento.

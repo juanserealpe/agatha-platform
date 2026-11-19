@@ -23,8 +23,11 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-// levelEvaluatedSubscription es el nombre de la suscripción de Alert Management.
-const levelEvaluatedSubscription = "alert_management.level_evaluated"
+// levelEvaluatedSubscription y motionEvaluatedSubscription son las suscripciones de Alert Management.
+const (
+	levelEvaluatedSubscription  = "alert_management.level_evaluated"
+	motionEvaluatedSubscription = "alert_management.motion_evaluated"
+)
 
 // AlertManagementModule expone Alert Management ya cableado.
 type AlertManagementModule struct {
@@ -71,14 +74,16 @@ func NewAlertManagementModule(platform *Platform) (*AlertManagementModule, error
 	store := alertRepositories.NewAlertStore(platform.DB)
 	policies := alertRepositories.NewPolicyStore(platform.DB)
 
+	motions := alertRepositories.NewMotionSource(platform.DB)
 	processor := alertServices.NewProcessingService(store, policies, alertRepositories.NewDeviceDirectory(platform.DB),
 		busAlertNotificationPublisher{bus: platform.EventBus}, clock, log).
-		WithChangePublisher(busAlertChangePublisher{bus: platform.EventBus})
+		WithChangePublisher(busAlertChangePublisher{bus: platform.EventBus}).
+		WithMotionSource(motions)
 	replay := alertServices.NewReplayService(processor, alertRepositories.NewLevelSource(platform.DB), store,
 		alertServices.ReplayConfig{
 			Environment: os.Getenv(EnvironmentEnv),
 			BatchSize:   envInt(log, "ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE", 500),
-		}, log)
+		}, log).WithMotionSource(motions)
 
 	handler := alertHTTP.NewAlertHandler(
 		alertServices.NewQueryService(alertRepositories.NewAlertQueries(platform.DB), alertExport.NewXLSXWriter(), clock, log),
@@ -113,6 +118,67 @@ func (m *AlertManagementModule) Runners() []Runner {
 // Debe llamarse antes de arrancar los schedulers.
 func (m *AlertManagementModule) SubscribeLevelEvaluated() (unsubscribe func()) {
 	return subscribeLevelEvaluated(m.bus, alertEvents.NewLevelEvaluatedSubscriber(m.Processor, m.log), m.log)
+}
+
+// SubscribeMotionEvaluated suscribe Alert Management a rule_engine.motion_evaluated.
+// Debe llamarse antes de arrancar los schedulers.
+func (m *AlertManagementModule) SubscribeMotionEvaluated() (unsubscribe func()) {
+	return subscribeMotionEvaluated(m.bus, alertEvents.NewMotionEvaluatedSubscriber(m.Processor, m.log), m.log)
+}
+
+// motionEvaluatedHandler es lo que Alert Management hace con cada hora de movimiento.
+type motionEvaluatedHandler interface {
+	Handle(ctx context.Context, notice alertEntities.MotionNotice)
+}
+
+// subscribeMotionEvaluated traduce el contrato de movimiento del Rule Engine
+// al MotionNotice de Alert Management. El bus entrega en orden.
+func subscribeMotionEvaluated(bus eventbus.Bus, handler motionEvaluatedHandler, log *logger.Logger) (unsubscribe func()) {
+	return eventbus.SubscribeTyped(bus, ruleEngineContract.TopicMotionEvaluated,
+		func(ctx context.Context, e ruleEngineContract.MotionEvaluated) {
+			handler.Handle(ctx, toMotionNotice(e))
+		},
+		log,
+		eventbus.WithName(motionEvaluatedSubscription),
+	)
+}
+
+// toMotionNotice traduce rule_engine.motion_evaluated v1. El evento solo se
+// publica con alerts_enabled (el modo sombra no llega al bus).
+func toMotionNotice(e ruleEngineContract.MotionEvaluated) alertEntities.MotionNotice {
+	n := alertEntities.MotionNotice{
+		MotionEvaluationID: e.MotionEvaluationID,
+		MeasuringPointID:   e.MeasuringPointID,
+		EvaluatedAt:        e.EvaluatedAt.UTC(),
+		Status:             e.Status,
+		MotionState:        e.MotionState,
+		TempState:          e.TempState,
+		TempMode:           e.TempMode,
+		ComputedLevel:      alertEntities.Level(e.ComputedLevel),
+		InEpisode:          e.InEpisode,
+		EpisodeEvent:       alertEntities.EpisodeEvent(e.EpisodeEvent),
+		ShiftPitch:         copyFloat(e.Shift.Pitch),
+		ShiftRoll:          copyFloat(e.Shift.Roll),
+		ShiftStartedAt:     copyTime(e.Shift.StartedAt),
+		GapFrom:            copyTime(e.Shift.GapFrom),
+		GapTo:              copyTime(e.Shift.GapTo),
+		TempStableFrom:     copyTime(e.TempStable.From),
+		TempStableTo:       copyTime(e.TempStable.To),
+		ThresholdVersionID: e.ThresholdVersionID,
+		AlertsEnabled:      true,
+	}
+	for _, r := range e.Reasons {
+		n.Reasons = append(n.Reasons, alertEntities.ParseMotionReason(r.Code, r.Data))
+	}
+	return n
+}
+
+func copyTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 // levelEvaluatedHandler es lo que Alert Management hace con cada hora.

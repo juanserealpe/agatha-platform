@@ -111,7 +111,8 @@ func (s *ManagementService) Classify(ctx context.Context, cmd ClassifyCommand) (
 		return ManagementResult{}, err
 	}
 
-	now := s.clock.Now().UTC()
+	// Al segundo: classified_at y el evaluated_at del mensaje GESTION son la misma hora (§7.6).
+	now := s.clock.Now().UTC().Truncate(time.Second)
 	recordedAt := recordedAtOrNow(cmd.RecordedAt, now)
 	m := entities.Management{
 		Classification: cmd.Classification, ClassifiedAt: &now, ClassifiedOrigin: cmd.Origin,
@@ -130,9 +131,10 @@ func (s *ManagementService) Classify(ctx context.Context, cmd ClassifyCommand) (
 		if err := s.observation(ctx, tx, alert.ID, observation, entities.StepClassification, cmd.ActionOrigin, now, recordedAt, cmd.ClientRecordID); err != nil {
 			return ManagementResult{}, err
 		}
-		return s.saved(ctx, tx, alert.ID, messages.Key(messages.CodeClassified, ""), map[string]string{
-			"clasificacion": messages.ClassificationName(cmd.Classification), "origen": originText(cmd.ActionOrigin),
-		}, now)
+		params := managementParams(cmd.ActionOrigin, now, recordedAt, observation)
+		params["clasificacion"] = messages.ClassificationName(cmd.Classification)
+		params["classification"] = string(cmd.Classification)
+		return s.saved(ctx, tx, alert.ID, messages.Key(messages.CodeClassified, ""), params, now)
 	})
 	if err == nil {
 		s.publishChange(ctx, result, contract.ChangeClassified, now)
@@ -160,7 +162,7 @@ func (s *ManagementService) Label(ctx context.Context, cmd LabelCommand) (Manage
 		return ManagementResult{}, err
 	}
 
-	now := s.clock.Now().UTC()
+	now := s.clock.Now().UTC().Truncate(time.Second)
 	recordedAt := recordedAtOrNow(cmd.RecordedAt, now)
 	m := entities.Management{
 		Label: cmd.Label, LabelOtherText: otherText, LabeledAt: &now, LabeledOrigin: cmd.Origin,
@@ -185,9 +187,10 @@ func (s *ManagementService) Label(ctx context.Context, cmd LabelCommand) (Manage
 		if err := s.observation(ctx, tx, alert.ID, observation, entities.StepLabel, cmd.ActionOrigin, now, recordedAt, cmd.ClientRecordID); err != nil {
 			return ManagementResult{}, err
 		}
-		return s.saved(ctx, tx, alert.ID, messages.Key(messages.CodeLabeled, ""), map[string]string{
-			"etiqueta": labelText(cmd.Label, otherText), "origen": originText(cmd.ActionOrigin),
-		}, now)
+		params := managementParams(cmd.ActionOrigin, now, recordedAt, observation)
+		params["etiqueta"] = messages.LabelPhrase(cmd.Label, otherText)
+		params["label"], params["other_text"] = string(cmd.Label), otherText
+		return s.saved(ctx, tx, alert.ID, messages.Key(messages.CodeLabeled, ""), params, now)
 	})
 	if err == nil {
 		s.publishChange(ctx, result, contract.ChangeLabeled, now)
@@ -377,4 +380,25 @@ func labelText(l entities.Label, otherText string) string {
 		return name
 	}
 	return string(l)
+}
+
+// recordGap es desde cuándo la hora del celular se cita en el mensaje GESTION.
+const recordGap = 5 * time.Minute
+
+// managementParams son los parámetros del mensaje GESTION (§7.6, §8.2): los
+// del texto y los datos del paso (origin, device_identifier, recorded_at, observation).
+func managementParams(o ActionOrigin, savedAt, recordedAt time.Time, observation string) map[string]string {
+	params := map[string]string{
+		"origen": messages.OriginPhrase(o.Origin), "fecha": messages.FormatDate(savedAt), "hora": messages.FormatClock(savedAt),
+		"registro": "", "observacion": "",
+		"origin": string(o.Origin), "device_identifier": o.DeviceIdentifier,
+		"recorded_at": recordedAt.UTC().Format(time.RFC3339), "observation": observation,
+	}
+	if d := savedAt.Sub(recordedAt); d > recordGap || d < -recordGap {
+		params["registro"] = " Hecha en el celular a las " + messages.FormatClock(recordedAt) + "."
+	}
+	if observation != "" {
+		params["observacion"] = " Observación: «" + observation + "»"
+	}
+	return params
 }

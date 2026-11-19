@@ -104,6 +104,48 @@ var (
 		Message: "no fue posible consultar las evaluaciones del índice (feature_evaluations)",
 	}
 
+	// Movimiento (motion_threshold_versions y motion_evaluations).
+	ErrMotionTempMode = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "temp_mode debe ser MOVIMIENTO_Y_TEMPERATURA o SOLO_MOVIMIENTO",
+	}
+	ErrMotionJumpShift = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "los umbrales de movimiento deben cumplir 0 < jump_deg <= shift_deg",
+	}
+	ErrMotionReturnFraction = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "return_fraction debe cumplir 0 < return_fraction <= 1",
+	}
+	ErrMotionHoursRange = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "las horas, los minutos y los registros de movimiento deben ser >= 1",
+	}
+	ErrMotionDegreesRange = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "los grados y las tasas de temperatura deben ser > 0",
+	}
+	ErrMotionRecordsRange = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "min_records_hour debe ser <= records_per_hour",
+	}
+	ErrMotionThresholdsNotFound = &errors.AppError{
+		Code:    errors.CodeNotFound,
+		Message: "el punto no tiene umbrales de movimiento configurados",
+	}
+	ErrConsultingMotionEvaluations = &errors.AppError{
+		Code:    errors.CodeConsultingRuleEvaluations,
+		Message: "no fue posible consultar las evaluaciones de movimiento",
+	}
+	ErrPersistingMotionEvaluations = &errors.AppError{
+		Code:    errors.CodePersistingRuleEvaluations,
+		Message: "no fue posible guardar la evaluación de movimiento",
+	}
+	ErrConsultingRawMeasurements = &errors.AppError{
+		Code:    errors.CodeConsultingEvaluations,
+		Message: "no fue posible consultar las mediciones crudas (raw_measurements)",
+	}
+
 	ErrRebuildForbidden = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
 		Message: "-rebuild y -reset-versions no están permitidos con AGATHA_ENV=production",

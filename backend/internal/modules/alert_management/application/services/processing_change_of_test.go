@@ -33,7 +33,7 @@ func TestChangeOf(t *testing.T) {
 		{"se reactiva", domainServices.Decision{Outcome: domainServices.OutcomeReactivated}, "", A, contract.ChangeReactivated},
 		{"finaliza", domainServices.Decision{Outcome: domainServices.OutcomeFinished}, A, A, contract.ChangeFinished},
 		{"sube", updated(messages.CodeUpRojo), O, R, contract.ChangeLevelRaised},
-		{"sube en intervención (sin aviso)", updated(messages.CodeUpDuringIntervention), A, O, contract.ChangeLevelRaised},
+		{"ruido que se une y sube", updated(messages.CodeLeakJoined), A, O, contract.ChangeLevelRaised},
 		{"baja", updated(messages.CodeDowngrade), O, A, contract.ChangeLevelLowered},
 		{"empieza sin datos", updated(messages.CodeNoCalcStart), O, O, contract.ChangeNoDataStarted},
 		{"vuelven los datos", updated(messages.CodeNoCalcEnd), O, O, contract.ChangeNoDataEnded},

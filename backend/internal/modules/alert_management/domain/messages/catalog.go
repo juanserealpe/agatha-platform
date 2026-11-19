@@ -27,38 +27,54 @@ import (
 // Amarillo) y las variantes *_CONFIRMADA de las subidas (anteponen la firma de
 // fuga). La "firma de fuga" es el % de registros de las últimas 24 h con
 // planitud alta (d_pl) frente al mínimo (d_pl_min).
-const MessageCatalogVersion = 6
+// v7: movimiento y temperatura (REQ_ALERTAS_MOVIMIENTO §8): MOV_*, TEMP_*,
+// LEAK_JOINED, PART_NORMAL y END_NORMAL/MOVIMIENTO; CLASSIFIED y LABELED con
+// su fecha y hora; se elimina UP_DURING_INTERVENTION. Los demás textos de
+// fuga no cambian.
+const MessageCatalogVersion = 7
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
 const LowConfidenceMark = "Sensor en ajuste: resultado preliminar."
 
 // Códigos de mensaje (sección 6.1).
 const (
-	CodeOpen                 = "OPEN"
-	CodeUpNaranjaPersist     = "UP_NARANJA_PERSIST"
-	CodeUpNaranjaFast        = "UP_NARANJA_FAST"
-	CodeUpRojo               = "UP_ROJO"
-	CodeReactivated          = "REACTIVATED"
-	CodeNewAfterClassified   = "NEW_AFTER_CLASSIFIED"
-	CodeUpDuringIntervention = "UP_DURING_INTERVENTION"
-	CodeNoCalcStart          = "NO_CALC_START"
-	CodeNoCalcEnd            = "NO_CALC_END"
-	CodeDowngrade            = "DOWNGRADE"
-	CodeRojoHeld             = "ROJO_HELD"
-	CodeOscillating          = "OSCILLATING"
-	CodeAlmostNormal         = "ALMOST_NORMAL"
-	CodeOneHourNormal        = "ONE_HOUR_NORMAL"
-	CodeBackAbnormal         = "BACK_ABNORMAL"
-	CodeDowngradeStart       = "DOWNGRADE_START"
-	CodeCountdown            = "COUNTDOWN"
-	CodeTrend                = "TREND"
-	CodeSummary              = "SUMMARY"
-	CodeEndNormal            = "END_NORMAL"
-	CodeClassified           = "CLASSIFIED"
-	CodeLabeled              = "LABELED"
+	CodeOpen               = "OPEN"
+	CodeUpNaranjaPersist   = "UP_NARANJA_PERSIST"
+	CodeUpNaranjaFast      = "UP_NARANJA_FAST"
+	CodeUpRojo             = "UP_ROJO"
+	CodeReactivated        = "REACTIVATED"
+	CodeNewAfterClassified = "NEW_AFTER_CLASSIFIED"
+	CodeNoCalcStart        = "NO_CALC_START"
+	CodeNoCalcEnd          = "NO_CALC_END"
+	CodeDowngrade          = "DOWNGRADE"
+	CodeRojoHeld           = "ROJO_HELD"
+	CodeOscillating        = "OSCILLATING"
+	CodeAlmostNormal       = "ALMOST_NORMAL"
+	CodeOneHourNormal      = "ONE_HOUR_NORMAL"
+	CodeBackAbnormal       = "BACK_ABNORMAL"
+	CodeDowngradeStart     = "DOWNGRADE_START"
+	CodeCountdown          = "COUNTDOWN"
+	CodeTrend              = "TREND"
+	CodeSummary            = "SUMMARY"
+	CodeEndNormal          = "END_NORMAL"
+	CodeClassified         = "CLASSIFIED"
+	CodeLabeled            = "LABELED"
 	// CodeNoLeakShape: la hora quedó limitada a Amarillo por la planitud (una
 	// vez por racha de horas limitadas).
 	CodeNoLeakShape = "NO_LEAK_SHAPE"
+
+	// Movimiento y temperatura (v7).
+	CodeMovOpen           = "MOV_OPEN"
+	CodeMovJoined         = "MOV_JOINED"
+	CodeMovDisplaced      = "MOV_DISPLACED"
+	CodeMovReturn         = "MOV_RETURN"
+	CodeTempStabilized    = "TEMP_STABILIZED"
+	CodeTempVariesAgain   = "TEMP_VARIES_AGAIN"
+	CodeTempNotStabilized = "TEMP_NOT_STABILIZED"
+	CodeTempStillStable   = "TEMP_STILL_STABLE"
+	CodeLeakJoined        = "LEAK_JOINED"
+	// CodePartNormal: uno de los dos flujos volvió a lo normal y la alerta sigue por el otro.
+	CodePartNormal = "PART_NORMAL"
 )
 
 // Variantes de un mismo código (el código guardado no cambia).
@@ -72,6 +88,14 @@ const (
 	// VariantConfirmed se agrega a la variante de una subida (UP_*) cuando la
 	// hora anterior estaba limitada y la planitud acaba de confirmarse.
 	VariantConfirmed = "CONFIRMADA"
+
+	// Variantes de movimiento (v7).
+	VariantJump   = "SALTO"  // MOV_OPEN / MOV_DISPLACED por salto o desplazamiento
+	VariantGap    = "HUECO"  // por un hueco de datos
+	VariantAbrupt = "BRUSCO" // cambio brusco de un eje
+	VariantNoise  = "RUIDO"  // PART_NORMAL: el ruido volvió a lo normal
+	VariantSensor = "SENSOR" // PART_NORMAL: el sensor quedó quieto
+	VariantMotion = "MOVIMIENTO"
 )
 
 // ConfirmedVariant es la variante "con firma de fuga confirmada" de la
@@ -184,12 +208,6 @@ var catalog = map[string]Template{
 		Body:  "El índice de ruido otra vez está fuera de lo normal; la alerta anterior ({codigo_anterior}) se clasificó como {clasificacion}. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "nivel", "codigo_anterior", "clasificacion", "valor", "normal"},
 	},
-	Key(CodeUpDuringIntervention, ""): {
-		Code: CodeUpDuringIntervention, Kind: entities.KindUpdate,
-		Title: "Subió a {nivel} durante la intervención",
-		Body:  "Índice de ruido en {valor}; {nivel} empieza en {corte}. Por la intervención registrada, esta subida no se notifica.",
-		Vars:  []string{"nivel", "valor", "corte"},
-	},
 	// Sin cálculo en la hora: cita el último índice calculado.
 	Key(CodeNoCalcStart, ""): {
 		Code: CodeNoCalcStart, Kind: entities.KindUpdate,
@@ -272,17 +290,121 @@ var catalog = map[string]Template{
 		Body:  "El índice de ruido volvió a {valor} (lo normal, menos de {normal}). Duró {N} h; nivel máximo {max}, con índice de hasta {valor_max}. Si vuelve en las próximas {horas} h y sigue sin clasificar, se reactivará esta misma alerta.",
 		Vars:  []string{"codigo", "N", "max", "horas", "valor", "normal", "valor_max"},
 	},
+	// Gestión (v7): la fecha y hora en que se guardó; {registro} solo si el
+	// celular la hizo más de 5 min antes; {observacion} si vino con el paso.
 	Key(CodeClassified, ""): {
 		Code: CodeClassified, Kind: entities.KindManagement,
 		Title: "Clasificada como {clasificacion}",
-		Body:  "Registrada desde {origen}.",
-		Vars:  []string{"clasificacion", "origen"},
+		Body:  "Registrada {origen} el {fecha} a las {hora}.{registro}{observacion}",
+		Vars:  []string{"clasificacion", "origen", "fecha", "hora", "registro", "observacion"},
 	},
 	Key(CodeLabeled, ""): {
 		Code: CodeLabeled, Kind: entities.KindManagement,
 		Title: "Etiqueta: {etiqueta}",
-		Body:  "Registrada desde {origen}.",
-		Vars:  []string{"etiqueta", "origen"},
+		Body:  "Registrada {origen} el {fecha} a las {hora}.{registro}{observacion}",
+		Vars:  []string{"etiqueta", "origen", "fecha", "hora", "registro", "observacion"},
+	},
+
+	// Movimiento y temperatura (v7, §8.1). Dicen lo que se midió: ningún
+	// texto afirma que el gasoducto se cerró o se reabrió.
+	Key(CodeMovOpen, VariantJump): {
+		Code: CodeMovOpen, Kind: entities.KindNotification,
+		Title: "Movimiento brusco del sensor",
+		Body:  "Pitch y roll se inclinaron juntos y de golpe a las {hora} del {fecha}. Dato: pitch {dp}, roll {dr} en 1 h (lo normal es menos de 0,01°).",
+		Vars:  []string{"hora", "fecha", "dp", "dr"},
+	},
+	Key(CodeMovOpen, VariantGap): {
+		Code: CodeMovOpen, Kind: entities.KindNotification,
+		Title: "El sensor cambió de posición sin datos",
+		Body:  "Al volver los datos, a las {hora} del {fecha}, el sensor está en otra posición. Estuvo {duracion_hueco} sin transmitir. Dato: pitch {dp}, roll {dr}.",
+		Vars:  []string{"hora", "fecha", "duracion_hueco", "dp", "dr"},
+	},
+	Key(CodeMovOpen, VariantAbrupt): {
+		Code: CodeMovOpen, Kind: entities.KindNotification,
+		Title: "Movimiento brusco del sensor",
+		Body:  "El sensor se movió de golpe hacia un solo lado a las {hora} del {fecha}. Dato: {eje} {delta} en {horas} h (lo normal es menos de 0,03° en 3 h).",
+		Vars:  []string{"hora", "fecha", "eje", "delta", "horas"},
+	},
+	Key(CodeMovJoined, ""): {
+		Code: CodeMovJoined, Kind: entities.KindUpdate,
+		Title: "El sensor se movió",
+		Body:  "Ocurrió durante la alerta por ruido, a las {hora} del {fecha}. Dato: pitch {dp}, roll {dr}.",
+		Vars:  []string{"hora", "fecha", "dp", "dr"},
+	},
+	Key(CodeMovDisplaced, VariantJump): {
+		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
+		Title: "El sensor sigue en la nueva posición",
+		Body:  "No ha vuelto a su posición desde las {hora_inicio}. Dato: pitch {dp}, roll {dr}.",
+		Vars:  []string{"hora_inicio", "dp", "dr"},
+	},
+	Key(CodeMovDisplaced, VariantGap): {
+		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
+		Title: "El sensor sigue en la nueva posición",
+		Body:  "No ha vuelto a su posición desde las {hora_inicio}. Dato: pitch {dp}, roll {dr}.",
+		Vars:  []string{"hora_inicio", "dp", "dr"},
+	},
+	Key(CodeMovDisplaced, VariantAbrupt): {
+		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
+		Title: "El sensor sigue en la nueva posición",
+		Body:  "El sensor se volvió a mover hacia un solo lado a las {hora}. Dato: {eje} {delta} en {horas} h.",
+		Vars:  []string{"hora", "eje", "delta", "horas"},
+	},
+	// §8.1 dice "Pasó lo mismo en cierres anteriores", pero §8.3 prohíbe
+	// "cierre" en los textos de movimiento y temperatura: frase neutral.
+	Key(CodeTempStabilized, ""): {
+		Code: CodeTempStabilized, Kind: entities.KindNotification,
+		Title: "La temperatura de la tubería se estabilizó",
+		Body:  "Desde que se movió el sensor ({hora_inicio} del {fecha_inicio}) la temperatura casi no cambia. Pasó lo mismo antes en este punto, pero no está confirmado. Dato: máximo {rate} °C por hora (normal: más de 0,08).",
+		Vars:  []string{"hora_inicio", "fecha_inicio", "rate"},
+	},
+	Key(CodeMovReturn, ""): {
+		Code: CodeMovReturn, Kind: entities.KindUpdate,
+		Title: "El sensor volvió a su posición",
+		Body:  "Regresó a las {hora} a la posición que tenía antes de las {hora_inicio} del {fecha_inicio}. Dato: pitch {dp}, roll {dr}.",
+		Vars:  []string{"hora", "hora_inicio", "fecha_inicio", "dp", "dr"},
+	},
+	Key(CodeTempVariesAgain, ""): {
+		Code: CodeTempVariesAgain, Kind: entities.KindNotification,
+		Title: "La temperatura de la tubería volvió a variar",
+		Body:  "Estuvo estable {duracion} ({desde} – {hasta}).{sin_retorno} Dato: {rate} °C en una hora.",
+		Vars:  []string{"duracion", "desde", "hasta", "sin_retorno", "rate"},
+	},
+	Key(CodeTempNotStabilized, ""): {
+		Code: CodeTempNotStabilized, Kind: entities.KindUpdate,
+		Title: "La temperatura no se estabilizó",
+		Body:  "El sensor lleva {horas} h fuera de su posición y la temperatura sigue variando como siempre. Dato: pitch {dp}, roll {dr}.",
+		Vars:  []string{"horas", "dp", "dr"},
+	},
+	Key(CodeTempStillStable, ""): {
+		Code: CodeTempStillStable, Kind: entities.KindUpdate,
+		Title: "La temperatura sigue estable",
+		Body:  "El sensor volvió hace {horas} h, pero la temperatura de la tubería sigue casi quieta. Dato: máximo {rate} °C por hora (normal: más de 0,08).",
+		Vars:  []string{"horas", "rate"},
+	},
+	// {contexto} ya viene armado (tiene su propia hora y fecha).
+	Key(CodeLeakJoined, ""): {
+		Code: CodeLeakJoined, Kind: entities.KindNotification,
+		Title: "Ruido alto durante una alerta de movimiento",
+		Body:  "El índice de ruido está {nivel_texto} desde las {hora} del {fecha}. {contexto} Dato: {i} (lo normal es menos de {normal}).",
+		Vars:  []string{"nivel_texto", "hora", "fecha", "contexto", "i", "normal"},
+	},
+	Key(CodePartNormal, VariantNoise): {
+		Code: CodePartNormal, Kind: entities.KindUpdate,
+		Title: "El ruido volvió a lo normal",
+		Body:  "La alerta sigue abierta porque {motivo}. Dato: {i}.",
+		Vars:  []string{"motivo", "i"},
+	},
+	Key(CodePartNormal, VariantSensor): {
+		Code: CodePartNormal, Kind: entities.KindUpdate,
+		Title: "El sensor está estable",
+		Body:  "Lleva 24 h quieto. La alerta sigue abierta por el ruido ({nivel}). Dato: {i}.",
+		Vars:  []string{"nivel", "i"},
+	},
+	Key(CodeEndNormal, VariantMotion): {
+		Code: CodeEndNormal, Kind: entities.KindEnd,
+		Title: "Volvió a la normalidad",
+		Body:  "Duró {duracion}, nivel máximo {max}.{tramo}{nueva_posicion}",
+		Vars:  []string{"duracion", "max", "tramo", "nueva_posicion"},
 	},
 }
 
@@ -397,4 +519,92 @@ func Colombia() *time.Location { return colombia }
 // FormatHour es una hora en lenguaje de campo, en hora de Colombia: "11:00 del 24/08".
 func FormatHour(t time.Time) string {
 	return t.In(colombia).Format("15:04 del 02/01")
+}
+
+// FormatClock es la hora de Colombia "15:04"; FormatDate, la fecha "02/01".
+func FormatClock(t time.Time) string { return t.In(colombia).Format("15:04") }
+
+func FormatDate(t time.Time) string { return t.In(colombia).Format("02/01") }
+
+// FormatDegrees son grados con signo y dos decimales, con coma: +0,08°.
+func FormatDegrees(v float64) string {
+	r := math.Round(v*100) / 100
+	if r == 0 {
+		return "0,00°"
+	}
+	s := strconv.FormatFloat(r, 'f', 2, 64)
+	if r > 0 {
+		s = "+" + s
+	}
+	return strings.Replace(s, ".", ",", 1) + "°"
+}
+
+// FormatRate es una tasa en °C/h: dos decimales y un tercero si hace falta.
+func FormatRate(v float64) string { return FormatValue(v) }
+
+// FormatDuration son horas en lenguaje de campo: "23 h", "2 días y 3 h".
+func FormatDuration(hours int) string {
+	if hours < 48 {
+		return strconv.Itoa(max(hours, 0)) + " h"
+	}
+	days, rest := hours/24, hours%24
+	if rest == 0 {
+		return strconv.Itoa(days) + " días"
+	}
+	return strconv.Itoa(days) + " días y " + strconv.Itoa(rest) + " h"
+}
+
+// LevelPhrase es {nivel_texto} de LEAK_JOINED.
+func LevelPhrase(l entities.Level) string {
+	switch l {
+	case entities.LevelNaranja:
+		return "alto"
+	case entities.LevelRojo:
+		return "demasiado alto"
+	default:
+		return "por encima de lo normal"
+	}
+}
+
+// OriginPhrase es {origen} de los mensajes de gestión.
+func OriginPhrase(o entities.Origin) string {
+	if o == entities.OriginMobile {
+		return "desde la app"
+	}
+	return "desde la web"
+}
+
+// labelPhrases son las etiquetas como las cita el catálogo (§8.2).
+var labelPhrases = map[entities.Label]string{
+	entities.LabelLeakConfirmed:      "Fuga confirmada en campo",
+	entities.LabelGroundMovement:     "Movimiento de tierra",
+	entities.LabelThirdPartyMachines: "Maquinaria ajena",
+	entities.LabelExtremeWeather:     "Clima extremo",
+	entities.LabelHeavyTraffic:       "Tránsito pesado",
+	entities.LabelScheduledWork:      "Mantenimiento programado",
+}
+
+// LabelPhrase es {etiqueta} de LABELED ("Otro: <texto>" para OTRO).
+func LabelPhrase(l entities.Label, otherText string) string {
+	if l == entities.LabelOther {
+		return "Otro: " + otherText
+	}
+	if p, ok := labelPhrases[l]; ok {
+		return p
+	}
+	return string(l)
+}
+
+// IsMotionKey indica si la clave es de un mensaje de movimiento o de
+// temperatura (incluidos LEAK_JOINED, PART_NORMAL y END_NORMAL/MOVIMIENTO).
+func IsMotionKey(key string) bool {
+	code, variant, _ := strings.Cut(key, "/")
+	switch code {
+	case CodeMovOpen, CodeMovJoined, CodeMovDisplaced, CodeMovReturn, CodeTempStabilized, CodeTempVariesAgain,
+		CodeTempNotStabilized, CodeTempStillStable, CodeLeakJoined, CodePartNormal:
+		return true
+	case CodeEndNormal:
+		return variant == VariantMotion
+	}
+	return false
 }

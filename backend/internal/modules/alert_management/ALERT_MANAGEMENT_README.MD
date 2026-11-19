@@ -1,6 +1,6 @@
 # Modulo: Alert Management
 
-**Responsabilidad**: convertir el nivel horario que publica el Rule Engine (`rule_engine.level_evaluated` v3) en **alertas** para el operador (web) y el usuario de campo (app móvil). Crea una alerta por dispositivo y evento y mantiene su nivel actual y su nivel máximo. Registra la línea de tiempo (colores y mensajes), decide qué mensajes son **notificaciones** (alertas nuevas y subidas de nivel) y guarda la gestión del operador: clasificación, etiqueta y observaciones.
+**Responsabilidad**: convertir el nivel horario que publica el Rule Engine (`rule_engine.level_evaluated` v3) en **alertas** para el operador (web) y el usuario de campo (app móvil). Desde el catálogo v7 procesa también el movimiento del sensor (`rule_engine.motion_evaluated` v1): hay **una sola alerta ACTIVA por punto** y en ella se acoplan los dos flujos, FUGA y MOVIMIENTO (ver "Movimiento"). Mantiene su nivel actual y su nivel máximo. Registra la línea de tiempo (colores y mensajes), decide qué mensajes son **notificaciones** (alertas nuevas y subidas de nivel) y guarda la gestión del operador: clasificación, etiqueta y observaciones.
 
 **No entrega avisos**: no hay push, FCM, web push ni registro de celulares. Cada mensaje `NOTIFICACION` se publica como evento `alert_management.alert_notification` y el canal (web, push, correo) y los reintentos son del módulo de notificaciones.
 
@@ -141,11 +141,27 @@ Sigue el patrón de `rule_threshold_versions`: solo se agregan versiones y nunca
 | `oscillation_flips` / `oscillation_window_hours` | 4 / 6 | — |
 | `late_notification_max_hours` | 2 | — |
 
+## Movimiento (`REQ_ALERTAS_MOVIMIENTO` v1.0, §7, §8 y §11.2)
+
+Alert Management procesa dos flujos por punto sobre la **misma** alerta activa: FUGA (`level_evaluated`, `Decide`) y MOVIMIENTO (`motion_evaluated`, `DecideMotion`, puro). Abre el primero; el otro se une; la alerta finaliza cuando se cierra el último episodio abierto. Una alerta en la que nunca participa el movimiento se comporta **exactamente como antes** (CA-1: los tests de `Decide` de FUGA no cambiaron).
+
+- **Datos (§7.1)**: `alerts.events text[]` (flujos que participaron; `event_type` queda como origen), `motion_state`, `temp_state`, `temp_stable_from`, `temp_stable_to`, `last_motion_evaluated_at`; `alert_processing_state.in_episode` y una fila (punto, MOVIMIENTO). `ux_alerts_one_active` pasa a `UNIQUE (measuring_point_id) WHERE state = 'ACTIVA'`: la migración aborta si un punto tiene dos activas. PostgreSQL no admite un DEFAULT que lea otra columna: `ARRAY[event_type]` lo arma el código en cada INSERT y la migración completa las filas previas antes del `NOT NULL` (con `CHECK chk_alerts_events`). Al agregarse `in_episode`, la fila FUGA de un punto con alerta activa queda en `true`.
+- **Concurrencia (§7.2)**: el mismo lock por punto serializa los dos flujos; cada uno tiene su `last_evaluated_at` y lee el `in_episode` del otro tal como quedó en su última hora. Backfill y catch-up intercalan por hora: primero FUGA, después MOVIMIENTO.
+- **FUGA (§7.3)**: OPENED con la alerta activa en la que participa el movimiento ⇒ `LEAK_JOINED` (Notificación; si sube, abre el color con ese nivel, sin `UP_*`). CLEARED con el movimiento en episodio ⇒ no finaliza: `PART_NORMAL` (ruido). Con la alerta sostenida por el movimiento y FUGA fuera de episodio, solo se aplican la bajada (nunca por debajo de Amarillo) y `ROJO_HELD`. La reactivación busca la última FINALIZADA del punto (`AlertTx.GetLastFinished`), de cualquier origen. Se eliminó `UP_DURING_INTERVENTION`: con `MANTENIMIENTO_PROGRAMADO` las subidas emiten su `UP_*` (CA-5; `intervention_silent_max_level` queda en la política sin uso).
+- **MOVIMIENTO (§7.4, §7.5)**: tabla de `DecideMotion` en su orden (MOV_OPEN / MOV_JOINED, MOV_DISPLACED, TEMP_STABILIZED, MOV_RETURN, TEMP_VARIES_AGAIN, TEMP_NOT_STABILIZED, TEMP_STILL_STABLE, PART_NORMAL sensor o END_NORMAL/MOVIMIENTO). `started_at`: con `MOV_ABRUPT` t − (hours − 1) h, con `MOV_SHIFT_GAP` el fin de la hora de `gap_from`, si no t. La política es la de FUGA (la alerta es una sola). La memoria del movimiento (hora en que se unió, inicio del desplazamiento, último TEMP_VARIES_AGAIN) va en `alerts.runtime`: en la hora del retorno el evento ya no trae `shift.started_at`.
+- **Modo sombra (CA-7)**: el Rule Engine no publica con `alerts_enabled = false`, `MotionSource` solo lee horas de versiones con `alerts_enabled` y `ProcessMotion` ignora las que lleguen así.
+- **Huecos en vivo**: si un evento de movimiento llega con horas faltantes desde la última procesada, `ProcessMotion` las lee de `motion_evaluations` antes (las de movimiento tienen fila siempre, también NO_CALCULABLE).
+- **Gestión (§7.6)**: `CLASSIFIED` / `LABELED` (kind GESTION) con `evaluated_at` = la hora guardada al segundo (= `classified_at` / `labeled_at`), en el color vigente; `params` agrega `classification` o `label`/`other_text`, `origin`, `device_identifier`, `recorded_at` y `observation`. Un 409, un reenvío o una observación suelta no crean mensaje. `GET /{id}` ya ordenaba por `evaluated_at`.
+- **Avisos**: `alert_notification` y `alert_changed` siguen en v1; `event_type` del aviso es el **flujo** del mensaje (MOVIMIENTO si vino de ese flujo).
+- **Catálogo v7 (§8)**: textos de §8.1 y §8.2 (`IsMotionKey` marca los de movimiento). Excepción: `TEMP_STABILIZED` decía "Pasó lo mismo en cierres anteriores", que §8.3 prohíbe ("cierre"); quedó "Pasó lo mismo antes en este punto, pero no está confirmado".
+- **Rebuild (§11.2)**: `-rebuild` borra **todo** el punto (los dos flujos y sus estados). Si alguna alerta tiene clasificación, etiqueta u observaciones, aborta **sin escribir** salvo `-drop-management`. Cuenta antes (`AlertReset.CountPoint`) alertas, mensajes, clasificaciones, etiquetas y observaciones, lo registra y el comando lo imprime.
+
 ## Eventos
 
 | Tópico | Publicador | Notice propio | Suscripción | Acción |
 |---|---|---|---|---|
 | `rule_engine.level_evaluated` (v3) | Rule Engine | `entities.LevelNotice` (lo traduce `internal/bootstrap/alert_management.go`) | `alert_management.level_evaluated` | `ProcessingService.Process` (`LIVE`) |
+| `rule_engine.motion_evaluated` (v1) | Rule Engine | `entities.MotionNotice` (`toMotionNotice`; los motivos con `entities.ParseMotionReason`) | `alert_management.motion_evaluated` | `ProcessingService.ProcessMotion` (`LIVE`) |
 
 Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un duplicado o una hora vieja (`evaluated_at` ≤ `alert_processing_state.last_evaluated_at`) no hace nada.
 
@@ -154,7 +170,8 @@ Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un dupli
 ## Catch-up y backfill (sección 9.2)
 
 - **Catch-up** (`CatchUpScheduler`): corre al arrancar y cada hora en el minuto `ALERT_MANAGEMENT_CATCHUP_MINUTE` (55, después del 50 del Rule Engine). Lee de `rule_evaluations` + `rule_threshold_versions` (modelo propio, solo lectura) las horas posteriores a la última procesada y las procesa con el mismo caso de uso (`CATCH_UP`, publicando avisos). Un punto sin estado se saltea con un Warn ("correr alert_management -backfill"): nunca publica el histórico entero.
-- **Backfill**: `cmd/alert_management -backfill [-point] [-from] [-to] [-rebuild]`. Reconstruye sin publicar avisos (`BACKFILL`). Es idempotente: retoma desde la última hora procesada. `-rebuild` borra **todo** lo del punto, **gestión incluida**, y está bloqueado con `AGATHA_ENV=production`.
+- **Backfill**: `cmd/alert_management -backfill [-point] [-from] [-to] [-rebuild [-drop-management]]`. Reconstruye sin publicar avisos (`BACKFILL`), con FUGA (`rule_evaluations`) y MOVIMIENTO (`motion_evaluations`, `MotionSource`) intercalados por hora. Es idempotente: retoma desde la última hora procesada de cada flujo. `-rebuild` borra **todo** lo del punto y está bloqueado con `AGATHA_ENV=production`; con gestión en el punto exige `-drop-management` (§11.2).
+- El catch-up también lee `motion_evaluations` desde el `last_evaluated_at` de la fila (punto, MOVIMIENTO); un flujo sin estado se saltea.
 - En los dos, un salto de `evaluated_at` se procesa como horas `NO_CALCULABLE`, igual que en vivo (como máximo 744 horas inferidas por salto).
 
 **Orden de inicialización**: `baseline -backfill` → `processing -backfill` → `rule_engine -backfill` → `alert_management -backfill` → habilitar `alert_management` en `AGATHA_MODULES` (requiere `rule_engine`).
@@ -195,7 +212,7 @@ Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_
 
 ## Configuración
 
-`AGATHA_ENV` (`production` bloquea `-rebuild`), `ALERT_MANAGEMENT_CATCHUP_MINUTE` (55), `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE` (500).
+`AGATHA_ENV` (`production` bloquea `-rebuild`; `-drop-management` solo con `-rebuild`), `ALERT_MANAGEMENT_CATCHUP_MINUTE` (55), `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE` (500).
 
 ## Reglas de Import (Aislamiento)
 
@@ -209,4 +226,9 @@ No importa `rule_engine` (ni su `contract/`), `processing`, `ingestion`, `baseli
 - `infrastructure/http/alert_handler_test.go`: los flujos HTTP de clasificación y etiqueta, campos desconocidos, que las rutas literales ganen a `{id}`, que no existan `/notifications` ni `/push-devices`, la exportación y la política.
 - `infrastructure/{export,scheduling,persistence/mappers}`: xlsx bien formado, scheduler, y mappers de ida y vuelta (incluido el `LevelNotice` desde la fila en modo WINDOW).
 - `internal/bootstrap/alert_management_test.go`: traducción del contrato, y **de punta a punta con el bus real** (Processing → Rule Engine → Alert Management → `alert_management.alert_notification`: abre, sube, hueco, cierra; solo OPEN y UP_NARANJA_FAST salen como avisos).
+- **Movimiento**:
+  - `domain/services/decide_motion_test.go`: los 17 escenarios de §9.2 (CA-12) con FUGA y MOVIMIENTO sobre la misma alerta, más `SOLO_MOVIMIENTO` y el silencio de FUGA con la alerta sostenida por el movimiento; `decide_test.go` agrega CA-5.
+  - `domain/messages/catalog_test.go`: §8.3 (CA-11): dato en todo mensaje de movimiento, palabras prohibidas, 16 claves, sin `UP_DURING_INTERVENTION`, formatos de grados y duraciones, texto de gestión.
+  - `application/services/motion_processing_test.go`: modo sombra (CA-7), duplicado (CA-8), horas perdidas en vivo, intercalado FUGA primero, guarda del rebuild y borrado de la gestión (CA-9, CA-10), mensajes de gestión a su hora (CA-3) y una ACTIVA por punto (CA-2).
+  - `internal/bootstrap/motion_alerts_test.go`: **las 9 alertas de §12.3** con el movimiento real (`MotionAssess` sobre `motion_input.csv`, traducido como el evento en vivo) y FUGA sintética con los inicios, fines y niveles de la tabla; con `rule_engine/domain/services/testdata/motion/rule_evaluations_11556.csv` corre además con el histórico real de FUGA (si no está, se saltea).
 - **Sin pruebas de integración contra PostgreSQL todavía**: la migración, el trigger, los CHECK, el `EXCLUDE` y las consultas GORM no se corrieron contra una BD.

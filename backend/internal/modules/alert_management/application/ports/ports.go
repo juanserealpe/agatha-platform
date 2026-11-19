@@ -38,8 +38,11 @@ type AlertTx interface {
 	GetState(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.ProcessingState, error)
 	SaveState(ctx context.Context, s entities.ProcessingState) error
 
-	// GetActive devuelve la alerta ACTIVA del (punto, evento), nil si no hay.
-	GetActive(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error)
+	// GetActive devuelve la alerta ACTIVA del punto (de cualquier origen), nil si no hay.
+	GetActive(ctx context.Context, pointID int64) (*entities.Alert, error)
+	// GetLastFinished devuelve la última alerta FINALIZADA del punto (la de
+	// ended_at más reciente, de cualquier origen), nil si no hay.
+	GetLastFinished(ctx context.Context, pointID int64) (*entities.Alert, error)
 	// GetAlert devuelve la alerta (ErrNotFound si no existe). forUpdate la bloquea hasta el fin de la TX.
 	GetAlert(ctx context.Context, id int64, forUpdate bool) (*entities.Alert, error)
 	// InsertAlert crea la alerta y devuelve su ID.
@@ -98,9 +101,34 @@ type LevelSource interface {
 	ListAfter(ctx context.Context, pointID int64, after, to time.Time, limit int) ([]entities.LevelNotice, error)
 }
 
+// ResetCounts es lo que el rebuild va a borrar de un punto (§11.2).
+type ResetCounts struct {
+	Alerts, Messages, Classified, Labeled, Observations int64
+}
+
+// HasManagement indica si alguna alerta del punto tiene gestión.
+func (c ResetCounts) HasManagement() bool {
+	return c.Classified > 0 || c.Labeled > 0 || c.Observations > 0
+}
+
 // AlertReset borra los datos de Alert Management de un punto (solo -rebuild fuera de producción).
 type AlertReset interface {
-	ResetPoint(ctx context.Context, pointID int64, eventType entities.EventType) (int64, error)
+	// CountPoint cuenta lo que ResetPoint borraría.
+	CountPoint(ctx context.Context, pointID int64) (ResetCounts, error)
+	// ResetPoint borra TODAS las alertas del punto (de los dos flujos, con
+	// colores, mensajes, observaciones y gestión) y sus estados de procesamiento.
+	ResetPoint(ctx context.Context, pointID int64) (int64, error)
+}
+
+// MotionSource lee motion_evaluations (del Rule Engine, solo lectura) para
+// el catch-up, el backfill y los huecos de la suscripción. Solo devuelve
+// horas de versiones con alerts_enabled (el modo sombra no llega a Alert Management).
+type MotionSource interface {
+	// ListPoints devuelve los puntos con alguna hora con alerts_enabled.
+	ListPoints(ctx context.Context) ([]int64, error)
+	// ListAfter devuelve hasta limit horas del punto con evaluated_at > after
+	// (cero = desde el inicio) y < to (cero = sin límite), ascendentes.
+	ListAfter(ctx context.Context, pointID int64, after, to time.Time, limit int) ([]entities.MotionNotice, error)
 }
 
 // NotificationPublisher publica los mensajes NOTIFICACION para el módulo de

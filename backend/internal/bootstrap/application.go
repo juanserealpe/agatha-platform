@@ -63,10 +63,12 @@ func NewApplication(platform *Platform, modules ModuleSet) (*Application, error)
 		m.SubscribeIndicatorEvaluated()
 		app.routes = append(app.routes, m.RegisterRoutes)
 		app.runners = append(app.runners, Runner{Name: "catch-up del rule engine", Start: m.NewScheduler().Start})
+		app.runners = append(app.runners, Runner{Name: "evaluación horaria de movimiento", Start: m.NewMotionScheduler().Start})
 	}
 
 	if alerts != nil {
 		alerts.SubscribeLevelEvaluated()
+		alerts.SubscribeMotionEvaluated()
 		app.routes = append(app.routes, alerts.RegisterRoutes)
 		app.runners = append(app.runners, alerts.Runners()...)
 	}

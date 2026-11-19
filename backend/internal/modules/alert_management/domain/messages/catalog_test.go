@@ -156,10 +156,11 @@ func TestFormatValue(t *testing.T) {
 	}
 }
 
-// Todo mensaje del procesamiento horario cita el índice de ruido.
+// Todo mensaje del procesamiento horario de FUGA cita el índice de ruido
+// (los de movimiento y temperatura citan su propio dato: §8.3).
 func TestCatalog_ProcessingMessagesCiteTheIndex(t *testing.T) {
 	for key, tpl := range catalog {
-		if tpl.Kind == entities.KindManagement {
+		if tpl.Kind == entities.KindManagement || IsMotionKey(key) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(tpl.Body), "índice") {
@@ -234,5 +235,72 @@ func TestCatalog_UpConfirmedVariantsPrependTheSignature(t *testing.T) {
 		if confirmed.Code != c.code || confirmed.Title != plain.Title || confirmed.Kind != plain.Kind || confirmed.Body != prefix+plain.Body {
 			t.Errorf("%s/%s confirmada = %+v (simple %+v)", c.code, c.variant, confirmed, plain)
 		}
+	}
+}
+
+// §8.3: todo mensaje de movimiento o temperatura cita un dato ("Dato: …"); el
+// fin cita la duración. Ninguno usa las palabras de una interpretación.
+func TestCatalog_MotionMessagesCiteDataAndStayNeutral(t *testing.T) {
+	banned := []string{"umbral", "persistencia", "cierre", "cerrado", "reapertura", "flujo de gas"}
+	motion := 0
+	for key, tpl := range catalog {
+		if !IsMotionKey(key) {
+			continue
+		}
+		motion++
+		if key != Key(CodeEndNormal, VariantMotion) && !strings.Contains(tpl.Body, "Dato:") {
+			t.Errorf("%s no cita un dato: %q", key, tpl.Body)
+		}
+		if key == Key(CodeEndNormal, VariantMotion) && !strings.Contains(tpl.Body, "{duracion}") {
+			t.Errorf("%s no cita la duración: %q", key, tpl.Body)
+		}
+		text := strings.ToLower(tpl.Title + " " + tpl.Body)
+		for _, b := range banned {
+			if strings.Contains(text, b) {
+				t.Errorf("%s usa %q: %s", key, b, text)
+			}
+		}
+	}
+	if motion != 16 {
+		t.Fatalf("códigos de movimiento = %d, se esperaban 16 (§8.1)", motion)
+	}
+}
+
+// v7: UP_DURING_INTERVENTION ya no existe.
+func TestCatalog_NoInterventionCode(t *testing.T) {
+	for key := range catalog {
+		if strings.HasPrefix(key, "UP_DURING_INTERVENTION") {
+			t.Fatalf("sigue la clave %s", key)
+		}
+	}
+	if MessageCatalogVersion != 7 {
+		t.Fatalf("MessageCatalogVersion = %d", MessageCatalogVersion)
+	}
+}
+
+func TestFormatDegreesAndDuration(t *testing.T) {
+	for v, want := range map[float64]string{0.08: "+0,08°", -0.115: "-0,12°", 0: "0,00°", 0.035: "+0,04°", -0.07: "-0,07°"} {
+		if got := FormatDegrees(v); got != want {
+			t.Errorf("FormatDegrees(%v) = %q, se esperaba %q", v, got, want)
+		}
+	}
+	for h, want := range map[int]string{1: "1 h", 23: "23 h", 47: "47 h", 48: "2 días", 53: "2 días y 5 h", 120: "5 días"} {
+		if got := FormatDuration(h); got != want {
+			t.Errorf("FormatDuration(%d) = %q, se esperaba %q", h, got, want)
+		}
+	}
+}
+
+func TestRender_ManagementWithTimeRecordAndObservation(t *testing.T) {
+	text, err := Render(Key(CodeClassified, ""), map[string]string{
+		"clasificacion": "Falsa alerta", "origen": "desde la app", "fecha": "21/10", "hora": "14:23",
+		"registro": " Hecha en el celular a las 13:50.", "observacion": " Observación: «maniobra de TGI»",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Registrada desde la app el 21/10 a las 14:23. Hecha en el celular a las 13:50. Observación: «maniobra de TGI»"
+	if text.Body != want || text.Kind != entities.KindManagement {
+		t.Fatalf("body = %q", text.Body)
 	}
 }

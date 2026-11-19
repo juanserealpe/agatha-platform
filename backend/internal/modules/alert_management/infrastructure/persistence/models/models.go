@@ -45,7 +45,18 @@ type AlertModel struct {
 	Code             string `gorm:"column:code;->;-:migration"`
 	MeasuringPointID int64  `gorm:"column:measuring_point_id;not null;index:ix_alerts_point_started,priority:1"`
 	EventType        string `gorm:"column:event_type;type:text;not null;default:'FUGA';check:chk_alerts_event_type,event_type IN ('FUGA', 'MOVIMIENTO')"`
-	State            string `gorm:"column:state;type:text;not null;check:chk_alerts_state,state IN ('ACTIVA', 'FINALIZADA')"`
+	// Events son los flujos que participaron. El NOT NULL y su CHECK los
+	// agrega Migrate después de completar las filas anteriores con ARRAY[event_type]
+	// (PostgreSQL no admite un DEFAULT que lea otra columna).
+	Events TextArray `gorm:"column:events;type:text[]"`
+	State  string    `gorm:"column:state;type:text;not null;check:chk_alerts_state,state IN ('ACTIVA', 'FINALIZADA')"`
+
+	// Contexto del movimiento (§7.1): copiado de su última hora calculada.
+	MotionState           *string    `gorm:"column:motion_state;type:text"`
+	TempState             *string    `gorm:"column:temp_state;type:text"`
+	TempStableFrom        *time.Time `gorm:"column:temp_stable_from;type:timestamptz"`
+	TempStableTo          *time.Time `gorm:"column:temp_stable_to;type:timestamptz"`
+	LastMotionEvaluatedAt *time.Time `gorm:"column:last_motion_evaluated_at;type:timestamptz"`
 
 	StartedAt         time.Time  `gorm:"column:started_at;type:timestamptz;not null;index:ix_alerts_point_started,priority:2,sort:desc;index:ix_alerts_started"`
 	OpenedAt          time.Time  `gorm:"column:opened_at;type:timestamptz;not null"`
@@ -163,7 +174,9 @@ type AlertProcessingStateModel struct {
 	PendingRunStartedAt *time.Time `gorm:"column:pending_run_started_at;type:timestamptz"`
 	LastAlertID         *int64     `gorm:"column:last_alert_id"`
 	LastStatus          string     `gorm:"column:last_status;type:text;not null;default:''"`
-	UpdatedAt           time.Time  `gorm:"column:updated_at;type:timestamptz;not null;default:now()"`
+	// InEpisode es el in_episode del Rule Engine en la última hora del flujo (§7.1).
+	InEpisode bool      `gorm:"column:in_episode;not null;default:false"`
+	UpdatedAt time.Time `gorm:"column:updated_at;type:timestamptz;not null;default:now()"`
 }
 
 func (AlertProcessingStateModel) TableName() string { return "alert_processing_state" }
@@ -217,4 +230,32 @@ type ReasonReadRow struct {
 type DeviceReadModel struct {
 	MeasuringPointID int64  `gorm:"column:measuring_point_id"`
 	Name             string `gorm:"column:name"`
+}
+
+// MotionEvaluationReadModel es una fila de motion_evaluations con el
+// alerts_enabled de su versión (JOIN). Solo lectura: las tablas son del Rule Engine.
+type MotionEvaluationReadModel struct {
+	ID                 int64      `gorm:"column:id"`
+	MeasuringPointID   int64      `gorm:"column:measuring_point_id"`
+	EvaluatedAt        time.Time  `gorm:"column:evaluated_at"`
+	Status             string     `gorm:"column:status"`
+	MotionState        *string    `gorm:"column:motion_state"`
+	TempState          *string    `gorm:"column:temp_state"`
+	TempMode           string     `gorm:"column:temp_mode"`
+	ComputedLevel      string     `gorm:"column:computed_level"`
+	InEpisode          bool       `gorm:"column:in_episode"`
+	EpisodeEvent       string     `gorm:"column:episode_event"`
+	Displaced          bool       `gorm:"column:displaced"`
+	PitchNow           *float64   `gorm:"column:pitch_now"`
+	RollNow            *float64   `gorm:"column:roll_now"`
+	RefPitch           *float64   `gorm:"column:ref_pitch"`
+	RefRoll            *float64   `gorm:"column:ref_roll"`
+	ShiftStartedAt     *time.Time `gorm:"column:shift_started_at"`
+	GapFrom            *time.Time `gorm:"column:gap_from"`
+	GapTo              *time.Time `gorm:"column:gap_to"`
+	TempStableFrom     *time.Time `gorm:"column:temp_stable_from"`
+	TempStableTo       *time.Time `gorm:"column:temp_stable_to"`
+	Reasons            string     `gorm:"column:reasons"`
+	ThresholdVersionID int64      `gorm:"column:threshold_version_id"`
+	AlertsEnabled      bool       `gorm:"column:alerts_enabled"`
 }

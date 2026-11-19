@@ -95,6 +95,16 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "-rebuild no está permitido con AGATHA_ENV=production",
 	}
+	// ErrManagementPresent: guarda del rebuild (§11.2). El punto tiene
+	// clasificaciones, etiquetas u observaciones y no se pasó -drop-management.
+	ErrManagementPresent = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el punto tiene gestión (clasificación, etiqueta u observaciones): -rebuild no borra nada sin -drop-management",
+	}
+	ErrDropManagementRequiresRebuild = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-drop-management solo es válido junto con -rebuild",
+	}
 
 	// IO.
 	ErrConsultingAlerts = &errors.AppError{

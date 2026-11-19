@@ -14,21 +14,25 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/messages"
 )
 
-// ErrNoticeMismatch: la alerta activa no es del punto/evento de la hora (error de programación).
-var ErrNoticeMismatch = errors.New("alert_management: la alerta activa no corresponde al punto o evento de la hora")
+// ErrNoticeMismatch: la alerta activa no es del punto de la hora (error de programación).
+var ErrNoticeMismatch = errors.New("alert_management: la alerta activa no corresponde al punto de la hora")
 
 // DecideInput es todo lo que Decide necesita para una hora.
 type DecideInput struct {
+	// State es el estado del flujo FUGA del punto.
 	State entities.ProcessingState
-	// Active es la alerta ACTIVA del (punto, evento), nil si no hay.
+	// Active es la alerta ACTIVA del punto (de cualquier origen), nil si no hay.
 	Active *entities.Alert
 	// Segment es el color vigente de Active.
 	Segment *entities.Segment
-	// Last es la última alerta finalizada (State.LastAlertID): candidata a reactivación.
+	// Last es la última alerta FINALIZADA del punto, de cualquier origen: candidata a reactivación.
 	Last   *entities.Alert
 	Notice entities.LevelNotice
 	Policy entities.Policy
 	Device entities.Device
+	// MotionInEpisode es el in_episode del flujo MOVIMIENTO en su última hora
+	// procesada: con él en episodio, el CLEARED de FUGA no finaliza la alerta.
+	MotionInEpisode bool
 }
 
 // Outcome es lo que pasó con la hora.
@@ -63,7 +67,7 @@ type Decision struct {
 // filtra duplicados (evaluated_at <= State.LastEvaluatedAt).
 func Decide(in DecideInput) (Decision, error) {
 	n := in.Notice
-	if in.Active != nil && (in.Active.MeasuringPointID != n.MeasuringPointID || in.Active.EventType != n.EventType) {
+	if in.Active != nil && in.Active.MeasuringPointID != n.MeasuringPointID {
 		return Decision{}, ErrNoticeMismatch
 	}
 
@@ -74,19 +78,28 @@ func Decide(in DecideInput) (Decision, error) {
 	d.State.LastEvaluatedAt = &at
 
 	b := builder{in: in, at: at}
+	// sustained: la alerta sigue por el movimiento con FUGA fuera de episodio
+	// (§7.3.3). Una alerta en la que el movimiento no participa nunca lo está.
+	sustained := in.Active != nil && in.Active.HasEvent(entities.EventTypeMovement) && !in.State.InEpisode
 
 	if !n.Calculated() {
 		d.State.LastStatus = entities.StatusNoCalculable
-		if in.Active != nil {
+		if in.Active != nil && !sustained {
 			b.noCalc(&d)
 		}
 		return d, b.err
 	}
 	d.State.LastStatus = entities.StatusCalculated
+	d.State.InEpisode = n.InEpisode
 
-	if in.Active == nil {
+	switch {
+	case in.Active == nil:
 		b.withoutAlert(&d, firstHour)
-	} else {
+	case in.Active.HasEvent(entities.EventTypeMovement) && n.EpisodeEvent == entities.EpisodeOpened:
+		b.leakJoined(&d)
+	case sustained:
+		b.sustainedByMotion(&d)
+	default:
 		b.withAlert(&d)
 	}
 	return d, b.err
@@ -217,6 +230,7 @@ func (b *builder) withoutAlert(d *Decision, firstHour bool) {
 	a := entities.Alert{
 		MeasuringPointID:         n.MeasuringPointID,
 		EventType:                n.EventType,
+		Events:                   []entities.EventType{n.EventType},
 		State:                    entities.AlertActive,
 		StartedAt:                started,
 		OpenedAt:                 b.at,
@@ -289,6 +303,7 @@ func (b *builder) reactivate(d *Decision, last entities.Alert, computed entities
 	level := entities.MaxLevel(a.CurrentLevel, computed)
 
 	at := b.at
+	a.AddEvent(n.EventType)
 	a.State = entities.AlertActive
 	a.EndedAt = nil
 	a.ReactivationCount++
@@ -348,6 +363,13 @@ func (b *builder) withAlert(d *Decision) {
 	d.Alert = &a
 	d.Outcome = OutcomeUpdated
 
+	if n.EpisodeEvent == entities.EpisodeCleared && b.in.MotionInEpisode {
+		// §7.3.2: el ruido volvió a lo normal; la alerta sigue por el movimiento.
+		d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodePartNormal, messages.VariantNoise), map[string]string{
+			"motivo": motionReason(a), "i": b.value(),
+		}, "", a.CurrentLevel, true))
+		return
+	}
 	if n.EpisodeEvent == entities.EpisodeCleared {
 		at := b.at
 		a.State = entities.AlertFinished
@@ -458,7 +480,6 @@ func zoneOf(n entities.LevelNotice) string {
 // up: previous es el índice de la última hora calculada (lo cita la subida rápida).
 func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level, previous float64) {
 	n := b.in.Notice
-	p := b.in.Policy
 	at := b.at
 
 	a.CurrentLevel = level
@@ -478,11 +499,8 @@ func (b *builder) up(d *Decision, a *entities.Alert, level entities.Level, previ
 		return messages.Key(code, messages.ConfirmedVariant(variant)), b.signature(params)
 	}
 
+	// v7 (§7.3.5): con MANTENIMIENTO_PROGRAMADO las subidas son las de siempre.
 	switch {
-	case a.InIntervention() && level.Rank() <= p.InterventionSilentMaxLevel.Rank():
-		d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeUpDuringIntervention, ""), map[string]string{
-			"nivel": messages.LevelName(level), "valor": b.value(), "corte": b.cut(level),
-		}, "", level, true))
 	case level == entities.LevelRojo && n.PersistenceHours > 0:
 		key, params := upKey(messages.CodeUpRojo, messages.VariantPersist, map[string]string{
 			"codigo": a.Code, "N": strconv.Itoa(n.PersistenceHours), "valor": b.value(),
@@ -710,9 +728,119 @@ func (b *builder) summary(d *Decision, a *entities.Alert) {
 	}, "", a.CurrentLevel, true))
 }
 
-// cloneAlert copia la alerta sin compartir los slices del runtime.
+// cloneAlert copia la alerta sin compartir los slices del runtime ni events.
 func cloneAlert(a entities.Alert) entities.Alert {
 	a.Runtime.Flips = append([]time.Time(nil), a.Runtime.Flips...)
 	a.Runtime.Recent = append([]entities.HourValue(nil), a.Runtime.Recent...)
+	a.Events = a.EventsOrOrigin()
 	return a
+}
+
+// trackLeakHour actualiza con la hora de FUGA lo que no depende de las reglas
+// de mensaje: índice, firma de fuga y horas calculadas.
+func (b *builder) trackLeakHour(a *entities.Alert) {
+	n := b.in.Notice
+	a.LastIndicatorValue = n.Value()
+	a.MaxIndicatorValue = max(a.MaxIndicatorValue, n.Value())
+	a.LastEvaluatedAt = b.at
+	a.HoursCalculated++
+	a.LeakSignature = entities.LeakSignatureOf(n)
+	a.Runtime.Limited = n.Limited()
+	a.Runtime.InNoCalc = false
+}
+
+// trackPending sigue la racha sobre el umbral que todavía no abrió episodio
+// (su primera hora es el "desde" de LEAK_JOINED).
+func (b *builder) trackPending(d *Decision) {
+	if b.in.Notice.RawLevel.AlertLevel() {
+		if d.State.PendingRunStartedAt == nil {
+			at := b.at
+			d.State.PendingRunStartedAt = &at
+		}
+		return
+	}
+	d.State.PendingRunStartedAt = nil
+}
+
+// leakJoined (§7.3.1): FUGA abre un episodio con la alerta ACTIVA en la que
+// participa el movimiento. Se agrega FUGA a events; si el nivel supera el
+// actual, abre un color nuevo y LEAK_JOINED lo lleva (sin UP_*). started_at no cambia.
+func (b *builder) leakJoined(d *Decision) {
+	n := b.in.Notice
+	a := cloneAlert(*b.in.Active)
+	pending := d.State.PendingRunStartedAt
+	d.State.PendingRunStartedAt = nil
+	started := b.runStart(pending)
+
+	a.AddEvent(entities.EventTypeLeak)
+	b.trackLeakHour(&a)
+	a.BelowLevelHours = 0
+	a.Runtime.PrevZone = entities.ZoneAbove
+	a.Runtime.Recent = []entities.HourValue{{At: b.at, I: n.Value()}}
+	a.Runtime.NoLeakSent = false
+
+	level := entities.MaxLevel(n.ComputedLevel, entities.LevelAmarillo)
+	if level.Rank() > a.CurrentLevel.Rank() {
+		at := b.at
+		a.CurrentLevel = level
+		a.MaxLevel = entities.MaxLevel(a.MaxLevel, level)
+		a.Runtime.CountdownSentFor = ""
+		a.Runtime.RojoHeldSent = false
+		d.CloseSegmentAt = &at
+		d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentUp, Level: level, StartedAt: at}
+	}
+
+	d.Messages = append(d.Messages, b.message(&a, messages.Key(messages.CodeLeakJoined, ""), map[string]string{
+		"nivel_texto": messages.LevelPhrase(level), "hora": messages.FormatClock(started), "fecha": messages.FormatDate(started),
+		"contexto": b.leakContext(a), "i": b.value(), "normal": b.normal(),
+	}, "", a.CurrentLevel, true))
+	d.Alert = &a
+	d.Outcome = OutcomeUpdated
+}
+
+// leakContext es {contexto} de LEAK_JOINED: lo primero que aplique.
+func (b *builder) leakContext(a entities.Alert) string {
+	if (a.TempState == entities.TempEstable || a.TempState == entities.TempRetornoEstable) && a.TempStableFrom != nil {
+		return "El sensor se movió y la temperatura está estable desde las " + messages.FormatHour(*a.TempStableFrom) + "."
+	}
+	if v := a.Runtime.TempVariesAgainAt; v != nil && b.at.Sub(*v) < 24*time.Hour {
+		return "La temperatura volvió a variar hace " + strconv.Itoa(int(b.at.Sub(*v).Hours())) + " h."
+	}
+	moved := a.StartedAt
+	if a.Runtime.MotionAt != nil {
+		moved = *a.Runtime.MotionAt
+	}
+	return "El sensor se movió a las " + messages.FormatHour(moved) + "."
+}
+
+// motionReason es {motivo} de PART_NORMAL (ruido): por qué la alerta sigue abierta.
+func motionReason(a entities.Alert) string {
+	switch {
+	case a.TempState == entities.TempEstable:
+		return "el sensor se movió y la temperatura sigue estable"
+	case a.TempState == entities.TempRetornoEstable:
+		return "el sensor volvió pero la temperatura sigue estable"
+	case a.MotionState == entities.MotionDisplaced:
+		return "el sensor sigue fuera de su posición"
+	default:
+		return "el sensor no lleva 24 h quieto"
+	}
+}
+
+// sustainedByMotion (§7.3.3): hora de FUGA con la alerta sostenida por el
+// movimiento y FUGA fuera de episodio. Solo se aplican la bajada de nivel
+// (nunca por debajo de AMARILLO) y ROJO_HELD.
+func (b *builder) sustainedByMotion(d *Decision) {
+	n := b.in.Notice
+	a := cloneAlert(*b.in.Active)
+	b.trackPending(d)
+	b.trackLeakHour(&a)
+	if n.ComputedLevel.Rank() < a.CurrentLevel.Rank() {
+		a.BelowLevelHours++
+	} else {
+		a.BelowLevelHours = 0
+	}
+	b.downgrade(d, &a)
+	d.Alert = &a
+	d.Outcome = OutcomeUpdated
 }

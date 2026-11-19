@@ -33,21 +33,35 @@ func (s *AlertStore) Transaction(ctx context.Context, fn func(tx ports.AlertTx) 
 	})
 }
 
-// ResetPoint borra alertas (con sus colores, mensajes y observaciones en
-// cascada) y el estado del punto. El trigger solo lo permite con SET LOCAL.
-func (s *AlertStore) ResetPoint(ctx context.Context, pointID int64, eventType entities.EventType) (int64, error) {
+// CountPoint cuenta lo que ResetPoint borraría (§11.2).
+func (s *AlertStore) CountPoint(ctx context.Context, pointID int64) (ports.ResetCounts, error) {
+	var c ports.ResetCounts
+	err := s.db.WithContext(ctx).Raw(`
+SELECT
+	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p) AS alerts,
+	(SELECT count(*) FROM alert_messages m JOIN alerts a ON a.id = m.alert_id WHERE a.measuring_point_id = @p) AS messages,
+	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p AND classification IS NOT NULL) AS classified,
+	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p AND label IS NOT NULL) AS labeled,
+	(SELECT count(*) FROM alert_observations o JOIN alerts a ON a.id = o.alert_id WHERE a.measuring_point_id = @p) AS observations`,
+		map[string]any{"p": pointID}).Scan(&c).Error
+	return c, err
+}
+
+// ResetPoint borra TODAS las alertas del punto (con sus colores, mensajes y
+// observaciones en cascada) y sus estados de procesamiento de los dos flujos.
+// El trigger solo lo permite con SET LOCAL.
+func (s *AlertStore) ResetPoint(ctx context.Context, pointID int64) (int64, error) {
 	var deleted int64
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL " + persistence.RebuildSetting + " = 'on'").Error; err != nil {
 			return err
 		}
-		res := tx.Where("measuring_point_id = ? AND event_type = ?", pointID, string(eventType)).Delete(&models.AlertModel{})
+		res := tx.Where("measuring_point_id = ?", pointID).Delete(&models.AlertModel{})
 		if res.Error != nil {
 			return res.Error
 		}
 		deleted = res.RowsAffected
-		return tx.Where("measuring_point_id = ? AND event_type = ?", pointID, string(eventType)).
-			Delete(&models.AlertProcessingStateModel{}).Error
+		return tx.Where("measuring_point_id = ?", pointID).Delete(&models.AlertProcessingStateModel{}).Error
 	})
 	return deleted, err
 }
@@ -77,14 +91,15 @@ func (t *alertTx) SaveState(ctx context.Context, s entities.ProcessingState) err
 	row.UpdatedAt = time.Now().UTC()
 	return t.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "measuring_point_id"}, {Name: "event_type"}},
-		DoUpdates: clause.AssignmentColumns([]string{"last_evaluated_at", "pending_run_started_at", "last_alert_id", "last_status", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"last_evaluated_at", "pending_run_started_at", "last_alert_id", "last_status", "in_episode", "updated_at"}),
 	}).Create(&row).Error
 }
 
-func (t *alertTx) GetActive(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error) {
+// GetActive usa el índice único parcial ux_alerts_one_active (punto) WHERE state = 'ACTIVA'.
+func (t *alertTx) GetActive(ctx context.Context, pointID int64) (*entities.Alert, error) {
 	var row models.AlertModel
 	err := t.db.WithContext(ctx).
-		Where("measuring_point_id = ? AND event_type = ? AND state = ?", pointID, string(eventType), string(entities.AlertActive)).
+		Where("measuring_point_id = ? AND state = ?", pointID, string(entities.AlertActive)).
 		Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -93,6 +108,18 @@ func (t *alertTx) GetActive(ctx context.Context, pointID int64, eventType entiti
 		return nil, err
 	}
 	a := mappers.ToAlert(row)
+	return &a, nil
+}
+
+func (t *alertTx) GetLastFinished(ctx context.Context, pointID int64) (*entities.Alert, error) {
+	var rows []models.AlertModel
+	err := t.db.WithContext(ctx).
+		Where("measuring_point_id = ? AND state = ? AND ended_at IS NOT NULL", pointID, string(entities.AlertFinished)).
+		Order("ended_at DESC, id DESC").Limit(1).Find(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	a := mappers.ToAlert(rows[0])
 	return &a, nil
 }
 

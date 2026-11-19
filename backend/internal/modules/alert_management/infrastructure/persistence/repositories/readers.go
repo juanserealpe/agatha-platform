@@ -99,3 +99,60 @@ func (d *DeviceDirectory) Names(ctx context.Context, pointIDs []int64) (map[int6
 	}
 	return out, nil
 }
+
+// MotionSource lee motion_evaluations + motion_threshold_versions (del Rule
+// Engine, solo lectura). Solo devuelve horas de versiones con alerts_enabled:
+// el modo sombra no llega a Alert Management. Implementa ports.MotionSource.
+type MotionSource struct {
+	db *gorm.DB
+}
+
+func NewMotionSource(db *gorm.DB) *MotionSource {
+	return &MotionSource{db: db}
+}
+
+// available indica si las tablas de movimiento existen (Rule Engine anterior a v7: no hay flujo).
+func (s *MotionSource) available() bool {
+	m := s.db.Migrator()
+	return m.HasTable("motion_evaluations") && m.HasTable("motion_threshold_versions")
+}
+
+func (s *MotionSource) ListPoints(ctx context.Context) ([]int64, error) {
+	if !s.available() {
+		return nil, nil
+	}
+	var points []int64
+	err := s.db.WithContext(ctx).Table("motion_evaluations e").
+		Joins("JOIN motion_threshold_versions v ON v.id = e.threshold_version_id").
+		Where("v.alerts_enabled").
+		Distinct("e.measuring_point_id").Order("e.measuring_point_id").Pluck("e.measuring_point_id", &points).Error
+	return points, err
+}
+
+func (s *MotionSource) ListAfter(ctx context.Context, pointID int64, after, to time.Time, limit int) ([]entities.MotionNotice, error) {
+	if !s.available() {
+		return nil, nil
+	}
+	q := s.db.WithContext(ctx).Table("motion_evaluations e").
+		Select(`e.id, e.measuring_point_id, e.evaluated_at, e.status, e.motion_state, e.temp_state, v.temp_mode,
+			e.computed_level, e.in_episode, e.episode_event, e.displaced, e.pitch_now, e.roll_now, e.ref_pitch, e.ref_roll,
+			e.shift_started_at, e.gap_from, e.gap_to, e.temp_stable_from, e.temp_stable_to, e.reasons::text AS reasons,
+			e.threshold_version_id, v.alerts_enabled`).
+		Joins("JOIN motion_threshold_versions v ON v.id = e.threshold_version_id").
+		Where("e.measuring_point_id = ? AND v.alerts_enabled", pointID)
+	if !after.IsZero() {
+		q = q.Where("e.evaluated_at > ?", after.UTC())
+	}
+	if !to.IsZero() {
+		q = q.Where("e.evaluated_at < ?", to.UTC())
+	}
+	var rows []models.MotionEvaluationReadModel
+	if err := q.Order("e.evaluated_at ASC").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]entities.MotionNotice, len(rows))
+	for i, r := range rows {
+		out[i] = mappers.ToMotionNotice(r)
+	}
+	return out, nil
+}

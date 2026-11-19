@@ -58,7 +58,7 @@ END $$;`).Error
 		return fmt.Errorf("crear %s: %w", ExcludeConstraint, err)
 	}
 
-	return nil
+	return migrateMotion(db)
 }
 
 // RojoPlanitudConstraint ata confirm_rojo_with_planitud a confirm_naranja_with_planitud.
