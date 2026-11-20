@@ -261,8 +261,21 @@ func TestCatalog_MotionMessagesCiteDataAndStayNeutral(t *testing.T) {
 			}
 		}
 	}
-	if motion != 16 {
-		t.Fatalf("códigos de movimiento = %d, se esperaban 16 (§8.1)", motion)
+	// §8.1 sin LEAK_JOINED, MOV_JOINED ni PART_NORMAL (ruido/sensor): FUGA y
+	// MOVIMIENTO son alertas separadas.
+	if motion != 12 {
+		t.Fatalf("códigos de movimiento = %d, se esperaban 12 (§8.1 sin los del acople)", motion)
+	}
+}
+
+// FUGA y MOVIMIENTO no se combinan: no quedan los códigos del acople.
+func TestCatalog_NoCouplingCodes(t *testing.T) {
+	for key := range catalog {
+		for _, code := range []string{"LEAK_JOINED", "MOV_JOINED", "PART_NORMAL"} {
+			if strings.HasPrefix(key, code) {
+				t.Fatalf("sigue la clave %s", key)
+			}
+		}
 	}
 }
 

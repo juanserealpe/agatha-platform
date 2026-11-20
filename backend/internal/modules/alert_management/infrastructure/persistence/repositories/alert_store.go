@@ -91,15 +91,15 @@ func (t *alertTx) SaveState(ctx context.Context, s entities.ProcessingState) err
 	row.UpdatedAt = time.Now().UTC()
 	return t.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "measuring_point_id"}, {Name: "event_type"}},
-		DoUpdates: clause.AssignmentColumns([]string{"last_evaluated_at", "pending_run_started_at", "last_alert_id", "last_status", "in_episode", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"last_evaluated_at", "pending_run_started_at", "last_alert_id", "last_status", "updated_at"}),
 	}).Create(&row).Error
 }
 
-// GetActive usa el índice único parcial ux_alerts_one_active (punto) WHERE state = 'ACTIVA'.
-func (t *alertTx) GetActive(ctx context.Context, pointID int64) (*entities.Alert, error) {
+// GetActive usa el índice único parcial ux_alerts_one_active (punto, evento) WHERE state = 'ACTIVA'.
+func (t *alertTx) GetActive(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error) {
 	var row models.AlertModel
 	err := t.db.WithContext(ctx).
-		Where("measuring_point_id = ? AND state = ?", pointID, string(entities.AlertActive)).
+		Where("measuring_point_id = ? AND event_type = ? AND state = ?", pointID, string(eventType), string(entities.AlertActive)).
 		Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -111,10 +111,11 @@ func (t *alertTx) GetActive(ctx context.Context, pointID int64) (*entities.Alert
 	return &a, nil
 }
 
-func (t *alertTx) GetLastFinished(ctx context.Context, pointID int64) (*entities.Alert, error) {
+func (t *alertTx) GetLastFinished(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error) {
 	var rows []models.AlertModel
 	err := t.db.WithContext(ctx).
-		Where("measuring_point_id = ? AND state = ? AND ended_at IS NOT NULL", pointID, string(entities.AlertFinished)).
+		Where("measuring_point_id = ? AND event_type = ? AND state = ? AND ended_at IS NOT NULL",
+			pointID, string(eventType), string(entities.AlertFinished)).
 		Order("ended_at DESC, id DESC").Limit(1).Find(&rows).Error
 	if err != nil || len(rows) == 0 {
 		return nil, err

@@ -8,28 +8,6 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/infrastructure/persistence/models"
 )
 
-func TestTextArray_RoundTrip(t *testing.T) {
-	v, err := models.TextArray{"FUGA", "MOVIMIENTO"}.Value()
-	if err != nil || v != "{FUGA,MOVIMIENTO}" {
-		t.Fatalf("Value = %v, %v", v, err)
-	}
-	var a models.TextArray
-	if err := a.Scan([]byte("{FUGA,MOVIMIENTO}")); err != nil || len(a) != 2 || a[1] != "MOVIMIENTO" {
-		t.Fatalf("Scan = %v, %v", a, err)
-	}
-	if _, err := (models.TextArray{"a,b"}).Value(); err == nil {
-		t.Fatal("se esperaba error con una coma")
-	}
-}
-
-// Una fila sin events (anterior a v7) es solo de su origen.
-func TestAlert_WithoutEventsIsItsOrigin(t *testing.T) {
-	a := ToAlert(models.AlertModel{ID: 1, EventType: "MOVIMIENTO"})
-	if len(a.Events) != 1 || a.Events[0] != entities.EventTypeMovement {
-		t.Fatalf("events = %v", a.Events)
-	}
-}
-
 func TestToMotionNotice_ShiftAndReasons(t *testing.T) {
 	started := time.Date(2026, 8, 25, 11, 15, 42, 0, time.UTC)
 	p, r, rp, rr := -3.11, 25.56, -3.18, 25.42

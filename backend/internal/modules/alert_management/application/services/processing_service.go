@@ -146,18 +146,13 @@ func (s *ProcessingService) Process(ctx context.Context, notice entities.LevelNo
 			current = *state
 		}
 
-		active, err := tx.GetActive(ctx, notice.MeasuringPointID)
+		active, err := tx.GetActive(ctx, notice.MeasuringPointID, notice.EventType)
 		if err != nil {
 			return err
 		}
-		motion, err := tx.GetState(ctx, notice.MeasuringPointID, entities.EventTypeMovement)
-		if err != nil {
-			return err
-		}
-		motionInEpisode := motion != nil && motion.InEpisode
 
 		for _, n := range withGaps(current, notice) {
-			if current, active, err = s.apply(ctx, tx, current, active, n, policy, dev, source, now, motionInEpisode, &result, &pending, &changed); err != nil {
+			if current, active, err = s.apply(ctx, tx, current, active, n, policy, dev, source, now, &result, &pending, &changed); err != nil {
 				return err
 			}
 		}
@@ -227,12 +222,11 @@ func (s *ProcessingService) apply(
 	device entities.Device,
 	source entities.Source,
 	now time.Time,
-	motionInEpisode bool,
 	result *ProcessResult,
 	pending *[]contract.AlertNotification,
 	changed *[]contract.AlertChanged,
 ) (entities.ProcessingState, *entities.Alert, error) {
-	in := domainServices.DecideInput{State: state, Active: active, Notice: notice, Policy: policy, Device: device, MotionInEpisode: motionInEpisode}
+	in := domainServices.DecideInput{State: state, Active: active, Notice: notice, Policy: policy, Device: device}
 
 	var segment *entities.Segment
 	var err error
@@ -242,8 +236,8 @@ func (s *ProcessingService) apply(
 		}
 		in.Segment = segment
 	} else if notice.EpisodeEvent == entities.EpisodeOpened {
-		// La reactivación busca la última FINALIZADA del punto, de cualquier origen (§7.3.4).
-		if in.Last, err = tx.GetLastFinished(ctx, notice.MeasuringPointID); err != nil {
+		// La reactivación busca la última FINALIZADA de FUGA del punto.
+		if in.Last, err = tx.GetLastFinished(ctx, notice.MeasuringPointID, notice.EventType); err != nil {
 			return state, active, err
 		}
 	}
@@ -252,18 +246,19 @@ func (s *ProcessingService) apply(
 	if err != nil {
 		return state, active, err
 	}
-	return s.persist(ctx, tx, d, segment, active, entities.EventTypeLeak, notice.EvaluatedAt, policy, source, now, result, pending, changed)
+	result.Hours++
+	result.Decisions = append(result.Decisions, d.Outcome)
+	return s.persist(ctx, tx, d, segment, active, notice.EvaluatedAt, policy, source, now, result, pending, changed)
 }
 
-// persist guarda la decisión de una hora (de cualquiera de los dos flujos)
-// dentro de la transacción y junta los avisos y cambios a publicar.
+// persist guarda la decisión de una hora sobre una alerta (de FUGA o de
+// MOVIMIENTO) dentro de la transacción y junta los avisos y cambios a publicar.
 func (s *ProcessingService) persist(
 	ctx context.Context,
 	tx ports.AlertTx,
 	d domainServices.Decision,
 	segment *entities.Segment,
 	active *entities.Alert,
-	flow entities.EventType,
 	evaluatedAt time.Time,
 	policy entities.Policy,
 	source entities.Source,
@@ -274,8 +269,6 @@ func (s *ProcessingService) persist(
 ) (entities.ProcessingState, *entities.Alert, error) {
 	state := d.State
 	var err error
-	result.Hours++
-	result.Decisions = append(result.Decisions, d.Outcome)
 
 	if d.Alert == nil {
 		return d.State, active, nil
@@ -345,7 +338,7 @@ func (s *ProcessingService) persist(
 		}
 		m.ID = id
 		result.Notifications++
-		*pending = append(*pending, toAlertNotification(alert, m, flow, source, late, now))
+		*pending = append(*pending, toAlertNotification(alert, m, source, late, now))
 	}
 
 	// Decide trabaja sobre una copia: active conserva el nivel anterior.
@@ -360,7 +353,7 @@ func (s *ProcessingService) persist(
 	if d.Outcome == domainServices.OutcomeOpened || d.Outcome == domainServices.OutcomeReactivated || d.Outcome == domainServices.OutcomeFinished {
 		s.log.Info("[ProcessingService] Alerta "+string(d.Outcome),
 			"alert", alert.Code, "measuring_point_id", alert.MeasuringPointID, "evaluated_at", evaluatedAt,
-			"flow", flow, "events", alert.Events, "level", alert.CurrentLevel, "max_level", alert.MaxLevel, "source", source)
+			"event_type", alert.EventType, "level", alert.CurrentLevel, "max_level", alert.MaxLevel, "source", source)
 	}
 
 	if alert.State == entities.AlertActive {
@@ -370,15 +363,15 @@ func (s *ProcessingService) persist(
 }
 
 // toAlertNotification arma el evento del contrato con la alerta ya
-// actualizada. event_type es el flujo del mensaje (MOVIMIENTO si vino de ese
-// flujo), no el origen de la alerta: el contrato v1 no cambia (§3).
-func toAlertNotification(a entities.Alert, m entities.Message, flow entities.EventType, source entities.Source, late bool, now time.Time) contract.AlertNotification {
+// actualizada. event_type es el de la alerta (un TEMP_* replicado en la
+// alerta de FUGA sale como FUGA: el aviso abre esa alerta).
+func toAlertNotification(a entities.Alert, m entities.Message, source entities.Source, late bool, now time.Time) contract.AlertNotification {
 	return contract.AlertNotification{
 		MessageID:        m.ID,
 		AlertID:          a.ID,
 		AlertCode:        a.Code,
 		MeasuringPointID: a.MeasuringPointID,
-		EventType:        string(flow),
+		EventType:        string(a.EventType),
 		StartedAt:        a.StartedAt.UTC(),
 		EvaluatedAt:      m.EvaluatedAt.UTC(),
 		Code:             m.Code,

@@ -45,13 +45,10 @@ type AlertModel struct {
 	Code             string `gorm:"column:code;->;-:migration"`
 	MeasuringPointID int64  `gorm:"column:measuring_point_id;not null;index:ix_alerts_point_started,priority:1"`
 	EventType        string `gorm:"column:event_type;type:text;not null;default:'FUGA';check:chk_alerts_event_type,event_type IN ('FUGA', 'MOVIMIENTO')"`
-	// Events son los flujos que participaron. El NOT NULL y su CHECK los
-	// agrega Migrate después de completar las filas anteriores con ARRAY[event_type]
-	// (PostgreSQL no admite un DEFAULT que lea otra columna).
-	Events TextArray `gorm:"column:events;type:text[]"`
-	State  string    `gorm:"column:state;type:text;not null;check:chk_alerts_state,state IN ('ACTIVA', 'FINALIZADA')"`
+	State            string `gorm:"column:state;type:text;not null;check:chk_alerts_state,state IN ('ACTIVA', 'FINALIZADA')"`
 
-	// Contexto del movimiento (§7.1): copiado de su última hora calculada.
+	// Contexto del movimiento (§7.1). Alerta de MOVIMIENTO: copiado de su
+	// última hora calculada. Alerta de FUGA: solo la temperatura, si le llegó un TEMP_*.
 	MotionState           *string    `gorm:"column:motion_state;type:text"`
 	TempState             *string    `gorm:"column:temp_state;type:text"`
 	TempStableFrom        *time.Time `gorm:"column:temp_stable_from;type:timestamptz"`
@@ -174,9 +171,7 @@ type AlertProcessingStateModel struct {
 	PendingRunStartedAt *time.Time `gorm:"column:pending_run_started_at;type:timestamptz"`
 	LastAlertID         *int64     `gorm:"column:last_alert_id"`
 	LastStatus          string     `gorm:"column:last_status;type:text;not null;default:''"`
-	// InEpisode es el in_episode del Rule Engine en la última hora del flujo (§7.1).
-	InEpisode bool      `gorm:"column:in_episode;not null;default:false"`
-	UpdatedAt time.Time `gorm:"column:updated_at;type:timestamptz;not null;default:now()"`
+	UpdatedAt           time.Time  `gorm:"column:updated_at;type:timestamptz;not null;default:now()"`
 }
 
 func (AlertProcessingStateModel) TableName() string { return "alert_processing_state" }

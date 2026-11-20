@@ -38,11 +38,12 @@ type AlertTx interface {
 	GetState(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.ProcessingState, error)
 	SaveState(ctx context.Context, s entities.ProcessingState) error
 
-	// GetActive devuelve la alerta ACTIVA del punto (de cualquier origen), nil si no hay.
-	GetActive(ctx context.Context, pointID int64) (*entities.Alert, error)
-	// GetLastFinished devuelve la última alerta FINALIZADA del punto (la de
-	// ended_at más reciente, de cualquier origen), nil si no hay.
-	GetLastFinished(ctx context.Context, pointID int64) (*entities.Alert, error)
+	// GetActive devuelve la alerta ACTIVA del (punto, evento), nil si no hay.
+	// FUGA y MOVIMIENTO nunca comparten alerta: cada uno tiene la suya.
+	GetActive(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error)
+	// GetLastFinished devuelve la última alerta FINALIZADA del (punto, evento)
+	// (la de ended_at más reciente), nil si no hay.
+	GetLastFinished(ctx context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error)
 	// GetAlert devuelve la alerta (ErrNotFound si no existe). forUpdate la bloquea hasta el fin de la TX.
 	GetAlert(ctx context.Context, id int64, forUpdate bool) (*entities.Alert, error)
 	// InsertAlert crea la alerta y devuelve su ID.

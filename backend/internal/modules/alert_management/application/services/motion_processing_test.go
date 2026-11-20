@@ -104,7 +104,9 @@ func TestProcessMotion_FillsMissingHoursFromSource(t *testing.T) {
 	}
 }
 
-// §7.2: en el backfill, en cada hora primero FUGA y después MOVIMIENTO.
+// §7.2: en el backfill, en cada hora primero FUGA y después MOVIMIENTO. Si
+// se solapan son DOS alertas: la de FUGA abre con OPEN y la de MOVIMIENTO con
+// MOV_OPEN (no se combinan).
 func TestBackfill_InterleavesFlowsLeakFirst(t *testing.T) {
 	f := newFixture()
 	f.now = h(500)
@@ -117,12 +119,53 @@ func TestBackfill_InterleavesFlowsLeakFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs := f.store.Messages()
-	if len(msgs) != 2 || msgs[0].Code != messages.CodeOpen || msgs[1].Code != messages.CodeMovJoined {
+	if len(msgs) != 2 || msgs[0].Code != messages.CodeOpen || msgs[1].Code != messages.CodeMovOpen {
 		t.Fatalf("mensajes %v", codesOf(msgs))
 	}
-	a := f.store.Alerts()[0]
-	if a.EventType != entities.EventTypeLeak || !a.HasEvent(entities.EventTypeMovement) || result.MotionHours != 2 || len(f.pub.published) != 0 {
-		t.Fatalf("alerta %+v, resultado %+v", a, result.PointReplay)
+	alerts := f.store.Alerts()
+	if len(alerts) != 2 || alerts[0].EventType != entities.EventTypeLeak || alerts[1].EventType != entities.EventTypeMovement ||
+		alerts[0].State != entities.AlertActive || alerts[1].State != entities.AlertActive ||
+		msgs[0].AlertID != alerts[0].ID || msgs[1].AlertID != alerts[1].ID || result.MotionHours != 2 || len(f.pub.published) != 0 {
+		t.Fatalf("alertas %+v, resultado %+v", alerts, result.PointReplay)
+	}
+}
+
+// Con las dos alertas activas, un TEMP_* sale en las dos (mismo tipo de
+// mensaje); el aviso de la copia en FUGA lleva event_type FUGA y su alerta.
+func TestProcessMotion_TemperatureReachesActiveLeakAlert(t *testing.T) {
+	f := newFixture()
+	f.process(t, entities.SourceLive, opening()...)
+	leak := f.store.Alerts()[0]
+	f.motion(t, entities.SourceLive, motionHour(10, entities.EpisodeOpened, true, abrupt()))
+	from, rate := h(9), 0.02
+	stab := motionHour(11, entities.EpisodeNone, true, entities.MotionReason{Code: entities.MotionTempStabilized, TempRateMax6h: &rate, TempStableFrom: &from})
+	stab.TempState = entities.TempEstable
+	before := len(f.pub.published)
+	f.motion(t, entities.SourceLive, stab)
+
+	var onLeak, onMotion int
+	for _, m := range f.store.Messages() {
+		if m.Code != messages.CodeTempStabilized {
+			continue
+		}
+		if m.AlertID == leak.ID {
+			onLeak++
+		} else {
+			onMotion++
+		}
+		if m.Kind != entities.KindNotification {
+			t.Fatalf("TEMP_STABILIZED con kind %s", m.Kind)
+		}
+	}
+	if onLeak != 1 || onMotion != 1 {
+		t.Fatalf("TEMP_STABILIZED en FUGA %d, en MOVIMIENTO %d", onLeak, onMotion)
+	}
+	got := f.pub.published[before:]
+	if len(got) != 2 || got[0].EventType != "MOVIMIENTO" || got[1].EventType != "FUGA" || got[1].AlertID != leak.ID {
+		t.Fatalf("avisos %+v", got)
+	}
+	if a, _ := f.store.Alert(leak.ID); a.TempState != entities.TempEstable || a.TempStableFrom == nil || a.MotionState != "" || a.CurrentLevel != leak.CurrentLevel {
+		t.Fatalf("alerta de FUGA %+v", a)
 	}
 }
 
@@ -230,17 +273,25 @@ func TestManagement_MessagesAtTheirTime(t *testing.T) {
 	}
 }
 
-// CA-2: no puede haber dos alertas ACTIVAS en un punto, aunque sean de flujos distintos.
-func TestStore_RejectsSecondActiveOnPoint(t *testing.T) {
+// CA-2: una sola ACTIVA por (punto, evento); FUGA y MOVIMIENTO pueden estar
+// activas a la vez porque son alertas distintas.
+func TestStore_OneActivePerPointAndEvent(t *testing.T) {
 	f := newFixture()
-	err := f.store.Transaction(context.Background(), func(tx ports.AlertTx) error {
-		if _, err := tx.InsertAlert(context.Background(), entities.Alert{MeasuringPointID: pointA, EventType: entities.EventTypeLeak, State: entities.AlertActive}); err != nil {
+	insert := func(e entities.EventType) error {
+		return f.store.Transaction(context.Background(), func(tx ports.AlertTx) error {
+			_, err := tx.InsertAlert(context.Background(), entities.Alert{MeasuringPointID: pointA, EventType: e, State: entities.AlertActive})
 			return err
+		})
+	}
+	if err := insert(entities.EventTypeLeak); err != nil {
+		t.Fatal(err)
+	}
+	if err := insert(entities.EventTypeMovement); err != nil {
+		t.Fatalf("FUGA y MOVIMIENTO activas a la vez: %v", err)
+	}
+	for _, e := range []entities.EventType{entities.EventTypeLeak, entities.EventTypeMovement} {
+		if err := insert(e); !errors.Is(err, ports.ErrConflict) {
+			t.Fatalf("segunda %s activa: err = %v, se esperaba ErrConflict", e, err)
 		}
-		_, err := tx.InsertAlert(context.Background(), entities.Alert{MeasuringPointID: pointA, EventType: entities.EventTypeMovement, State: entities.AlertActive})
-		return err
-	})
-	if !errors.Is(err, ports.ErrConflict) {
-		t.Fatalf("err = %v, se esperaba ErrConflict", err)
 	}
 }

@@ -25,11 +25,6 @@ var PolicySeedValidFrom = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // Migrate crea/actualiza el esquema. Es idempotente: corre en cada arranque.
 func Migrate(db *gorm.DB) error {
-	// in_episode llega con v7: con la columna nueva, la fila FUGA de un punto
-	// con alerta ACTIVA queda en episodio (antes de v7 toda alerta activa era de FUGA).
-	addInEpisode := db.Migrator().HasTable(&models.AlertProcessingStateModel{}) &&
-		!db.Migrator().HasColumn(&models.AlertProcessingStateModel{}, "in_episode")
-
 	if err := db.AutoMigrate(
 		&models.AlertPolicyVersionModel{},
 		&models.AlertModel{},
@@ -46,21 +41,20 @@ func Migrate(db *gorm.DB) error {
 		`ALTER TABLE alerts ADD COLUMN IF NOT EXISTS code text
 			GENERATED ALWAYS AS ('ALR-' || CASE WHEN id < 1000000 THEN lpad(id::text, 6, '0') ELSE id::text END) STORED`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_alerts_code ON alerts (code)`,
-		// v7 (§7.1): una sola ACTIVA por punto, de cualquier origen. Si el índice
-		// viejo (punto, evento) existe se reemplaza; la migración aborta si algún
-		// punto tiene dos activas (hay que resolverlo a mano antes de desplegar).
+		// Una ACTIVA por (punto, evento): FUGA y MOVIMIENTO nunca comparten
+		// alerta. Si quedó el índice por punto de la v7 acoplada (sin
+		// event_type), se reemplaza; el nuevo es más laxo, así que no falla.
 		`DO $$ BEGIN
-	IF EXISTS (SELECT 1 FROM alerts WHERE state = 'ACTIVA' GROUP BY measuring_point_id HAVING count(*) > 1) THEN
-		RAISE EXCEPTION 'alerts: hay puntos con más de una alerta ACTIVA; no se puede crear ux_alerts_one_active por punto';
-	END IF;
-	IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ux_alerts_one_active' AND indexdef LIKE '%event_type%') THEN
+	IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ux_alerts_one_active' AND indexdef NOT LIKE '%event_type%') THEN
 		DROP INDEX ux_alerts_one_active;
 	END IF;
 END $$`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS ux_alerts_one_active ON alerts (measuring_point_id) WHERE state = 'ACTIVA'`,
-		// events: las filas anteriores son solo de su origen; después, NOT NULL.
-		`UPDATE alerts SET events = ARRAY[event_type] WHERE events IS NULL OR cardinality(events) = 0`,
-		`ALTER TABLE alerts ALTER COLUMN events SET NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS ux_alerts_one_active ON alerts (measuring_point_id, event_type) WHERE state = 'ACTIVA'`,
+		// Restos de la v7 acoplada: alerts.events y alert_processing_state.in_episode
+		// ya no existen en el modelo (una alerta es de un solo evento).
+		`ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_events`,
+		`ALTER TABLE alerts DROP COLUMN IF EXISTS events`,
+		`ALTER TABLE alert_processing_state DROP COLUMN IF EXISTS in_episode`,
 		`CREATE INDEX IF NOT EXISTS ix_alerts_unclassified ON alerts (started_at DESC) WHERE management_status = 'SIN_CLASIFICAR'`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_alert_policy_versions_scope_version
 			ON alert_policy_versions (COALESCE(measuring_point_id, 0), event_type, version)`,
@@ -90,8 +84,6 @@ END $$`,
 			CHECK (management_status = CASE WHEN classification IS NULL THEN 'SIN_CLASIFICAR'
 			                                WHEN label IS NULL THEN 'CLASIFICADA_SIN_ETIQUETA'
 			                                ELSE 'CLASIFICADA_CON_ETIQUETA' END)`,
-		"chk_alerts_events": `ALTER TABLE alerts ADD CONSTRAINT chk_alerts_events
-			CHECK (cardinality(events) >= 1 AND events <@ ARRAY['FUGA', 'MOVIMIENTO']::text[] AND event_type = ANY (events))`,
 		"chk_alerts_temp_state": `ALTER TABLE alerts ADD CONSTRAINT chk_alerts_temp_state CHECK (temp_state IS NULL OR temp_state IN
 			('TEMP_VARIABLE', 'VERIFICANDO', 'TEMP_ESTABLE', 'RETORNO_TEMP_ESTABLE', 'SIN_ESTABILIZAR'))`,
 		"chk_alerts_motion_state": `ALTER TABLE alerts ADD CONSTRAINT chk_alerts_motion_state CHECK (motion_state IS NULL OR motion_state IN
@@ -103,14 +95,6 @@ END $$`,
 				tstzrange(valid_from, valid_to) WITH &&
 			)`,
 	}
-	if addInEpisode {
-		if err := db.Exec(`UPDATE alert_processing_state s SET in_episode = true
-			WHERE s.event_type = 'FUGA' AND EXISTS (SELECT 1 FROM alerts a
-				WHERE a.measuring_point_id = s.measuring_point_id AND a.state = 'ACTIVA')`).Error; err != nil {
-			return fmt.Errorf("completar alert_processing_state.in_episode: %w", err)
-		}
-	}
-
 	for name, stmt := range constraints {
 		err := db.Exec(`DO $$ BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '` + name + `') THEN

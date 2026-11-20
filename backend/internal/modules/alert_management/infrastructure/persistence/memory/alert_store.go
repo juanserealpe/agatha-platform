@@ -242,19 +242,19 @@ func (t *tx) SaveState(_ context.Context, st entities.ProcessingState) error {
 	return nil
 }
 
-func (t *tx) GetActive(_ context.Context, pointID int64) (*entities.Alert, error) {
+func (t *tx) GetActive(_ context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error) {
 	for _, a := range t.d.alerts {
-		if a.MeasuringPointID == pointID && a.State == entities.AlertActive {
+		if a.MeasuringPointID == pointID && a.EventType == eventType && a.State == entities.AlertActive {
 			return &a, nil
 		}
 	}
 	return nil, nil
 }
 
-func (t *tx) GetLastFinished(_ context.Context, pointID int64) (*entities.Alert, error) {
+func (t *tx) GetLastFinished(_ context.Context, pointID int64, eventType entities.EventType) (*entities.Alert, error) {
 	var last *entities.Alert
 	for _, a := range t.d.alerts {
-		if a.MeasuringPointID != pointID || a.State != entities.AlertFinished || a.EndedAt == nil {
+		if a.MeasuringPointID != pointID || a.EventType != eventType || a.State != entities.AlertFinished || a.EndedAt == nil {
 			continue
 		}
 		if last == nil || a.EndedAt.After(*last.EndedAt) || (a.EndedAt.Equal(*last.EndedAt) && a.ID > last.ID) {
@@ -275,8 +275,8 @@ func (t *tx) GetAlert(_ context.Context, id int64, _ bool) (*entities.Alert, err
 
 func (t *tx) InsertAlert(_ context.Context, a entities.Alert) (int64, error) {
 	if a.State == entities.AlertActive {
-		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID); active != nil {
-			return 0, ports.ErrConflict // índice único parcial: una ACTIVA por punto
+		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID, a.EventType); active != nil {
+			return 0, ports.ErrConflict // índice único parcial: una ACTIVA por (punto, evento)
 		}
 	}
 	a.ID = t.d.next()
@@ -291,8 +291,8 @@ func (t *tx) UpdateProcessing(_ context.Context, a entities.Alert) error {
 		return ports.ErrNotFound
 	}
 	if a.State == entities.AlertActive {
-		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID); active != nil && active.ID != a.ID {
-			return ports.ErrConflict // índice único parcial: una ACTIVA por punto
+		if active, _ := t.GetActive(context.Background(), a.MeasuringPointID, a.EventType); active != nil && active.ID != a.ID {
+			return ports.ErrConflict // índice único parcial: una ACTIVA por (punto, evento)
 		}
 	}
 	a.Management = current.Management // la gestión no se toca desde el procesamiento

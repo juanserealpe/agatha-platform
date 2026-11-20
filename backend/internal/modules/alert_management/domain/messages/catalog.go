@@ -27,10 +27,11 @@ import (
 // Amarillo) y las variantes *_CONFIRMADA de las subidas (anteponen la firma de
 // fuga). La "firma de fuga" es el % de registros de las últimas 24 h con
 // planitud alta (d_pl) frente al mínimo (d_pl_min).
-// v7: movimiento y temperatura (REQ_ALERTAS_MOVIMIENTO §8): MOV_*, TEMP_*,
-// LEAK_JOINED, PART_NORMAL y END_NORMAL/MOVIMIENTO; CLASSIFIED y LABELED con
-// su fecha y hora; se elimina UP_DURING_INTERVENTION. Los demás textos de
-// fuga no cambian.
+// v7: movimiento y temperatura (REQ_ALERTAS_MOVIMIENTO §8): MOV_*, TEMP_* y
+// END_NORMAL/MOVIMIENTO; CLASSIFIED y LABELED con su fecha y hora; se elimina
+// UP_DURING_INTERVENTION. Los demás textos de fuga no cambian. FUGA y
+// MOVIMIENTO son alertas separadas (no hay LEAK_JOINED, MOV_JOINED ni
+// PART_NORMAL); los TEMP_* salen también en la alerta de FUGA vigente.
 const MessageCatalogVersion = 7
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
@@ -65,16 +66,12 @@ const (
 
 	// Movimiento y temperatura (v7).
 	CodeMovOpen           = "MOV_OPEN"
-	CodeMovJoined         = "MOV_JOINED"
 	CodeMovDisplaced      = "MOV_DISPLACED"
 	CodeMovReturn         = "MOV_RETURN"
 	CodeTempStabilized    = "TEMP_STABILIZED"
 	CodeTempVariesAgain   = "TEMP_VARIES_AGAIN"
 	CodeTempNotStabilized = "TEMP_NOT_STABILIZED"
 	CodeTempStillStable   = "TEMP_STILL_STABLE"
-	CodeLeakJoined        = "LEAK_JOINED"
-	// CodePartNormal: uno de los dos flujos volvió a lo normal y la alerta sigue por el otro.
-	CodePartNormal = "PART_NORMAL"
 )
 
 // Variantes de un mismo código (el código guardado no cambia).
@@ -93,8 +90,6 @@ const (
 	VariantJump   = "SALTO"  // MOV_OPEN / MOV_DISPLACED por salto o desplazamiento
 	VariantGap    = "HUECO"  // por un hueco de datos
 	VariantAbrupt = "BRUSCO" // cambio brusco de un eje
-	VariantNoise  = "RUIDO"  // PART_NORMAL: el ruido volvió a lo normal
-	VariantSensor = "SENSOR" // PART_NORMAL: el sensor quedó quieto
 	VariantMotion = "MOVIMIENTO"
 )
 
@@ -325,12 +320,6 @@ var catalog = map[string]Template{
 		Body:  "El sensor se movió de golpe hacia un solo lado a las {hora} del {fecha}. Dato: {eje} {delta} en {horas} h (lo normal es menos de 0,03° en 3 h).",
 		Vars:  []string{"hora", "fecha", "eje", "delta", "horas"},
 	},
-	Key(CodeMovJoined, ""): {
-		Code: CodeMovJoined, Kind: entities.KindUpdate,
-		Title: "El sensor se movió",
-		Body:  "Ocurrió durante la alerta por ruido, a las {hora} del {fecha}. Dato: pitch {dp}, roll {dr}.",
-		Vars:  []string{"hora", "fecha", "dp", "dr"},
-	},
 	Key(CodeMovDisplaced, VariantJump): {
 		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
 		Title: "El sensor sigue en la nueva posición",
@@ -380,25 +369,6 @@ var catalog = map[string]Template{
 		Title: "La temperatura sigue estable",
 		Body:  "El sensor volvió hace {horas} h, pero la temperatura de la tubería sigue casi quieta. Dato: máximo {rate} °C por hora (normal: más de 0,08).",
 		Vars:  []string{"horas", "rate"},
-	},
-	// {contexto} ya viene armado (tiene su propia hora y fecha).
-	Key(CodeLeakJoined, ""): {
-		Code: CodeLeakJoined, Kind: entities.KindNotification,
-		Title: "Ruido alto durante una alerta de movimiento",
-		Body:  "El índice de ruido está {nivel_texto} desde las {hora} del {fecha}. {contexto} Dato: {i} (lo normal es menos de {normal}).",
-		Vars:  []string{"nivel_texto", "hora", "fecha", "contexto", "i", "normal"},
-	},
-	Key(CodePartNormal, VariantNoise): {
-		Code: CodePartNormal, Kind: entities.KindUpdate,
-		Title: "El ruido volvió a lo normal",
-		Body:  "La alerta sigue abierta porque {motivo}. Dato: {i}.",
-		Vars:  []string{"motivo", "i"},
-	},
-	Key(CodePartNormal, VariantSensor): {
-		Code: CodePartNormal, Kind: entities.KindUpdate,
-		Title: "El sensor está estable",
-		Body:  "Lleva 24 h quieto. La alerta sigue abierta por el ruido ({nivel}). Dato: {i}.",
-		Vars:  []string{"nivel", "i"},
 	},
 	Key(CodeEndNormal, VariantMotion): {
 		Code: CodeEndNormal, Kind: entities.KindEnd,
@@ -554,18 +524,6 @@ func FormatDuration(hours int) string {
 	return strconv.Itoa(days) + " días y " + strconv.Itoa(rest) + " h"
 }
 
-// LevelPhrase es {nivel_texto} de LEAK_JOINED.
-func LevelPhrase(l entities.Level) string {
-	switch l {
-	case entities.LevelNaranja:
-		return "alto"
-	case entities.LevelRojo:
-		return "demasiado alto"
-	default:
-		return "por encima de lo normal"
-	}
-}
-
 // OriginPhrase es {origen} de los mensajes de gestión.
 func OriginPhrase(o entities.Origin) string {
 	if o == entities.OriginMobile {
@@ -596,12 +554,12 @@ func LabelPhrase(l entities.Label, otherText string) string {
 }
 
 // IsMotionKey indica si la clave es de un mensaje de movimiento o de
-// temperatura (incluidos LEAK_JOINED, PART_NORMAL y END_NORMAL/MOVIMIENTO).
+// temperatura (incluido END_NORMAL/MOVIMIENTO).
 func IsMotionKey(key string) bool {
 	code, variant, _ := strings.Cut(key, "/")
 	switch code {
-	case CodeMovOpen, CodeMovJoined, CodeMovDisplaced, CodeMovReturn, CodeTempStabilized, CodeTempVariesAgain,
-		CodeTempNotStabilized, CodeTempStillStable, CodeLeakJoined, CodePartNormal:
+	case CodeMovOpen, CodeMovDisplaced, CodeMovReturn, CodeTempStabilized, CodeTempVariesAgain,
+		CodeTempNotStabilized, CodeTempStillStable:
 		return true
 	case CodeEndNormal:
 		return variant == VariantMotion

@@ -1,32 +1,35 @@
 package services
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/entities"
-	"github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management/domain/messages"
 )
 
-// Escenarios de §9.2 (CA-12): FUGA (Decide) y MOVIMIENTO (DecideMotion)
-// sobre la misma alerta del punto. En cada hora, primero FUGA y después
-// MOVIMIENTO, como el backfill.
+// Escenarios de §9.2 (CA-12) con FUGA y MOVIMIENTO como alertas SEPARADAS:
+// si se solapan son dos alertas, cada una con sus colores y mensajes. Lo único
+// compartido es la temperatura: los TEMP_* salen también en la alerta de FUGA
+// vigente. En cada hora, primero FUGA y después MOVIMIENTO, como el backfill.
 
-// cworld agrega al mundo de Decide el estado del flujo MOVIMIENTO.
+// cworld agrega al mundo de Decide (alerta de FUGA en world.active) el flujo
+// MOVIMIENTO con su propia alerta activa.
 type cworld struct {
 	*world
-	motion entities.ProcessingState
+	motion       entities.ProcessingState
+	motionActive *entities.Alert
 }
 
 func newCWorld(t *testing.T) *cworld { return &cworld{world: newWorld(t)} }
 
-// lastFinished es la última alerta FINALIZADA del punto (GetLastFinished).
-func (w *cworld) lastFinished() *entities.Alert {
+// lastFinished es la última alerta FINALIZADA del (punto, evento) (GetLastFinished).
+func (w *cworld) lastFinished(e entities.EventType) *entities.Alert {
 	var last *entities.Alert
 	for _, a := range w.alerts {
-		if a.State == entities.AlertFinished && a.EndedAt != nil && (last == nil || a.EndedAt.After(*last.EndedAt)) {
+		if a.EventType == e && a.State == entities.AlertFinished && a.EndedAt != nil && (last == nil || a.EndedAt.After(*last.EndedAt)) {
 			c := *a
 			last = &c
 		}
@@ -34,22 +37,21 @@ func (w *cworld) lastFinished() *entities.Alert {
 	return last
 }
 
-func (w *cworld) activeCopy() (*entities.Alert, *entities.Segment) {
-	if w.active == nil {
+func (w *cworld) copyOf(a *entities.Alert) (*entities.Alert, *entities.Segment) {
+	if a == nil {
 		return nil, nil
 	}
-	a := *w.active
-	return &a, w.openSegment(a.ID)
+	c := *a
+	return &c, w.openSegment(c.ID)
 }
 
 func (w *cworld) leak(ns ...entities.LevelNotice) {
 	w.t.Helper()
 	for _, n := range ns {
-		in := DecideInput{State: w.state, Notice: n, Policy: w.policy, Device: entities.Device{MeasuringPointID: pointID, PK: "PK34+470"},
-			MotionInEpisode: w.motion.InEpisode}
-		in.Active, in.Segment = w.activeCopy()
+		in := DecideInput{State: w.state, Notice: n, Policy: w.policy, Device: entities.Device{MeasuringPointID: pointID, PK: "PK34+470"}}
+		in.Active, in.Segment = w.copyOf(w.active)
 		if in.Active == nil {
-			in.Last = w.lastFinished()
+			in.Last = w.lastFinished(entities.EventTypeLeak)
 		}
 		d, err := Decide(in)
 		if err != nil {
@@ -59,26 +61,49 @@ func (w *cworld) leak(ns ...entities.LevelNotice) {
 	}
 }
 
+// applyOther guarda una decisión que no es de FUGA sin tocar el estado ni la
+// alerta activa de FUGA; devuelve la alerta tal como quedó (nil si finalizó).
+func (w *cworld) applyOther(d Decision) *entities.Alert {
+	leakState, leakActive := w.state, w.active
+	w.apply(d)
+	out := w.active
+	w.state, w.active = leakState, leakActive
+	return out
+}
+
 func (w *cworld) mov(ns ...entities.MotionNotice) {
 	w.t.Helper()
 	for _, n := range ns {
-		in := MotionInput{State: w.motion, Notice: n, Policy: w.policy, Device: entities.Device{MeasuringPointID: pointID, PK: "PK34+470"},
-			LeakInEpisode: w.state.InEpisode}
-		in.Active, in.Segment = w.activeCopy()
+		in := MotionInput{State: w.motion, Notice: n, Policy: w.policy, Device: entities.Device{MeasuringPointID: pointID, PK: "PK34+470"}}
+		in.Active, in.Segment = w.copyOf(w.motionActive)
 		if in.Active == nil {
-			in.Last = w.lastFinished()
+			in.Last = w.lastFinished(entities.EventTypeMovement)
 		}
 		d, err := DecideMotion(in)
 		if err != nil {
 			w.t.Fatalf("MOVIMIENTO %v: %v", n.EvaluatedAt, err)
 		}
-		leakState := w.state
-		w.apply(d)
-		w.motion, w.state = d.State, leakState
+		if d.Alert != nil {
+			w.motionActive = w.applyOther(d)
+		}
+		w.motion = d.State
+
+		// La temperatura también va a la alerta de FUGA vigente.
+		if w.active != nil {
+			td, err := DecideTemperature(TemperatureInput{Alert: *w.active, Notice: n, Policy: w.policy})
+			if err != nil {
+				w.t.Fatalf("TEMPERATURA %v: %v", n.EvaluatedAt, err)
+			}
+			if td.Alert != nil {
+				leakState := w.state
+				w.apply(td)
+				w.state = leakState
+			}
+		}
 	}
 }
 
-// both alimenta, para cada hora, FUGA normal y la hora de movimiento.
+// hour alimenta, para cada hora, FUGA y después la hora de movimiento.
 func (w *cworld) hour(leak entities.LevelNotice, motion entities.MotionNotice) {
 	w.t.Helper()
 	w.leak(leak)
@@ -94,6 +119,28 @@ func (w *cworld) kinds() []string {
 	return out
 }
 
+// kindsOf son los "CODIGO:KIND" de las alertas del evento, en orden.
+func (w *cworld) kindsOf(e entities.EventType) []string {
+	var out []string
+	for _, m := range w.messages {
+		if w.alerts[m.AlertID].EventType == e {
+			out = append(out, m.Code+":"+string(m.Kind))
+		}
+	}
+	return out
+}
+
+// alertsOf son las alertas del evento, por ID.
+func (w *cworld) alertsOf(e entities.EventType) []entities.Alert {
+	var out []entities.Alert
+	for id := int64(123); id < w.nextID; id++ {
+		if a := w.alerts[id]; a != nil && a.EventType == e {
+			out = append(out, *a)
+		}
+	}
+	return out
+}
+
 func (w *cworld) message(code string) entities.Message {
 	w.t.Helper()
 	for _, m := range w.messages {
@@ -102,6 +149,18 @@ func (w *cworld) message(code string) entities.Message {
 		}
 	}
 	w.t.Fatalf("no hay %s en %v", code, w.codes())
+	return entities.Message{}
+}
+
+// messageOf es el primer mensaje con ese código en una alerta del evento.
+func (w *cworld) messageOf(e entities.EventType, code string) entities.Message {
+	w.t.Helper()
+	for _, m := range w.messages {
+		if m.Code == code && w.alerts[m.AlertID].EventType == e {
+			return m
+		}
+	}
+	w.t.Fatalf("no hay %s en la alerta de %s: %v", code, e, w.codes())
 	return entities.Message{}
 }
 
@@ -114,6 +173,18 @@ func subsequence(got, want []string) bool {
 		}
 	}
 	return i == len(want)
+}
+
+// withoutTemp quita los TEMP_* (lo único que el movimiento agrega a FUGA).
+func withoutTemp(kinds []string) []string {
+	return slices.DeleteFunc(slices.Clone(kinds), func(k string) bool { return strings.HasPrefix(k, "TEMP_") })
+}
+
+// leakAlone son los mensajes que FUGA da sin ninguna hora de movimiento.
+func leakAlone(t *testing.T, ns ...entities.LevelNotice) []string {
+	w := newCWorld(t)
+	w.leak(ns...)
+	return w.kinds()
 }
 
 // ---- horas de prueba ----
@@ -216,7 +287,7 @@ func TestScenario01_OnlyNoiseIsUnchanged(t *testing.T) {
 	if !slices.Equal(w.codes(), alone.codes()) || len(w.alerts) != 1 {
 		t.Fatalf("con movimiento %v, sin movimiento %v", w.codes(), alone.codes())
 	}
-	if a := w.alerts[123]; a.State != entities.AlertFinished || !slices.Equal(a.Events, []entities.EventType{entities.EventTypeLeak}) {
+	if a := w.alerts[123]; a.State != entities.AlertFinished || a.EventType != entities.EventTypeLeak || a.TempState != "" {
 		t.Fatalf("alerta %+v", a)
 	}
 }
@@ -298,70 +369,102 @@ func TestScenario04_JumpStableReturnWithoutNoise(t *testing.T) {
 	}
 }
 
-// 5. Ruido y después salto (agosto, real).
+// 5. Ruido y después salto (agosto, real): dos alertas. La de FUGA sigue
+// sus reglas de siempre (finaliza con su CLEARED) y recibe los TEMP_*; la de
+// MOVIMIENTO abre con MOV_OPEN aunque la de FUGA esté activa.
 func TestScenario05_NoiseThenJump(t *testing.T) {
-	w := newCWorld(t)
-	w.leak(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)),
-		calc(2, 0.27, O, O, none), calc(3, 0.40, R, R, none))
-	w.mov(quietMotion(0), quietMotion(1), quietMotion(2), quietMotion(3))
+	leak := []entities.LevelNotice{
+		calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)),
+		calc(2, 0.27, O, O, none), calc(3, 0.40, R, R, none), calc(4, 0.40, R, R, none), calc(5, 0.40, R, R, none),
+		calc(6, 0.12, N, N, cleared, belowRun(1)), calc(7, 0.10, N, N, none, inEpisode(false)),
+		calc(8, 0.30, O, R, opened, hoursAbove(2)), calc(9, 0.30, O, R, none), calc(10, 0.30, O, R, none),
+		calc(11, 0.12, N, N, cleared, belowRun(1)),
+	}
 	started := h(3).Add(15 * time.Minute)
-	w.hour(calc(4, 0.40, R, R, none), mv(4, opened, true, "SALTO", rJump()))
-	w.hour(calc(5, 0.40, R, R, none), displacedAt(mv(5, none, true, "", rShift(started)), started))
-	w.hour(calc(6, 0.12, N, N, cleared, belowRun(1)), withTemp(displacedAt(motionEpisode(6, ""), started), "VERIFICANDO"))
-	w.hour(calc(7, 0.10, N, N, none, inEpisode(false)), withTemp(displacedAt(mv(7, none, true, "", rStab(started)), started), entities.TempEstable))
-	w.hour(calc(8, 0.30, O, R, opened, hoursAbove(2)), withTemp(displacedAt(motionEpisode(8, ""), started), entities.TempEstable))
 	back := h(9).Add(-15 * time.Minute)
-	w.hour(calc(9, 0.30, O, R, none), mv(9, none, true, "RETORNO", rReturn(back), rVaries(started, back)))
-	w.hour(calc(10, 0.30, O, R, none), mv(10, cleared, false, "NORMAL", rStill()))
-	w.hour(calc(11, 0.12, N, N, cleared, belowRun(1)), quietMotion(11))
-
-	want := []string{"OPEN:" + notif, "UP_NARANJA_FAST:" + notif, "UP_ROJO:" + notif, "MOV_JOINED:" + update,
-		"MOV_DISPLACED:" + update, "PART_NORMAL:" + update, "TEMP_STABILIZED:" + notif, "LEAK_JOINED:" + notif,
-		"MOV_RETURN:" + update, "TEMP_VARIES_AGAIN:" + notif, "PART_NORMAL:" + update, "END_NORMAL:" + fin}
-	if !subsequence(w.kinds(), want) {
-		t.Fatalf("mensajes %v", w.kinds())
+	motion := []entities.MotionNotice{
+		quietMotion(0), quietMotion(1), quietMotion(2), quietMotion(3),
+		mv(4, opened, true, "SALTO", rJump()),
+		displacedAt(mv(5, none, true, "", rShift(started)), started),
+		withTemp(displacedAt(motionEpisode(6, ""), started), "VERIFICANDO"),
+		withTemp(displacedAt(mv(7, none, true, "", rStab(started)), started), entities.TempEstable),
+		withTemp(displacedAt(motionEpisode(8, ""), started), entities.TempEstable),
+		mv(9, none, true, "RETORNO", rReturn(back), rVaries(started, back)),
+		mv(10, cleared, false, "NORMAL", rStill()),
+		quietMotion(11),
 	}
-	a := w.alerts[123]
-	if len(w.alerts) != 1 || a.State != entities.AlertFinished || !a.EndedAt.Equal(h(11)) || a.MaxLevel != R ||
-		!slices.Equal(a.Events, []entities.EventType{entities.EventTypeLeak, entities.EventTypeMovement}) {
-		t.Fatalf("alerta %+v", a)
-	}
-	// Entre el fin del ruido y su regreso el color sigue en Rojo y no hay mensajes horarios de ruido.
-	if got := w.levels(123); !slices.Equal(got, []entities.Level{A, O, R}) {
-		t.Fatalf("colores %v", got)
-	}
-	if p := w.messages[slices.Index(w.codes(), "PART_NORMAL")]; p.Body != "La alerta sigue abierta porque el sensor sigue fuera de su posición. Dato: 0,12." {
-		t.Fatalf("PART_NORMAL ruido %q", p.Body)
-	}
-	if j := w.message("LEAK_JOINED"); !strings.Contains(j.Body, "demasiado alto") || !strings.Contains(j.Body, "la temperatura está estable desde las 08:15 del 24/08") {
-		t.Fatalf("LEAK_JOINED %q", j.Body)
-	}
-}
-
-// 6. Movimiento brusco y después ruido.
-func TestScenario06_AbruptThenNoise(t *testing.T) {
 	w := newCWorld(t)
-	w.hour(quietLeak(0), mv(0, opened, true, "BRUSCO", rAbrupt(2)))
-	w.hour(calc(1, 0.17, A, A, none, inEpisode(false)), motionEpisode(1, "BRUSCO"))
-	w.hour(calc(2, 0.18, A, A, opened, hoursAbove(2)), motionEpisode(2, "NORMAL"))
-	w.hour(calc(3, 0.27, O, O, none), motionEpisode(3, "NORMAL"))
-	w.hour(calc(4, 0.27, O, O, none), mv(4, cleared, false, "NORMAL", rStill()))
-	w.hour(calc(5, 0.12, N, N, cleared, belowRun(1)), quietMotion(5))
+	for i := range leak {
+		w.hour(leak[i], motion[i])
+	}
 
-	want := []string{"MOV_OPEN:" + notif, "LEAK_JOINED:" + notif, "UP_NARANJA_FAST:" + notif, "PART_NORMAL:" + update, "END_NORMAL:" + fin}
-	if !subsequence(w.kinds(), want) {
-		t.Fatalf("mensajes %v", w.kinds())
+	// FUGA: lo mismo que sin movimiento, más los TEMP_* de su tramo activo.
+	if got, alone := withoutTemp(w.kindsOf(entities.EventTypeLeak)), leakAlone(t, leak...); !slices.Equal(got, alone) {
+		t.Fatalf("FUGA con movimiento %v\nsin movimiento %v", got, alone)
 	}
-	a := w.alerts[123]
-	if a.EventType != entities.EventTypeMovement || !a.EndedAt.Equal(h(5)) || a.MaxLevel != O {
-		t.Fatalf("alerta %+v", a)
+	// La FUGA finaliza en h6 y se reactiva en h8 (regla de 24 h de siempre).
+	leaks := w.alertsOf(entities.EventTypeLeak)
+	if len(leaks) != 1 || leaks[0].ReactivationCount != 1 || !leaks[0].EndedAt.Equal(h(11)) || leaks[0].MaxLevel != R {
+		t.Fatalf("alertas de FUGA %+v", leaks)
 	}
-	if end := w.message("END_NORMAL"); !strings.HasPrefix(end.Title, "La alerta ") {
-		t.Fatalf("el fin por ruido es el de FUGA: %q", end.Title)
+	// TEMP_STABILIZED (h7) cae con la FUGA finalizada: no le llega. TEMP_VARIES_AGAIN (h9), sí.
+	leakKinds := w.kindsOf(entities.EventTypeLeak)
+	if slices.Contains(leakKinds, "TEMP_STABILIZED:"+notif) || !slices.Contains(leakKinds, "TEMP_VARIES_AGAIN:"+notif) {
+		t.Fatalf("FUGA %v", leakKinds)
+	}
+	if leaks[0].TempStableFrom == nil || leaks[0].TempStableTo == nil {
+		t.Fatalf("la FUGA vigente no guardó el tramo de temperatura: %+v", leaks[0])
+	}
+
+	// MOVIMIENTO: su propia alerta, Amarillo, de principio a fin.
+	want := []string{"MOV_OPEN:" + notif, "MOV_DISPLACED:" + update, "TEMP_STABILIZED:" + notif,
+		"MOV_RETURN:" + update, "TEMP_VARIES_AGAIN:" + notif, "END_NORMAL:" + fin}
+	if got := w.kindsOf(entities.EventTypeMovement); !slices.Equal(got, want) {
+		t.Fatalf("MOVIMIENTO %v", got)
+	}
+	moves := w.alertsOf(entities.EventTypeMovement)
+	if len(moves) != 1 || moves[0].MaxLevel != A || !moves[0].EndedAt.Equal(h(10)) || moves[0].StartedAt.Before(h(4)) {
+		t.Fatalf("alerta de MOVIMIENTO %+v", moves)
+	}
+	for _, m := range w.messages {
+		if a := w.alerts[m.AlertID]; a.EventType == entities.EventTypeLeak && strings.HasPrefix(m.Code, "MOV_") {
+			t.Fatalf("mensaje del sensor en la alerta de FUGA: %s", m.Code)
+		}
 	}
 }
 
-// 7. Ruido y movimiento en la misma hora.
+// 6. Movimiento brusco y después ruido: la FUGA abre su propia alerta con
+// OPEN (no se une a la de MOVIMIENTO) y cada una finaliza por su cuenta.
+func TestScenario06_AbruptThenNoise(t *testing.T) {
+	leak := []entities.LevelNotice{
+		quietLeak(0), calc(1, 0.17, A, A, none, inEpisode(false)), calc(2, 0.18, A, A, opened, hoursAbove(2)),
+		calc(3, 0.27, O, O, none), calc(4, 0.27, O, O, none), calc(5, 0.12, N, N, cleared, belowRun(1)),
+	}
+	motion := []entities.MotionNotice{
+		mv(0, opened, true, "BRUSCO", rAbrupt(2)), motionEpisode(1, "BRUSCO"), motionEpisode(2, "NORMAL"),
+		motionEpisode(3, "NORMAL"), mv(4, cleared, false, "NORMAL", rStill()), quietMotion(5),
+	}
+	w := newCWorld(t)
+	for i := range leak {
+		w.hour(leak[i], motion[i])
+	}
+
+	if got := w.kindsOf(entities.EventTypeMovement); !slices.Equal(got, []string{"MOV_OPEN:" + notif, "END_NORMAL:" + fin}) {
+		t.Fatalf("MOVIMIENTO %v", got)
+	}
+	if got, alone := w.kindsOf(entities.EventTypeLeak), leakAlone(t, leak...); !slices.Equal(got, alone) || got[0] != "OPEN:"+notif {
+		t.Fatalf("FUGA %v, sola %v", got, alone)
+	}
+	m, l := w.alerts[123], w.alerts[124]
+	if m.EventType != entities.EventTypeMovement || m.MaxLevel != A || !m.EndedAt.Equal(h(4)) {
+		t.Fatalf("MOVIMIENTO %+v", m)
+	}
+	if l.EventType != entities.EventTypeLeak || l.MaxLevel != O || !l.EndedAt.Equal(h(5)) {
+		t.Fatalf("FUGA %+v", l)
+	}
+}
+
+// 7. Ruido y movimiento en la misma hora: dos alertas que abren a la vez.
 func TestScenario07_SameHour(t *testing.T) {
 	w := newCWorld(t)
 	w.hour(calc(0, 0.17, A, A, none, inEpisode(false)), quietMotion(0))
@@ -372,16 +475,19 @@ func TestScenario07_SameHour(t *testing.T) {
 	}
 	w.hour(quietLeak(25), mv(25, cleared, false, "NORMAL", rStill()))
 
-	want := []string{"OPEN:" + notif, "MOV_JOINED:" + update, "PART_NORMAL:" + update, "END_NORMAL:" + fin}
-	if !slices.Equal(w.kinds(), want) {
-		t.Fatalf("mensajes %v", w.kinds())
+	if got := w.kindsOf(entities.EventTypeLeak); got[0] != "OPEN:"+notif || got[len(got)-1] != "END_NORMAL:"+fin {
+		t.Fatalf("FUGA %v", got)
 	}
-	if end := w.message("END_NORMAL"); end.Title != "Volvió a la normalidad" || !w.alerts[123].EndedAt.Equal(h(25)) {
-		t.Fatalf("fin %q en %v", end.Title, w.alerts[123].EndedAt)
+	if got := w.kindsOf(entities.EventTypeMovement); !slices.Equal(got, []string{"MOV_OPEN:" + notif, "END_NORMAL:" + fin}) {
+		t.Fatalf("MOVIMIENTO %v", got)
+	}
+	if l, m := w.alerts[123], w.alerts[124]; !l.EndedAt.Equal(h(2)) || !m.EndedAt.Equal(h(25)) {
+		t.Fatalf("fines FUGA %v MOVIMIENTO %v", l.EndedAt, m.EndedAt)
 	}
 }
 
-// 8. Ruido mientras la temperatura está estable.
+// 8. Ruido mientras la temperatura está estable: la FUGA abre su alerta con
+// OPEN y recibe el TEMP_VARIES_AGAIN mientras está vigente.
 func TestScenario08_NoiseWhileTemperatureStable(t *testing.T) {
 	w := newCWorld(t)
 	started := h(-1).Add(15 * time.Minute)
@@ -393,30 +499,32 @@ func TestScenario08_NoiseWhileTemperatureStable(t *testing.T) {
 	w.hour(calc(2, 0.17, A, A, none, inEpisode(false)), stable(2))
 	w.hour(calc(3, 0.18, A, A, opened, hoursAbove(2)), stable(3))
 	w.hour(calc(4, 0.27, O, O, none), stable(4))
-	w.hour(calc(5, 0.12, N, N, cleared, belowRun(1)), stable(5))
-	for n := 6; n < 12; n++ {
-		w.hour(quietLeak(n), stable(n))
+	for n := 5; n < 12; n++ {
+		w.hour(calc(n, 0.27, O, O, none), stable(n))
 	}
 	back := h(12).Add(-15 * time.Minute)
-	w.hour(quietLeak(12), mv(12, none, true, "RETORNO", rReturn(back), rVaries(started, back)))
-	for n := 13; n < 36; n++ {
+	w.hour(calc(12, 0.27, O, O, none), mv(12, none, true, "RETORNO", rReturn(back), rVaries(started, back)))
+	w.hour(calc(13, 0.12, N, N, cleared, belowRun(1)), motionEpisode(13, "NORMAL"))
+	for n := 14; n < 36; n++ {
 		w.hour(quietLeak(n), motionEpisode(n, "NORMAL"))
 	}
 	w.hour(quietLeak(36), mv(36, cleared, false, "NORMAL", rStill()))
 
-	want := []string{"MOV_OPEN:" + notif, "TEMP_STABILIZED:" + notif, "LEAK_JOINED:" + notif, "UP_NARANJA_FAST:" + notif,
-		"PART_NORMAL:" + update, "DOWNGRADE:" + update, "MOV_RETURN:" + update, "TEMP_VARIES_AGAIN:" + notif, "END_NORMAL:" + fin}
-	if !slices.Equal(w.kinds(), want) {
-		t.Fatalf("mensajes %v", w.kinds())
+	want := []string{"MOV_OPEN:" + notif, "TEMP_STABILIZED:" + notif, "MOV_RETURN:" + update, "TEMP_VARIES_AGAIN:" + notif, "END_NORMAL:" + fin}
+	if got := w.kindsOf(entities.EventTypeMovement); !slices.Equal(got, want) {
+		t.Fatalf("MOVIMIENTO %v", got)
 	}
-	if got := w.levels(123); !slices.Equal(got, []entities.Level{A, O, A}) {
-		t.Fatalf("colores %v (la bajada nunca pasa de Amarillo)", got)
+	leakKinds := w.kindsOf(entities.EventTypeLeak)
+	if !subsequence(leakKinds, []string{"OPEN:" + notif, "UP_NARANJA_FAST:" + notif, "TEMP_VARIES_AGAIN:" + notif, "END_NORMAL:" + fin}) ||
+		slices.Contains(leakKinds, "TEMP_STABILIZED:"+notif) || slices.Contains(leakKinds, "MOV_RETURN:"+update) {
+		t.Fatalf("FUGA %v", leakKinds)
 	}
-	if j := w.message("LEAK_JOINED"); !strings.Contains(j.Body, "El sensor se movió y la temperatura está estable desde las 04:15 del 24/08.") {
-		t.Fatalf("LEAK_JOINED sin contexto de temperatura: %q", j.Body)
+	if got := w.levels(124); !slices.Equal(got, []entities.Level{A, O}) {
+		t.Fatalf("colores FUGA %v", got)
 	}
-	if p := w.message("PART_NORMAL"); !strings.Contains(p.Body, "el sensor se movió y la temperatura sigue estable") {
-		t.Fatalf("PART_NORMAL %q", p.Body)
+	// Mismo texto en las dos alertas.
+	if lv, mv := w.messageOf(entities.EventTypeLeak, "TEMP_VARIES_AGAIN"), w.messageOf(entities.EventTypeMovement, "TEMP_VARIES_AGAIN"); lv.Body != mv.Body || lv.Kind != mv.Kind || lv.Level != O {
+		t.Fatalf("TEMP_VARIES_AGAIN FUGA %+v / MOVIMIENTO %+v", lv, mv)
 	}
 }
 
@@ -506,14 +614,15 @@ func TestScenario12_JumpDuringDataLoss(t *testing.T) {
 	}
 }
 
-// 13. Clasificada (Falsa alerta + Mantenimiento) y después ruido: igual que sin clasificar (CA-4).
+// 13. Clasificada (Falsa alerta + Mantenimiento) y después ruido: igual que
+// sin clasificar (CA-4); la FUGA abre su propia alerta.
 func TestScenario13_ClassifiedKeepsAllMessages(t *testing.T) {
 	run := func(classify bool) []string {
 		w := newCWorld(t)
 		started := h(-1).Add(15 * time.Minute)
 		w.hour(quietLeak(0), mv(0, opened, true, "SALTO", rJump()))
 		if classify {
-			w.active.Management = entities.Management{Status: entities.StatusClassifiedAndLabel,
+			w.motionActive.Management = entities.Management{Status: entities.StatusClassifiedAndLabel,
 				Classification: entities.ClassificationFalseAlarm, Label: entities.LabelScheduledWork}
 		}
 		stable := func(n int, r ...entities.MotionReason) entities.MotionNotice {
@@ -530,8 +639,8 @@ func TestScenario13_ClassifiedKeepsAllMessages(t *testing.T) {
 		return w.kinds()
 	}
 	classified, unclassified := run(true), run(false)
-	want := []string{"MOV_OPEN:" + notif, "TEMP_STABILIZED:" + notif, "LEAK_JOINED:" + notif, "UP_NARANJA_FAST:" + notif,
-		"MOV_RETURN:" + update, "TEMP_VARIES_AGAIN:" + notif, "END_NORMAL:" + fin}
+	want := []string{"MOV_OPEN:" + notif, "TEMP_STABILIZED:" + notif, "OPEN:" + notif, "UP_NARANJA_FAST:" + notif,
+		"MOV_RETURN:" + update, "TEMP_VARIES_AGAIN:" + notif, "TEMP_VARIES_AGAIN:" + notif, "END_NORMAL:" + fin}
 	if !slices.Equal(classified, unclassified) || !subsequence(classified, want) {
 		t.Fatalf("clasificada %v\nsin clasificar %v", classified, unclassified)
 	}
@@ -576,8 +685,8 @@ func TestScenario15_NoDataWithMotionAlertOpen(t *testing.T) {
 		w.leak(noCalc(n))
 		w.mov(nc)
 	}
-	if !slices.Equal(w.kinds(), []string{"MOV_OPEN:" + notif}) || w.active == nil || !w.motion.LastEvaluatedAt.Equal(h(9)) {
-		t.Fatalf("mensajes %v activa %v", w.kinds(), w.active != nil)
+	if !slices.Equal(w.kinds(), []string{"MOV_OPEN:" + notif}) || w.motionActive == nil || w.active != nil || !w.motion.LastEvaluatedAt.Equal(h(9)) {
+		t.Fatalf("mensajes %v MOVIMIENTO activa %v", w.kinds(), w.motionActive != nil)
 	}
 }
 
@@ -592,18 +701,18 @@ func TestScenario16_StableTemperatureWithoutMotion(t *testing.T) {
 	}
 }
 
-// 17. Ruido y movimiento coinciden (por decidir): igual que el 6; el color no sube por la coincidencia.
+// 17. Ruido y movimiento coinciden: dos alertas; ninguna sube por la coincidencia.
 func TestScenario17_CoincidenceDoesNotRaise(t *testing.T) {
 	w := newCWorld(t)
 	w.hour(quietLeak(0), mv(0, opened, true, "BRUSCO", rAbrupt(1)))
 	w.hour(calc(1, 0.17, A, A, none, inEpisode(false)), motionEpisode(1, "NORMAL"))
 	w.hour(calc(2, 0.18, A, A, opened, hoursAbove(2)), motionEpisode(2, "NORMAL"))
 	w.hour(calc(3, 0.19, A, A, none), motionEpisode(3, "NORMAL"))
-	if a := w.active; a == nil || a.CurrentLevel != A || !slices.Equal(w.levels(123), []entities.Level{A}) {
-		t.Fatalf("la coincidencia subió el color: %v", w.levels(123))
+	if w.motionActive == nil || w.active == nil || w.motionActive.ID == w.active.ID {
+		t.Fatalf("se esperaban dos alertas activas: MOVIMIENTO %v FUGA %v", w.motionActive, w.active)
 	}
-	if j := w.message("LEAK_JOINED"); !strings.Contains(j.Body, "por encima de lo normal") || !strings.Contains(j.Body, "El sensor se movió a las 05:00 del 24/08.") {
-		t.Fatalf("LEAK_JOINED %q", j.Body)
+	if !slices.Equal(w.levels(123), []entities.Level{A}) || !slices.Equal(w.levels(124), []entities.Level{A}) {
+		t.Fatalf("la coincidencia subió el color: %v / %v", w.levels(123), w.levels(124))
 	}
 }
 
@@ -623,7 +732,7 @@ func TestMotion_MotionOnlyMode(t *testing.T) {
 			t.Fatalf("mensaje de temperatura con SOLO_MOVIMIENTO: %s", m.Code)
 		}
 	}
-	if len(w.alerts) != 2 || w.alerts[123].State != entities.AlertFinished || w.active == nil || w.active.ID != 124 {
+	if len(w.alerts) != 2 || w.alerts[123].State != entities.AlertFinished || w.motionActive == nil || w.motionActive.ID != 124 {
 		t.Fatalf("alertas %d", len(w.alerts))
 	}
 	if end := w.message("END_NORMAL"); !strings.Contains(end.Body, "queda como la normal") {
@@ -631,21 +740,72 @@ func TestMotion_MotionOnlyMode(t *testing.T) {
 	}
 }
 
-// Las horas de FUGA con la alerta sostenida por el movimiento no emiten los
-// mensajes horarios de ruido (§7.3.3).
-func TestDecide_SustainedByMotionIsSilent(t *testing.T) {
+// La reactivación es por evento: un movimiento a menos de 24 h del fin de
+// una alerta de FUGA abre una alerta de MOVIMIENTO nueva (no reactiva la de FUGA).
+func TestMotion_ReactivationIsPerEvent(t *testing.T) {
 	w := newCWorld(t)
-	w.hour(quietLeak(0), mv(0, opened, true, "SALTO", rJump()))
-	for n := 1; n < 20; n++ {
-		w.leak(calc(n, 0.15, N, N, none, inEpisode(false), belowRun(0)))
-		w.leak(noCalc(n + 100))
-		w.mov(motionEpisode(n, "NORMAL"))
+	w.leak(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)), calc(2, 0.12, N, N, cleared, belowRun(1)))
+	w.mov(mv(5, opened, true, "BRUSCO", rAbrupt(1)))
+	l, m := w.alerts[123], w.alerts[124]
+	if l.State != entities.AlertFinished || l.ReactivationCount != 0 || m == nil || m.EventType != entities.EventTypeMovement {
+		t.Fatalf("FUGA %+v MOVIMIENTO %+v", l, m)
 	}
-	for _, m := range w.messages[1:] {
-		t.Fatalf("mensaje de ruido con la alerta sostenida por el movimiento: %s", m.Code)
+	// Y al revés: un ruido tras el fin de MOVIMIENTO abre una FUGA nueva.
+	w.mov(mv(29, cleared, false, "NORMAL", rStill()))
+	w.leak(calc(30, 0.17, A, A, none, inEpisode(false)), calc(31, 0.18, A, A, opened, hoursAbove(2)))
+	if w.alerts[124].ReactivationCount != 0 || w.active == nil || w.active.EventType != entities.EventTypeLeak || w.active.ID == 124 {
+		t.Fatalf("MOVIMIENTO %+v FUGA activa %+v", w.alerts[124], w.active)
 	}
-	if !slices.Equal(w.kinds(), []string{"MOV_OPEN:" + notif}) {
-		t.Fatalf("mensajes %v", w.kinds())
+}
+
+// Con la FUGA activa, las horas de movimiento sin TEMP_* no le agregan nada,
+// y la de FUGA no copia el estado del sensor.
+func TestDecideTemperature_OnlyTemperatureReachesLeak(t *testing.T) {
+	w := newCWorld(t)
+	w.leak(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))
+	started := h(1).Add(15 * time.Minute)
+	w.mov(mv(2, opened, true, "SALTO", rJump()), displacedAt(mv(3, none, true, "", rShift(started)), started))
+	for n := 2; n < 4; n++ {
+		w.leak(calc(n, 0.18, A, A, none))
 	}
-	_ = messages.MessageCatalogVersion
+	if got := w.kindsOf(entities.EventTypeLeak); slices.ContainsFunc(got, func(k string) bool { return !strings.HasPrefix(k, "OPEN") }) {
+		t.Fatalf("FUGA recibió mensajes del sensor: %v", got)
+	}
+	if a := w.active; a.MotionState != "" || a.LastMotionEvaluatedAt != nil {
+		t.Fatalf("FUGA copió el estado del sensor: %+v", a)
+	}
+	w.mov(withTemp(displacedAt(mv(4, none, true, "", rStab(started)), started), entities.TempEstable))
+	if a := w.active; a.TempState != entities.TempEstable || a.TempStableFrom == nil || !a.TempStableFrom.Equal(started) {
+		t.Fatalf("FUGA sin tramo de temperatura: %+v", a)
+	}
+	stab := w.messageOf(entities.EventTypeLeak, "TEMP_STABILIZED")
+	if stab.Kind != entities.KindNotification || stab.Level != A || stab.AlertID != w.active.ID {
+		t.Fatalf("TEMP_STABILIZED en FUGA %+v", stab)
+	}
+}
+
+func TestDecideTemperature_Guards(t *testing.T) {
+	leak := entities.Alert{ID: 1, MeasuringPointID: pointID, EventType: entities.EventTypeLeak, State: entities.AlertActive, CurrentLevel: A}
+	started := h(0)
+	stab := withTemp(displacedAt(mv(1, none, true, "", rStab(started)), started), entities.TempEstable)
+
+	for _, bad := range []entities.Alert{
+		func() entities.Alert { a := leak; a.EventType = entities.EventTypeMovement; return a }(),
+		func() entities.Alert { a := leak; a.State = entities.AlertFinished; return a }(),
+		func() entities.Alert { a := leak; a.MeasuringPointID = 9; return a }(),
+	} {
+		if _, err := DecideTemperature(TemperatureInput{Alert: bad, Notice: stab}); !errors.Is(err, ErrNoticeMismatch) {
+			t.Fatalf("%+v: err = %v", bad, err)
+		}
+	}
+	if d, err := DecideTemperature(TemperatureInput{Alert: leak, Notice: motionEpisode(1, "DESPLAZADO")}); err != nil || d.Alert != nil || len(d.Messages) != 0 {
+		t.Fatalf("sin TEMP_*: %+v %v", d, err)
+	}
+	nc := entities.MotionNotice{MeasuringPointID: pointID, EvaluatedAt: h(1), Status: entities.StatusNoCalculable}
+	if d, err := DecideTemperature(TemperatureInput{Alert: leak, Notice: nc}); err != nil || d.Alert != nil {
+		t.Fatalf("NO_CALCULABLE: %+v %v", d, err)
+	}
+	if _, err := DecideMotion(MotionInput{Active: &leak, Notice: stab}); !errors.Is(err, ErrNoticeMismatch) {
+		t.Fatalf("DecideMotion con una alerta de FUGA: %v", err)
+	}
 }

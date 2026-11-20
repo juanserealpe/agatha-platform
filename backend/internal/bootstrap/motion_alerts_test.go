@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -290,8 +291,7 @@ func (s sliceMotions) ListAfter(_ context.Context, _ int64, after, to time.Time,
 // ---- esperado (§12.3, en UTC: Colombia + 5 h) ----
 
 type expectedAlert struct {
-	origin         alertEntities.EventType
-	events         []alertEntities.EventType
+	event          alertEntities.EventType
 	started, ended time.Time
 	max            alertEntities.Level
 	stableFrom     time.Time // cero = sin tramo
@@ -307,42 +307,51 @@ var (
 	}
 )
 
+// §12.3 con FUGA y MOVIMIENTO SEPARADAS: la alerta 4 del spec (FUGA y
+// MOVIMIENTO unidas) son ahora tres: la FUGA del 24–25 ago, la de MOVIMIENTO
+// del 25–28 ago y una FUGA nueva el 27 ago (a más de 24 h de la anterior: no
+// se reactiva). La FUGA del 27 ago recibe el TEMP_VARIES_AGAIN porque estaba
+// vigente; la del 24–25 ago terminó antes del TEMP_STABILIZED.
 var expected123 = []expectedAlert{
-	{fuga, []alertEntities.EventType{fuga}, utc(7, 22, 6), utc(7, 22, 23), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
-	{fuga, []alertEntities.EventType{fuga}, utc(7, 24, 0), utc(8, 3, 4), alertEntities.LevelRojo, time.Time{}, time.Time{}, 0},
-	{fuga, []alertEntities.EventType{fuga}, utc(8, 22, 19), utc(8, 23, 5), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
-	{fuga, []alertEntities.EventType{fuga, mov}, utc(8, 24, 10), utc(8, 30, 5), alertEntities.LevelRojo, at(8, 25, 11, 15, 42), at(8, 27, 17, 45, 42), 0},
-	{fuga, []alertEntities.EventType{fuga}, utc(9, 19, 0), utc(9, 20, 1), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
-	{fuga, []alertEntities.EventType{fuga}, utc(9, 26, 23), utc(9, 27, 6), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
-	{mov, []alertEntities.EventType{mov}, utc(10, 12, 4), utc(10, 14, 10), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 1},
-	{mov, []alertEntities.EventType{mov}, utc(10, 20, 15), utc(10, 27, 1), alertEntities.LevelAmarillo, at(10, 20, 14, 15, 42), at(10, 25, 23, 30, 41), 0},
-	{fuga, []alertEntities.EventType{fuga}, utc(11, 13, 19), utc(11, 16, 14), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
+	{fuga, utc(7, 22, 6), utc(7, 22, 23), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
+	{fuga, utc(7, 24, 0), utc(8, 3, 4), alertEntities.LevelRojo, time.Time{}, time.Time{}, 0},
+	{fuga, utc(8, 22, 19), utc(8, 23, 5), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
+	{fuga, utc(8, 24, 10), utc(8, 26, 0), alertEntities.LevelRojo, time.Time{}, time.Time{}, 0},
+	{mov, utc(8, 25, 12), utc(8, 28, 21), alertEntities.LevelAmarillo, at(8, 25, 11, 15, 42), at(8, 27, 17, 45, 42), 0},
+	{fuga, utc(8, 27, 12), utc(8, 30, 5), alertEntities.LevelNaranja, at(8, 25, 11, 15, 42), at(8, 27, 17, 45, 42), 0},
+	{fuga, utc(9, 19, 0), utc(9, 20, 1), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
+	{fuga, utc(9, 26, 23), utc(9, 27, 6), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
+	{mov, utc(10, 12, 4), utc(10, 14, 10), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 1},
+	{mov, utc(10, 20, 15), utc(10, 27, 1), alertEntities.LevelAmarillo, at(10, 20, 14, 15, 42), at(10, 25, 23, 30, 41), 0},
+	{fuga, utc(11, 13, 19), utc(11, 16, 14), alertEntities.LevelAmarillo, time.Time{}, time.Time{}, 0},
 }
 
-// mensajes nuevos de las alertas 4, 7 y 8 (código, hora UTC).
+// mensajes de movimiento y temperatura (y el fin) por alerta (código, hora UTC).
 type timedCode struct {
 	code string
 	at   time.Time
 }
 
 var expectedMotionMessages = map[int][]timedCode{
-	3: { // alerta 4
-		{"MOV_JOINED", utc(8, 25, 12)}, {"MOV_DISPLACED", utc(8, 25, 14)}, {"PART_NORMAL", utc(8, 26, 0)},
-		{"TEMP_STABILIZED", utc(8, 26, 3)}, {"LEAK_JOINED", utc(8, 27, 13)}, {"MOV_RETURN", utc(8, 27, 19)},
-		{"TEMP_VARIES_AGAIN", utc(8, 27, 19)}, {"PART_NORMAL", utc(8, 28, 21)}, {"END_NORMAL", utc(8, 30, 5)},
+	4: { // MOVIMIENTO de agosto
+		{"MOV_OPEN", utc(8, 25, 12)}, {"MOV_DISPLACED", utc(8, 25, 14)}, {"TEMP_STABILIZED", utc(8, 26, 3)},
+		{"MOV_RETURN", utc(8, 27, 19)}, {"TEMP_VARIES_AGAIN", utc(8, 27, 19)}, {"END_NORMAL", utc(8, 28, 21)},
 	},
-	6: { // alerta 7
+	5: { // FUGA del 27 ago: solo la temperatura que llegó estando vigente
+		{"TEMP_VARIES_AGAIN", utc(8, 27, 19)}, {"END_NORMAL", utc(8, 30, 5)},
+	},
+	8: {
 		{"MOV_OPEN", utc(10, 12, 6)}, {"END_NORMAL", utc(10, 13, 6)}, {"MOV_OPEN", utc(10, 13, 10)}, {"END_NORMAL", utc(10, 14, 10)},
 	},
-	7: { // alerta 8
+	9: {
 		{"MOV_OPEN", utc(10, 21, 14)}, {"TEMP_STABILIZED", utc(10, 21, 19)}, {"MOV_RETURN", utc(10, 26, 1)},
 		{"TEMP_VARIES_AGAIN", utc(10, 26, 1)}, {"END_NORMAL", utc(10, 27, 1)},
 	},
 }
 
 // motionCodes son los códigos de movimiento (y el fin) que se comparan.
-var motionCodes = []string{"MOV_OPEN", "MOV_JOINED", "MOV_DISPLACED", "MOV_RETURN", "TEMP_STABILIZED", "TEMP_VARIES_AGAIN",
-	"TEMP_NOT_STABILIZED", "TEMP_STILL_STABLE", "LEAK_JOINED", "PART_NORMAL", "END_NORMAL"}
+var motionCodes = []string{"MOV_OPEN", "MOV_DISPLACED", "MOV_RETURN", "TEMP_STABILIZED", "TEMP_VARIES_AGAIN",
+	"TEMP_NOT_STABILIZED", "TEMP_STILL_STABLE", "END_NORMAL"}
 
 func runBackfill123(t *testing.T, leak []alertEntities.LevelNotice) *alertMemory.AlertStore {
 	t.Helper()
@@ -365,13 +374,13 @@ func assertAlerts123(t *testing.T, store *alertMemory.AlertStore) {
 	sort.Slice(alerts, func(i, j int) bool { return alerts[i].StartedAt.Before(alerts[j].StartedAt) })
 	if len(alerts) != len(expected123) {
 		for _, a := range alerts {
-			t.Logf("%s %s %v %v – %v %s", a.Code, a.EventType, a.Events, a.StartedAt, a.EndedAt, a.MaxLevel)
+			t.Logf("%s %s %v – %v %s", a.Code, a.EventType, a.StartedAt, a.EndedAt, a.MaxLevel)
 		}
 		t.Fatalf("alertas = %d, se esperaban %d", len(alerts), len(expected123))
 	}
 	for i, w := range expected123 {
 		a := alerts[i]
-		ok := a.EventType == w.origin && slices.Equal(a.Events, w.events) && a.StartedAt.Equal(w.started) &&
+		ok := a.EventType == w.event && a.StartedAt.Equal(w.started) &&
 			a.EndedAt != nil && a.EndedAt.Equal(w.ended) && a.MaxLevel == w.max && a.ReactivationCount == w.reactivations &&
 			a.State == alertEntities.AlertFinished && !a.Management.Classified()
 		if w.stableFrom.IsZero() {
@@ -380,8 +389,8 @@ func assertAlerts123(t *testing.T, store *alertMemory.AlertStore) {
 			ok = ok && a.TempStableFrom != nil && a.TempStableFrom.Equal(w.stableFrom) && a.TempStableTo != nil && a.TempStableTo.Equal(w.stableTo)
 		}
 		if !ok {
-			t.Errorf("alerta %d: %s %v %v – %v max %s reactivaciones %d temp %v – %v",
-				i+1, a.EventType, a.Events, a.StartedAt, a.EndedAt, a.MaxLevel, a.ReactivationCount, a.TempStableFrom, a.TempStableTo)
+			t.Errorf("alerta %d: %s %v – %v max %s reactivaciones %d temp %v – %v",
+				i+1, a.EventType, a.StartedAt, a.EndedAt, a.MaxLevel, a.ReactivationCount, a.TempStableFrom, a.TempStableTo)
 		}
 	}
 	for i, want := range expectedMotionMessages {
@@ -395,10 +404,20 @@ func assertAlerts123(t *testing.T, store *alertMemory.AlertStore) {
 			t.Errorf("alerta %d: mensajes\n got  %v\n want %v", i+1, got, want)
 		}
 	}
-	// Entre el fin del ruido (25 ago 19:00 COL) y su regreso (27 ago 08:00 COL) no hay mensajes horarios de ruido.
-	for _, m := range store.Messages() {
-		if m.AlertID == alerts[3].ID && m.EvaluatedAt.After(utc(8, 26, 0)) && m.EvaluatedAt.Before(utc(8, 27, 13)) && !slices.Contains(motionCodes, m.Code) {
-			t.Errorf("mensaje de ruido %s el %v con la alerta sostenida por el movimiento", m.Code, m.EvaluatedAt)
+	// Una alerta de FUGA nunca lleva mensajes del sensor, y nunca hay dos
+	// activas del mismo evento a la vez (sí una de cada uno).
+	for _, a := range alerts {
+		for _, m := range store.Messages() {
+			if m.AlertID == a.ID && a.EventType == fuga && strings.HasPrefix(m.Code, "MOV_") {
+				t.Errorf("%s (FUGA) tiene %s el %v", a.Code, m.Code, m.EvaluatedAt)
+			}
+		}
+	}
+	for i := 1; i < len(alerts); i++ {
+		for j := 0; j < i; j++ {
+			if alerts[i].EventType == alerts[j].EventType && alerts[i].StartedAt.Before(*alerts[j].EndedAt) {
+				t.Errorf("%s y %s (%s) se solapan", alerts[j].Code, alerts[i].Code, alerts[i].EventType)
+			}
 		}
 	}
 }

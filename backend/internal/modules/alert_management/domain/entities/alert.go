@@ -79,13 +79,9 @@ type Runtime struct {
 	// la duración (se conservan entre reactivaciones).
 	PausedHours int `json:"paused_hours,omitempty"`
 
-	// Memoria del flujo MOVIMIENTO (catálogo v7). MotionAt es la hora en que
-	// el movimiento abrió o se unió a la alerta; MotionShiftStartedAt, el
-	// inicio del desplazamiento en curso (el evento de la hora del retorno ya
-	// no lo trae); TempVariesAgainAt, la hora del último TEMP_VARIES_AGAIN.
-	MotionAt             *time.Time `json:"motion_at,omitempty"`
+	// Memoria de la alerta de MOVIMIENTO (catálogo v7): el inicio del
+	// desplazamiento en curso (el evento de la hora del retorno ya no lo trae).
 	MotionShiftStartedAt *time.Time `json:"motion_shift_started_at,omitempty"`
-	TempVariesAgainAt    *time.Time `json:"temp_varies_again_at,omitempty"`
 }
 
 // LeakSignature es la firma de fuga de la última hora calculada de la alerta:
@@ -112,21 +108,21 @@ func LeakSignatureOf(n LevelNotice) *LeakSignature {
 	return &s
 }
 
-// Alert es la alerta de un punto: hay una sola ACTIVA por punto y en ella se
-// acoplan los dos flujos (FUGA y MOVIMIENTO).
+// Alert es una alerta de un punto y un evento. FUGA y MOVIMIENTO nunca se
+// combinan: si se solapan son dos alertas, cada una con sus colores, mensajes
+// y gestión (hay una sola ACTIVA por (punto, evento)).
 type Alert struct {
 	ID               int64
 	Code             string
 	MeasuringPointID int64
-	// EventType es el origen: el flujo que abrió la alerta.
-	EventType EventType
-	// Events son los flujos que participaron (FUGA, MOVIMIENTO), sin repetir.
-	Events []EventType
-	State  AlertState
+	EventType        EventType
+	State            AlertState
 
-	// Contexto del movimiento, copiado de su última hora calculada (vacío si
-	// el movimiento no participó). TempStableFrom/To: el último tramo de
-	// temperatura estable.
+	// Contexto del movimiento. En una alerta de MOVIMIENTO se copia de su
+	// última hora calculada; en una de FUGA solo se llena la temperatura
+	// (TempState, TempStableFrom/To) cuando le llega un mensaje TEMP_* por
+	// estar activa a la vez que la de MOVIMIENTO. TempStableFrom/To: el último
+	// tramo de temperatura estable.
 	MotionState           string
 	TempState             string
 	TempStableFrom        *time.Time
@@ -187,35 +183,6 @@ func (a Alert) Blinking() bool {
 	return a.State == AlertActive && a.CurrentLevel == LevelRojo && !a.Management.Classified()
 }
 
-// HasEvent indica si el flujo participó en la alerta.
-func (a Alert) HasEvent(e EventType) bool {
-	for _, x := range a.Events {
-		if x == e {
-			return true
-		}
-	}
-	return false
-}
-
-// AddEvent agrega el flujo a Events (sin repetir; FUGA primero).
-func (a *Alert) AddEvent(e EventType) {
-	if a.HasEvent(e) {
-		return
-	}
-	a.Events = append(a.Events, e)
-	if len(a.Events) == 2 && a.Events[1] == EventTypeLeak {
-		a.Events[0], a.Events[1] = a.Events[1], a.Events[0]
-	}
-}
-
-// EventsOrOrigin son los flujos de la alerta; una fila sin events es solo de su origen.
-func (a Alert) EventsOrOrigin() []EventType {
-	if len(a.Events) == 0 {
-		return []EventType{a.EventType}
-	}
-	return append([]EventType(nil), a.Events...)
-}
-
 // Segment es un color (tramo) de la alerta: intervalo continuo con un mismo nivel.
 type Segment struct {
 	ID        int64
@@ -270,12 +237,9 @@ type ProcessingState struct {
 	// curso sin alerta activa (será la fecha inicio si el episodio abre).
 	PendingRunStartedAt *time.Time
 	// LastAlertID es la última alerta finalizada del flujo (informativo: la
-	// reactivación busca la última FINALIZADA del punto, de cualquier origen).
+	// reactivación busca la última FINALIZADA del (punto, evento)).
 	LastAlertID *int64
 	LastStatus  string
-	// InEpisode es el in_episode del Rule Engine en la última hora procesada
-	// del flujo: el otro flujo lo lee para decidir el fin de la alerta.
-	InEpisode bool
 }
 
 // Device son los datos del dispositivo que usan los mensajes.

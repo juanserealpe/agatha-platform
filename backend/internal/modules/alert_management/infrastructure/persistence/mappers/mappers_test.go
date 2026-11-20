@@ -14,7 +14,7 @@ func TestAlert_RoundTripKeepsManagementAndRuntime(t *testing.T) {
 	flip := at.Add(-time.Hour)
 	dPl := 4.6
 	a := entities.Alert{
-		ID: 123, Code: "ALR-000123", MeasuringPointID: 11556, EventType: entities.EventTypeLeak, Events: []entities.EventType{entities.EventTypeLeak, entities.EventTypeMovement},
+		ID: 123, Code: "ALR-000123", MeasuringPointID: 11556, EventType: entities.EventTypeLeak,
 		MotionState: "DESPLAZADO", TempState: "TEMP_ESTABLE", TempStableFrom: &at, LastMotionEvaluatedAt: &at, State: entities.AlertActive,
 		StartedAt: at, OpenedAt: at, CurrentLevel: entities.LevelNaranja, MaxLevel: entities.LevelRojo, LastEvaluatedAt: at,
 		OpeningIndicatorValue: 0.18, LastIndicatorValue: 0.2, MaxIndicatorValue: 0.41,

@@ -33,7 +33,6 @@ func ToAlertModel(a entities.Alert) models.AlertModel {
 	return models.AlertModel{
 		LeakDPl: leakDPl, LeakDPlMin: leakDPlMin, LeakConfirmed: leakConfirmed,
 		ID: a.ID, MeasuringPointID: a.MeasuringPointID, EventType: string(a.EventType), State: string(a.State),
-		Events:      eventsColumn(a),
 		MotionState: strPtr(a.MotionState), TempState: strPtr(a.TempState),
 		TempStableFrom: utcPtr(a.TempStableFrom), TempStableTo: utcPtr(a.TempStableTo),
 		LastMotionEvaluatedAt: utcPtr(a.LastMotionEvaluatedAt),
@@ -106,7 +105,6 @@ func ToAlert(m models.AlertModel) entities.Alert {
 	}
 	return entities.Alert{
 		ID: m.ID, Code: code, MeasuringPointID: m.MeasuringPointID, EventType: entities.EventType(m.EventType),
-		Events:      eventsOf(m),
 		MotionState: str(m.MotionState), TempState: str(m.TempState),
 		TempStableFrom: utcPtr(m.TempStableFrom), TempStableTo: utcPtr(m.TempStableTo),
 		LastMotionEvaluatedAt: utcPtr(m.LastMotionEvaluatedAt),
@@ -143,8 +141,8 @@ func ProcessingColumns(a entities.Alert) map[string]any {
 		"last_indicator_value": m.LastIndicatorValue, "max_indicator_value": m.MaxIndicatorValue,
 		"last_evaluated_at": m.LastEvaluatedAt,
 		"hours_calculated":  m.HoursCalculated, "hours_no_data": m.HoursNoData, "below_level_hours": m.BelowLevelHours,
-		"runtime": m.Runtime,
-		"events":  m.Events, "motion_state": m.MotionState, "temp_state": m.TempState,
+		"runtime":      m.Runtime,
+		"motion_state": m.MotionState, "temp_state": m.TempState,
 		"temp_stable_from": m.TempStableFrom, "temp_stable_to": m.TempStableTo,
 		"last_motion_evaluated_at": m.LastMotionEvaluatedAt,
 		// La firma de fuga siempre se escribe (NULL incluido): describe la última hora.
@@ -220,7 +218,7 @@ func ToStateModel(s entities.ProcessingState) models.AlertProcessingStateModel {
 	return models.AlertProcessingStateModel{
 		MeasuringPointID: s.MeasuringPointID, EventType: string(s.EventType),
 		LastEvaluatedAt: s.LastEvaluatedAt, PendingRunStartedAt: s.PendingRunStartedAt,
-		LastAlertID: s.LastAlertID, LastStatus: s.LastStatus, InEpisode: s.InEpisode,
+		LastAlertID: s.LastAlertID, LastStatus: s.LastStatus,
 	}
 }
 
@@ -228,7 +226,7 @@ func ToState(m models.AlertProcessingStateModel) entities.ProcessingState {
 	return entities.ProcessingState{
 		MeasuringPointID: m.MeasuringPointID, EventType: entities.EventType(m.EventType),
 		LastEvaluatedAt: utcPtr(m.LastEvaluatedAt), PendingRunStartedAt: utcPtr(m.PendingRunStartedAt),
-		LastAlertID: m.LastAlertID, LastStatus: m.LastStatus, InEpisode: m.InEpisode,
+		LastAlertID: m.LastAlertID, LastStatus: m.LastStatus,
 	}
 }
 
@@ -319,27 +317,6 @@ func effectiveEscalation(escalate *int, m models.RuleEvaluationReadModel) *int {
 	}
 	v := *escalate
 	return &v
-}
-
-// eventsColumn es alerts.events: siempre con al menos el origen (ARRAY[event_type]).
-func eventsColumn(a entities.Alert) models.TextArray {
-	events := a.EventsOrOrigin()
-	out := make(models.TextArray, len(events))
-	for i, e := range events {
-		out[i] = string(e)
-	}
-	return out
-}
-
-func eventsOf(m models.AlertModel) []entities.EventType {
-	if len(m.Events) == 0 {
-		return []entities.EventType{entities.EventType(m.EventType)}
-	}
-	out := make([]entities.EventType, len(m.Events))
-	for i, e := range m.Events {
-		out[i] = entities.EventType(e)
-	}
-	return out
 }
 
 // ToMotionNotice convierte una fila de motion_evaluations (con el

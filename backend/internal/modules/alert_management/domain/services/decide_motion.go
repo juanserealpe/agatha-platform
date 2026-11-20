@@ -13,24 +13,26 @@ import (
 type MotionInput struct {
 	// State es el estado del flujo MOVIMIENTO del punto.
 	State entities.ProcessingState
-	// Active es la alerta ACTIVA del punto (de cualquier origen), nil si no hay.
+	// Active es la alerta ACTIVA de MOVIMIENTO del punto, nil si no hay. La de
+	// FUGA es otra alerta: nunca se combinan.
 	Active  *entities.Alert
 	Segment *entities.Segment
-	// Last es la última alerta FINALIZADA del punto (candidata a reactivación).
+	// Last es la última alerta FINALIZADA de MOVIMIENTO del punto (candidata a reactivación).
 	Last   *entities.Alert
 	Notice entities.MotionNotice
-	// LeakInEpisode es el in_episode de FUGA en su última hora procesada.
-	LeakInEpisode bool
-	Policy        entities.Policy
-	Device        entities.Device
+	Policy entities.Policy
+	Device entities.Device
 }
 
-// DecideMotion aplica una hora de movimiento (§7.4). Es pura: el caso de uso
-// garantiza el orden, filtra duplicados y persiste la Decision igual que la de
-// Decide. Los mensajes salen en el orden de la tabla de §7.4.
+// DecideMotion aplica una hora de movimiento a la alerta de MOVIMIENTO del
+// punto (§7.4 sin el acople con FUGA). Es pura: el caso de uso garantiza el
+// orden, filtra duplicados y persiste la Decision igual que la de Decide. La
+// alerta abre con OPENED (o reactiva la última), finaliza con CLEARED, siempre
+// en Amarillo, y tiene sus propios colores, mensajes y gestión. Los mensajes
+// salen en el orden de la tabla de §7.4.
 func DecideMotion(in MotionInput) (Decision, error) {
 	n := in.Notice
-	if in.Active != nil && in.Active.MeasuringPointID != n.MeasuringPointID {
+	if in.Active != nil && (in.Active.MeasuringPointID != n.MeasuringPointID || in.Active.EventType != entities.EventTypeMovement) {
 		return Decision{}, ErrNoticeMismatch
 	}
 	at := n.EvaluatedAt.UTC()
@@ -38,7 +40,6 @@ func DecideMotion(in MotionInput) (Decision, error) {
 	firstHour := in.State.LastEvaluatedAt == nil
 	d.State.MeasuringPointID, d.State.EventType = n.MeasuringPointID, entities.EventTypeMovement
 	d.State.LastEvaluatedAt = &at
-	d.State.InEpisode = n.InEpisode
 
 	if !n.Calculated() {
 		d.State.LastStatus = entities.StatusNoCalculable
@@ -50,24 +51,25 @@ func DecideMotion(in MotionInput) (Decision, error) {
 	opens := n.EpisodeEvent == entities.EpisodeOpened || (firstHour && n.InEpisode && n.EpisodeEvent != entities.EpisodeCleared)
 
 	var a entities.Alert
+	openedNow := false
 	switch {
-	case opens && in.Active == nil:
-		a = m.open(&d)
-	case opens:
-		a = cloneAlert(*in.Active)
-		m.joined(&d, &a)
 	case in.Active != nil:
+		// Un OPENED con la alerta ya activa (p. ej. tras perder el CLEARED) no
+		// abre otra: la hora sigue la alerta en curso.
 		a = cloneAlert(*in.Active)
 		d.Outcome = OutcomeUpdated
+	case opens:
+		a = m.open(&d)
+		openedNow = true
 	default:
 		return d, nil
 	}
 
 	m.track(&a)
-	if !opens {
+	if !openedNow {
 		m.displaced(&d, &a)
 	}
-	m.temperatureAndReturn(&d, &a)
+	m.temperature(&d, &a, true)
 	if n.EpisodeEvent == entities.EpisodeCleared {
 		m.cleared(&d, &a)
 	}
@@ -186,7 +188,6 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 		a := cloneAlert(*last)
 		paused := last.Runtime.PausedHours + max(int(started.Sub(*a.EndedAt).Hours()), 0)
 		level := entities.MaxLevel(a.CurrentLevel, entities.LevelAmarillo)
-		a.AddEvent(entities.EventTypeMovement)
 		a.State = entities.AlertActive
 		a.EndedAt = nil
 		a.ReactivationCount++
@@ -194,7 +195,7 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 		a.CurrentLevel = level
 		a.MaxLevel = entities.MaxLevel(a.MaxLevel, level)
 		a.BelowLevelHours = 0
-		a.Runtime = entities.Runtime{PausedHours: paused, MotionAt: &at}
+		a.Runtime = entities.Runtime{PausedHours: paused}
 		d.Messages = append(d.Messages, m.message(&a, messages.Key(messages.CodeMovOpen, variant), m.openParams(variant), entities.KindNotification, level, false))
 		d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentReactivation, Level: level, StartedAt: started}
 		d.State.LastAlertID = nil
@@ -205,7 +206,6 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 	a := entities.Alert{
 		MeasuringPointID: n.MeasuringPointID,
 		EventType:        entities.EventTypeMovement,
-		Events:           []entities.EventType{entities.EventTypeMovement},
 		State:            entities.AlertActive,
 		StartedAt:        started,
 		OpenedAt:         at,
@@ -215,26 +215,12 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 		HoursCalculated:  1,
 		PolicyVersionID:  p.ID,
 		Management:       entities.Management{Status: entities.StatusUnclassified},
-		Runtime:          entities.Runtime{MotionAt: &at},
 	}
 	d.Messages = append(d.Messages, m.message(&a, messages.Key(messages.CodeMovOpen, variant), m.openParams(variant), "", entities.LevelAmarillo, false))
 	d.IsNew = true
 	d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentOpen, Level: entities.LevelAmarillo, StartedAt: started}
 	d.Outcome = OutcomeOpened
 	return a
-}
-
-// joined: el movimiento abre su episodio con la alerta ACTIVA. El color no cambia.
-func (m *motionBuilder) joined(d *Decision, a *entities.Alert) {
-	at := m.at
-	a.AddEvent(entities.EventTypeMovement)
-	a.Runtime.MotionAt = &at
-	dp, dr := pair(m.in.Notice)
-	d.Messages = append(d.Messages, m.message(a, messages.Key(messages.CodeMovJoined, ""), map[string]string{
-		"hora": messages.FormatClock(at), "fecha": messages.FormatDate(at),
-		"dp": messages.FormatDegrees(dp), "dr": messages.FormatDegrees(dr),
-	}, "", a.CurrentLevel, false))
-	d.Outcome = OutcomeUpdated
 }
 
 // shiftStart es el inicio del desplazamiento en curso (o el último conocido).
@@ -277,9 +263,11 @@ func (m *motionBuilder) displaced(d *Decision, a *entities.Alert) {
 	d.Messages = append(d.Messages, m.message(a, messages.Key(messages.CodeMovDisplaced, variant), params, "", a.CurrentLevel, false))
 }
 
-// temperatureAndReturn: TEMP_STABILIZED, MOV_RETURN, TEMP_VARIES_AGAIN,
-// TEMP_NOT_STABILIZED y TEMP_STILL_STABLE, en ese orden.
-func (m *motionBuilder) temperatureAndReturn(d *Decision, a *entities.Alert) {
+// temperature: TEMP_STABILIZED, MOV_RETURN, TEMP_VARIES_AGAIN,
+// TEMP_NOT_STABILIZED y TEMP_STILL_STABLE, en ese orden. withReturn = false
+// omite MOV_RETURN (es del sensor, no de la temperatura): así se usa en la
+// alerta de FUGA vigente (DecideTemperature).
+func (m *motionBuilder) temperature(d *Decision, a *entities.Alert, withReturn bool) {
 	n := m.in.Notice
 	if r := n.Reason(entities.MotionTempStabilized); r != nil {
 		from := shiftStart(*a, n, m.at)
@@ -292,7 +280,7 @@ func (m *motionBuilder) temperatureAndReturn(d *Decision, a *entities.Alert) {
 			"rate": messages.FormatRate(deref(r.TempRateMax6h)),
 		}, "", a.CurrentLevel, false))
 	}
-	if r := n.Reason(entities.MotionReturn); r != nil {
+	if r := n.Reason(entities.MotionReturn); r != nil && withReturn {
 		back := m.at.Add(-time.Hour)
 		if r.StartedAt != nil {
 			back = *r.StartedAt
@@ -316,7 +304,6 @@ func (m *motionBuilder) temperatureAndReturn(d *Decision, a *entities.Alert) {
 			from = to
 		}
 		a.TempStableFrom, a.TempStableTo = utcPtr(from), utcPtr(to)
-		a.Runtime.TempVariesAgainAt = &at
 		noReturn := ""
 		if n.MotionState == entities.MotionDisplaced {
 			noReturn = " El sensor no volvió a su posición anterior."
@@ -340,15 +327,9 @@ func (m *motionBuilder) temperatureAndReturn(d *Decision, a *entities.Alert) {
 	}
 }
 
-// cleared: con FUGA en episodio la alerta sigue (PART_NORMAL sensor); si no, finaliza.
+// cleared: el episodio de movimiento terminó; la alerta de MOVIMIENTO finaliza.
 func (m *motionBuilder) cleared(d *Decision, a *entities.Alert) {
 	n := m.in.Notice
-	if m.in.LeakInEpisode {
-		d.Messages = append(d.Messages, m.message(a, messages.Key(messages.CodePartNormal, messages.VariantSensor), map[string]string{
-			"nivel": messages.LevelName(a.CurrentLevel), "i": messages.FormatValue(a.LastIndicatorValue),
-		}, "", a.CurrentLevel, false))
-		return
-	}
 	at := m.at
 	a.State = entities.AlertFinished
 	a.EndedAt = &at
@@ -378,4 +359,51 @@ func utcPtr(t *time.Time) *time.Time {
 	}
 	u := t.UTC()
 	return &u
+}
+
+// TemperatureInput es lo que DecideTemperature necesita: la alerta de FUGA
+// ACTIVA del punto y la hora de movimiento que trae motivos de temperatura.
+type TemperatureInput struct {
+	Alert  entities.Alert
+	Notice entities.MotionNotice
+	Policy entities.Policy
+	Device entities.Device
+}
+
+// HasTemperatureReason indica si la hora trae algún mensaje TEMP_*.
+func HasTemperatureReason(n entities.MotionNotice) bool {
+	for _, code := range []string{entities.MotionTempStabilized, entities.MotionTempVariesAgain,
+		entities.MotionTempNotStabilized, entities.MotionTempStillStable} {
+		if n.Reason(code) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// DecideTemperature replica en la alerta de FUGA vigente los mensajes TEMP_*
+// de la hora de movimiento (con su mismo tipo, Notificación o Actualización)
+// y su tramo de temperatura estable. Es lo único que el movimiento comparte
+// con una alerta de FUGA: no cambia su color, su estado ni su fin, y nunca
+// copia el estado del sensor ni emite MOV_*. Sin motivos de temperatura (o si
+// la hora no está calculada) no hace nada (Decision.Alert = nil).
+func DecideTemperature(in TemperatureInput) (Decision, error) {
+	n := in.Notice
+	if in.Alert.MeasuringPointID != n.MeasuringPointID || in.Alert.EventType != entities.EventTypeLeak || in.Alert.State != entities.AlertActive {
+		return Decision{}, ErrNoticeMismatch
+	}
+	d := Decision{Outcome: OutcomeNoAlert}
+	if !n.Calculated() || !HasTemperatureReason(n) {
+		return d, nil
+	}
+	at := n.EvaluatedAt.UTC()
+	m := motionBuilder{builder: builder{in: DecideInput{Policy: in.Policy, Device: in.Device}, at: at}, in: MotionInput{Notice: n}}
+	a := cloneAlert(in.Alert)
+	if n.TempState != "" {
+		a.TempState = n.TempState
+	}
+	m.temperature(&d, &a, false)
+	d.Alert = &a
+	d.Outcome = OutcomeUpdated
+	return d, m.err
 }
