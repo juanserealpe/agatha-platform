@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { CircleCheck, CircleDashed, CircleDot, ClipboardCheck, Thermometer } from "lucide-react";
+import { AudioWaveform, CircleCheck, CircleDashed, CircleDot, ClipboardCheck, Move, Thermometer } from "lucide-react";
 import type {
     AlertEvent,
     AlertItem,
@@ -59,6 +59,15 @@ export const EVENT_LABEL: Record<AlertEvent, string> = {
 };
 
 export const EVENT_ORDER: readonly AlertEvent[] = ["FUGA", "MOVIMIENTO"];
+
+/**
+ * Ícono del tipo de alerta en la franja y las pestañas (spec multiindicador D2): el tipo se distingue por
+ * ícono y etiqueta, nunca por color, que queda para la severidad.
+ */
+export const EVENT_ICON: Record<AlertEvent, LucideIcon> = {
+    FUGA: AudioWaveform,
+    MOVIMIENTO: Move,
+};
 
 export const CLASSIFICATION_LABEL: Record<Classification, string> = {
     CONFIRMADA: "Confirmada",

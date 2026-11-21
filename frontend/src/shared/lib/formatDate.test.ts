@@ -5,6 +5,7 @@ import {
     formatColombiaDate,
     formatColombiaFileStamp,
     formatColombiaDateTime,
+    formatColombiaShort,
     formatDayMonth,
     formatRelative,
     formatShort,
@@ -68,9 +69,11 @@ describe("hora de Colombia", () => {
     it("convierte UTC a Colombia aunque cambie el día", () => {
         expect(formatColombiaDateTime("2026-08-24T03:30:00Z")).toBe("23/08/2026 22:30");
         expect(formatColombiaDate("2026-08-24T03:30:00Z")).toBe("23/08/2026");
+        expect(formatColombiaShort("2026-08-24T03:30:00Z")).toBe("23/08 22:30");
     });
 
     it("muestra un guion si la fecha es inválida", () => {
+        expect(formatColombiaShort("no-es-fecha")).toBe("—");
         expect(formatColombiaDateTime("no-es-fecha")).toBe("—");
         expect(formatColombiaDate("no-es-fecha")).toBe("—");
     });

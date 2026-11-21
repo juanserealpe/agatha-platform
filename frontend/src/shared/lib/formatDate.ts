@@ -120,6 +120,14 @@ export function formatColombiaDateTime(value: DateInput): string {
     return `${day}/${month}/${year} ${hour}:${minute}`;
 }
 
+/** Día, mes y hora en hora de Colombia, sin año, p. ej. "24/08 11:00". Pensada para ejes y tooltips. */
+export function formatColombiaShort(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { day, month, hour, minute } = colombiaParts(date);
+    return `${day}/${month} ${hour}:${minute}`;
+}
+
 /** Solo la fecha en hora de Colombia, p. ej. "24/08/2026". */
 export function formatColombiaDate(value: DateInput): string {
     const date = toDate(value);

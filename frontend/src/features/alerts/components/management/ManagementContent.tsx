@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { AlertDetail, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
@@ -14,6 +14,7 @@ import { ManagementNotice, type NoticeTone } from "./ManagementNotice";
 import { ManagementSummary } from "./ManagementSummary";
 import { ObservationList } from "./ObservationList";
 import { StepHeading } from "./StepHeading";
+import { TimeStrip } from "./TimeStrip";
 
 interface Notice {
     tone: NoticeTone;
@@ -44,6 +45,12 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
     // Recién clasificada en este modal: se ofrece "Agregar etiqueta" / "Ahora no" (CA-2.2.3).
     const [justClassified, setJustClassified] = useState(false);
     const observationsTitleId = useId();
+    const endedAt = detail.in_progress ? null : detail.ended_at;
+    // Una sola barra mientras no exista la vista combinada (etapa 4): la alerta abierta.
+    const stripIndicators = useMemo(
+        () => [{ id: detail.id, event: detail.event, levels: detail.levels, endedAt }],
+        [detail.id, detail.event, detail.levels, endedAt]
+    );
 
     const canClassify = allowedClassifications(detail.available_actions).length > 0;
     const canLabel = detail.available_actions.includes("ADD_LABEL") && detail.classification !== null;
@@ -114,13 +121,14 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
     return (
         <>
             <ManagementHeader alert={detail} />
+            <TimeStrip indicators={stripIndicators} />
             {notice && <ManagementNotice tone={notice.tone}>{notice.text}</ManagementNotice>}
             {/* Contexto del evento en todos los modos: para clasificar hay que entender qué pasó. En los pasos
                 la explicación va plegada para que el formulario quede a la vista. */}
             <AlertExplanation detail={detail} collapsed={inStep} />
             <EventTimeline
                 levels={detail.levels}
-                endedAt={detail.in_progress ? null : detail.ended_at}
+                endedAt={endedAt}
                 pendingClassification={detail.management_status === "SIN_CLASIFICAR"}
             />
             {body}

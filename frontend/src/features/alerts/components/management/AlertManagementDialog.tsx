@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { AlertCircle, Loader2, SearchX } from "lucide-react";
 import type { AlertId } from "@/services/alertManagement";
 import { isApiError, userErrorMessage } from "@/services/http";
@@ -27,10 +28,13 @@ interface AlertManagementDialogProps {
 export function AlertManagementDialog({ alertId, initialMode, onClose }: AlertManagementDialogProps) {
     const { data: detail, error, isPending, isError, refetch } = useAlertManagementDetail(alertId);
     const notFound = isApiError(error) && error.status === NOT_FOUND_STATUS;
+    const popupRef = useRef<HTMLDivElement>(null);
 
     return (
         <Dialog open onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className={MANAGEMENT_DIALOG_CLASS}>
+            {/* El foco inicial va al modal y no al primer elemento enfocable (un tramo de la franja), que
+                quedaba marcado con el anillo de foco al abrir. Tab sigue recorriendo desde el principio. */}
+            <DialogContent ref={popupRef} initialFocus={popupRef} className={MANAGEMENT_DIALOG_CLASS}>
                 {detail ? (
                     <ManagementContent detail={detail} initialMode={initialMode} onClose={onClose} />
                 ) : (
