@@ -1,32 +1,19 @@
 import { useId } from "react";
-import type { LevelSegment, TimelineMessage } from "@/services/alertManagement";
+import type { LevelSegment } from "@/services/alertManagement";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { useNow } from "@/shared/hooks/useNow";
 import { formatColombiaDateTime, toIsoString } from "@/shared/lib/formatDate";
 import { cn } from "@/lib/utils";
 import { levelStyle } from "../../config/alertManagementDisplay";
-import { MESSAGE_KIND_DESCRIPTION, MESSAGE_KIND_LABEL, OPENED_BY_LABEL } from "../../config/alertExplanations";
+import { GENERAL_DURATION_LABEL, OPENED_BY_LABEL } from "../../config/alertExplanations";
 import { formatDuration, segmentDurationMs, totalDurationMs } from "../../lib/timeline";
 import { LevelBadge } from "../badges/LevelBadge";
+import { PhaseMessage } from "./PhaseMessage";
 import { StepHeading } from "./StepHeading";
 
 function DateTime({ value }: { value: string }) {
     return <time dateTime={toIsoString(value)}>{formatColombiaDateTime(value)}</time>;
-}
-
-function MessageItem({ message }: { message: TimelineMessage }) {
-    // title y body ya vienen redactados por el backend: se muestran como texto, nunca como HTML.
-    return (
-        <li className="flex flex-col gap-0.5 rounded-md bg-gray-50 px-2.5 py-2">
-            <span className="font-data-mono text-xs text-gray-500">
-                <DateTime value={message.at} /> ·{" "}
-                <span title={MESSAGE_KIND_DESCRIPTION[message.kind]}>{MESSAGE_KIND_LABEL[message.kind] ?? message.kind}</span>
-            </span>
-            <span className="text-sm font-medium text-gray-900">{message.title}</span>
-            {message.body && <span className="text-sm whitespace-pre-line text-gray-700">{message.body}</span>}
-        </li>
-    );
 }
 
 function SegmentItem({ segment, isLast, now }: { segment: LevelSegment; isLast: boolean; now: number }) {
@@ -60,7 +47,7 @@ function SegmentItem({ segment, isLast, now }: { segment: LevelSegment; isLast: 
                             <AccordionContent>
                                 <ul className="flex flex-col gap-1.5">
                                     {segment.messages.map((message) => (
-                                        <MessageItem key={message.id} message={message} />
+                                        <PhaseMessage key={message.id} message={message} phaseLevel={segment.level} />
                                     ))}
                                 </ul>
                             </AccordionContent>
@@ -118,7 +105,7 @@ export function EventTimeline({ levels, endedAt, pendingClassification }: EventT
                 aside={
                     levels.length > 0 && (
                         <>
-                            Duración acumulada: <strong className="font-data-mono text-gray-900">{formatDuration(totalDurationMs(levels, now))}</strong>
+                            {GENERAL_DURATION_LABEL}: <strong className="font-data-mono text-gray-900">{formatDuration(totalDurationMs(levels, now))}</strong>
                         </>
                     )
                 }

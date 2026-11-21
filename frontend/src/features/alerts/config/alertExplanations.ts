@@ -4,31 +4,58 @@ import type { AlertEvent, AlertLevel, LeakSignature, LevelOpenedBy, MessageKind 
 // El indicador del backend es un PUNTAJE DE ANOMALÍA, no una probabilidad calibrada de fuga: ningún texto
 // debe presentarlo como porcentaje ni como "probabilidad".
 
-export const EVENT_EXPLANATION: Record<AlertEvent, { title: string; description: string }> = {
+export interface EventExplanation {
+    title: string;
+    description: string;
+    /** Qué tan lejos está la medición de lo normal según el nivel alcanzado; solo los niveles que el evento emite. */
+    levelPhrase: Partial<Record<AlertLevel, string>>;
+    /**
+     * El backend calcula un puntaje de anomalía para este evento. Movimiento no lo tiene: el detalle lo envía en 0
+     * y sus datos propios (pitch/roll, temperatura) llegan en la entrega 2 (spec multiindicador A7).
+     */
+    hasAnomalyScore: boolean;
+}
+
+export const EVENT_EXPLANATION: Record<AlertEvent, EventExplanation> = {
     FUGA: {
         title: "Anomalía acústica",
         description:
             "El sensor acústico escuchó en el ducto un sonido distinto al habitual en este punto. No siempre es una fuga: otras fuentes de ruido también lo producen.",
+        levelPhrase: {
+            AMARILLO: "El sonido del ducto en este punto está algo por encima de su comportamiento normal.",
+            NARANJA: "El sonido del ducto en este punto está claramente por encima de su comportamiento normal.",
+            ROJO: "El sonido del ducto en este punto está muy por encima de su comportamiento normal.",
+        },
+        hasAnomalyScore: true,
     },
+    // Como el catálogo del backend (REQ_ALERTAS_MOVIMIENTO §8): describe lo que midió el sensor, sin atribuirlo al
+    // terreno ni a una maniobra del gasoducto. Movimiento solo emite Amarillo (§5.7).
     MOVIMIENTO: {
-        title: "Posible movimiento del terreno",
-        description: "El sensor registró un movimiento o inclinación del terreno distinto al habitual en este punto.",
+        title: "Movimiento brusco del sensor",
+        description:
+            "El sensor de este punto cambió de inclinación (pitch y roll) de forma brusca o quedó en otra posición. Un movimiento lento, repartido en horas o días, no genera alerta.",
+        levelPhrase: {
+            AMARILLO: "Las alertas de movimiento son siempre de nivel amarillo: el movimiento del sensor por sí solo no indica una fuga.",
+        },
+        hasAnomalyScore: false,
     },
 };
 
-/** Qué tan lejos está la medición de lo normal, según la criticidad alcanzada. */
-export const ANOMALY_PHRASE: Record<AlertEvent, Record<AlertLevel, string>> = {
-    FUGA: {
-        AMARILLO: "El sonido del ducto en este punto está algo por encima de su comportamiento normal.",
-        NARANJA: "El sonido del ducto en este punto está claramente por encima de su comportamiento normal.",
-        ROJO: "El sonido del ducto en este punto está muy por encima de su comportamiento normal.",
-    },
-    MOVIMIENTO: {
-        AMARILLO: "El terreno en este punto se mueve algo más de lo normal.",
-        NARANJA: "El terreno en este punto se mueve claramente más de lo normal.",
-        ROJO: "El terreno en este punto se mueve mucho más de lo normal.",
-    },
-};
+/**
+ * Rótulo del chip junto a cada puntaje (spec multiindicador §9.2). El chip es el nivel en que estaba la alerta, no
+ * el nivel del valor: un Rojo sin clasificar sigue en Rojo aunque la última hora esté por debajo de lo normal.
+ */
+export const SCORE_LEVEL_CAPTION = {
+    opening: "La alerta abrió en",
+    lastInProgress: "La alerta sigue en",
+    lastFinished: "La alerta terminó en",
+} as const;
+
+/** Meta de los mensajes `TEMP_*`: contexto del sensor común a fuga y movimiento (spec multiindicador §7.1). */
+export const SENSOR_EVENT_LABEL = "Evento del sensor";
+
+/** Rótulo de la duración de la cabecera (D6): con varias alertas del punto será la del grupo. */
+export const GENERAL_DURATION_LABEL = "Duración general";
 
 export const ANOMALY_SCORE_NOTE =
     "El nivel de anomalía compara la medición con el comportamiento habitual de este punto: entre más alto, más se aleja de lo normal. No es una probabilidad de fuga.";

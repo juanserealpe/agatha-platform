@@ -3,11 +3,11 @@ import { Info } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import type { AlertDetail, AlertLevel, TriggerVariable } from "@/services/alertManagement";
 import {
-    ANOMALY_PHRASE,
     ANOMALY_SCORE_NOTE,
     EVENT_EXPLANATION,
     formatAnomalyScore,
     leakSignatureText,
+    SCORE_LEVEL_CAPTION,
 } from "../../config/alertExplanations";
 import { LevelBadge } from "../badges/LevelBadge";
 import { StepHeading } from "./StepHeading";
@@ -17,6 +17,7 @@ type ExplanationDetail = Pick<
     | "event"
     | "max_level"
     | "current_level"
+    | "in_progress"
     | "opening_indicator_value"
     | "last_indicator_value"
     | "levels"
@@ -24,15 +25,52 @@ type ExplanationDetail = Pick<
     | "leak_signature"
 >;
 
-function Score({ label, value, level }: { label: string; value: number; level: AlertLevel }) {
+interface ScoreProps {
+    label: string;
+    value: number;
+    level: AlertLevel;
+    /** Aclara que el chip es el nivel de la alerta, no el del valor (§9.2). */
+    levelCaption: string;
+}
+
+function Score({ label, value, level, levelCaption }: ScoreProps) {
     return (
         <div className="flex flex-col gap-1 rounded-lg bg-gray-50 px-3 py-2">
             <dt className="text-xs text-gray-500">{label}</dt>
-            <dd className="flex items-center gap-2">
+            <dd className="flex flex-col gap-1">
                 <span className="font-data-mono text-lg font-bold text-gray-900">{formatAnomalyScore(value)}</span>
-                <LevelBadge level={level} />
+                <span className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                    {levelCaption} <LevelBadge level={level} />
+                </span>
             </dd>
         </div>
+    );
+}
+
+function AnomalyScores({ detail }: { detail: ExplanationDetail }) {
+    const openingLevel = detail.levels[0]?.level ?? detail.max_level;
+    const lastLevel = detail.current_level ?? detail.levels.at(-1)?.level ?? detail.max_level;
+    return (
+        <>
+            <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Score
+                    label="Nivel de anomalía al abrir"
+                    value={detail.opening_indicator_value}
+                    level={openingLevel}
+                    levelCaption={SCORE_LEVEL_CAPTION.opening}
+                />
+                <Score
+                    label="Nivel de anomalía en la última hora"
+                    value={detail.last_indicator_value}
+                    level={lastLevel}
+                    levelCaption={detail.in_progress ? SCORE_LEVEL_CAPTION.lastInProgress : SCORE_LEVEL_CAPTION.lastFinished}
+                />
+            </dl>
+            <p className="flex items-start gap-1.5 text-xs text-gray-500">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                {ANOMALY_SCORE_NOTE}
+            </p>
+        </>
     );
 }
 
@@ -106,8 +144,7 @@ function ExplanationSection({ detail }: { detail: ExplanationDetail }) {
 
 function ExplanationBody({ detail }: { detail: ExplanationDetail }) {
     const event = EVENT_EXPLANATION[detail.event];
-    const openingLevel = detail.levels[0]?.level ?? detail.max_level;
-    const lastLevel = detail.current_level ?? detail.levels.at(-1)?.level ?? detail.max_level;
+    const levelPhrase = event.levelPhrase[detail.max_level];
     const leak = detail.event === "FUGA" ? leakSignatureText(detail.leak_signature) : null;
 
     return (
@@ -115,24 +152,17 @@ function ExplanationBody({ detail }: { detail: ExplanationDetail }) {
             <p className="text-sm text-gray-800">
                 <strong className="text-gray-900">{event.title}.</strong> {event.description}
             </p>
-            <p className="text-sm text-gray-800">{ANOMALY_PHRASE[detail.event][detail.max_level]}</p>
+            {levelPhrase && <p className="text-sm text-gray-800">{levelPhrase}</p>}
             {leak && (
                 <p className="text-sm text-gray-800">
                     <strong className="text-gray-900">{leak.title}.</strong> {leak.text}
                 </p>
             )}
 
-            <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Score label="Nivel de anomalía al abrir" value={detail.opening_indicator_value} level={openingLevel} />
-                <Score label="Nivel de anomalía en la última hora" value={detail.last_indicator_value} level={lastLevel} />
-            </dl>
+            {/* Sin puntaje propio (movimiento) se oculta el bloque: nunca se muestra un 0 que no es una medición. */}
+            {event.hasAnomalyScore && <AnomalyScores detail={detail} />}
 
             {detail.trigger_variables && <TriggerVariables variables={detail.trigger_variables} />}
-
-            <p className="flex items-start gap-1.5 text-xs text-gray-500">
-                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                {ANOMALY_SCORE_NOTE}
-            </p>
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANOMALY_PHRASE, EVENT_EXPLANATION, formatAnomalyScore, leakSignatureText } from "../config/alertExplanations";
+import { EVENT_EXPLANATION, formatAnomalyScore, leakSignatureText } from "../config/alertExplanations";
 import { formatDuration, segmentDurationMs, totalDurationMs } from "./timeline";
 
 const HOUR = 3_600_000;
@@ -54,16 +54,24 @@ describe("formatDuration", () => {
 });
 
 describe("textos en lenguaje claro", () => {
-    it("cada evento tiene título y una frase por nivel", () => {
+    it("fuga tiene frase para los tres niveles y puntaje de anomalía", () => {
         expect(EVENT_EXPLANATION.FUGA.title).toBe("Anomalía acústica");
-        expect(EVENT_EXPLANATION.MOVIMIENTO.title).toBe("Posible movimiento del terreno");
-        for (const phrases of Object.values(ANOMALY_PHRASE)) {
-            expect(Object.keys(phrases)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
-        }
+        expect(Object.keys(EVENT_EXPLANATION.FUGA.levelPhrase)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
+        expect(EVENT_EXPLANATION.FUGA.hasAnomalyScore).toBe(true);
+    });
+
+    it("movimiento habla del sensor, solo tiene Amarillo y no muestra puntaje (A7)", () => {
+        const motion = EVENT_EXPLANATION.MOVIMIENTO;
+        expect(motion.title).toBe("Movimiento brusco del sensor");
+        expect(Object.keys(motion.levelPhrase)).toEqual(["AMARILLO"]);
+        expect(motion.hasAnomalyScore).toBe(false);
+        [motion.title, motion.description, ...Object.values(motion.levelPhrase)].forEach((text) =>
+            expect(text).not.toMatch(/terreno|cierre|cerr|reapertura|flujo de gas/i),
+        );
     });
 
     it("ningún texto presenta el indicador como probabilidad o porcentaje", () => {
-        const texts = [...Object.values(EVENT_EXPLANATION).map((e) => e.description), ...Object.values(ANOMALY_PHRASE).flatMap(Object.values)];
+        const texts = Object.values(EVENT_EXPLANATION).flatMap((e) => [e.description, ...Object.values(e.levelPhrase)]);
         texts.forEach((text) => expect(text).not.toMatch(/%|probabilidad/i));
     });
 
