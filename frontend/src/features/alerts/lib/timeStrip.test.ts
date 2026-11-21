@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+    buildStripCursor,
     buildTimeStrip,
+    compactStripHeightPx,
     markerTooltip,
     pieceAccessibleLabel,
     pieceTooltip,
@@ -70,7 +72,7 @@ describe("buildTimeStrip", () => {
         expect(strip!.bars[0].markers.filter((m) => m.kind === "change")).toHaveLength(1);
     });
 
-    it("finalizada: sin círculo hueco y el eje termina en el fin", () => {
+    it("finalizada: sin círculo hueco; cierra con un círculo del color de la última fase y su fecha en el eje", () => {
         const ended: StripIndicatorInput = {
             id: 2,
             event: "FUGA",
@@ -81,7 +83,9 @@ describe("buildTimeStrip", () => {
         expect(strip.active).toBe(false);
         expect(strip.endMs).toBe(ms("09:00"));
         expect(strip.bars[0].markers.some((m) => m.kind === "now")).toBe(false);
-        expect(strip.ticks.every((t) => !t.isNow)).toBe(true);
+        expect(strip.bars[0].markers.at(-1)).toMatchObject({ kind: "end", level: "AMARILLO", offsetPct: 100 });
+        expect(markerTooltip(strip.bars[0].markers.at(-1)!)).toBe("24/08 09:00 · Finalizada · Amarillo");
+        expect(strip.ticks.map(tickLabel)).toEqual(["24/08 05:00", "24/08 09:00"]);
     });
 
     it("el hueco de una reactivación es gris y el regreso lleva círculo", () => {
@@ -100,9 +104,10 @@ describe("buildTimeStrip", () => {
             ["idle", 20, 60],
             ["level", 80, 20],
         ]);
-        expect(bar.markers.map((m) => [m.from, m.openedBy, m.offsetPct])).toEqual([
-            [null, "OPEN", 0],
-            [null, "REACTIVATION", 80],
+        expect(bar.markers.map((m) => [m.kind, m.from, m.openedBy, m.offsetPct])).toEqual([
+            ["change", null, "OPEN", 0],
+            ["change", null, "REACTIVATION", 80],
+            ["end", null, null, 100],
         ]);
     });
 
@@ -224,5 +229,33 @@ describe("textos de la franja", () => {
         };
         const idle = buildTimeStrip([activeLeak, motion], NOW)!.bars[1].pieces[0];
         expect(pieceTooltip(idle)).toBe("24/08 05:00 – 24/08 10:00 · Sin alerta · 5 h");
+    });
+});
+
+describe("cursor de tiempo", () => {
+    const strip = () => buildTimeStrip([activeLeak], NOW)!;
+
+    it("una fase marca su rango (CA9)", () => {
+        expect(buildStripCursor(strip(), { startMs: ms("08:00"), endMs: ms("10:00") })).toEqual({ offsetPct: 30, widthPct: 20 });
+    });
+
+    it("la fase en curso llega hasta ahora", () => {
+        const cursor = buildStripCursor(strip(), { startMs: ms("10:00"), endMs: null });
+        expect(cursor.offsetPct + cursor.widthPct).toBe(100);
+    });
+
+    it("un mensaje es un instante: línea sin ancho", () => {
+        expect(buildStripCursor(strip(), { startMs: ms("08:00"), endMs: ms("08:00") })).toEqual({ offsetPct: 30, widthPct: 0 });
+    });
+
+    it("un rango fuera del eje se recorta a la franja", () => {
+        expect(buildStripCursor(strip(), { startMs: ms("03:00"), endMs: ms("06:00") })).toEqual({ offsetPct: 0, widthPct: 10 });
+    });
+});
+
+describe("compactStripHeightPx", () => {
+    it("≈54 px con una barra y crece por barra", () => {
+        expect(compactStripHeightPx(1)).toBe(54);
+        expect(compactStripHeightPx(2)).toBe(74);
     });
 });

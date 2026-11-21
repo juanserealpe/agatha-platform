@@ -36,11 +36,14 @@ export interface StripPiece {
 }
 
 export interface StripMarker {
-    /** `change`: inicio de la barra o cambio de nivel. `now`: círculo hueco al final de una alerta en curso. */
-    kind: "change" | "now";
+    /**
+     * `change`: inicio de la barra o cambio de nivel. `now`: círculo hueco al final de una alerta en curso.
+     * `end`: círculo relleno con el color de la última fase donde terminó una alerta finalizada.
+     */
+    kind: "change" | "now" | "end";
     atMs: number;
     offsetPct: number;
-    /** Nivel al que se entra (relleno del círculo, §5.2) o el actual en `now`. */
+    /** Nivel al que se entra (relleno del círculo, §5.2), el actual en `now` o el último en `end`. */
     level: AlertLevel;
     /** Nivel anterior si el cambio es contiguo; null al abrir o al reactivarse tras un hueco. */
     from: AlertLevel | null;
@@ -76,6 +79,8 @@ const FULL_PCT = 100;
 
 export const IDLE_PIECE_LABEL = "Sin alerta";
 export const NOW_LABEL = "Ahora";
+// Mismo texto que el cierre de la línea de tiempo (A4): el fin no es un nivel "Normal".
+export const END_LABEL = "Finalizada";
 
 function toMs(value: string): number {
     return new Date(value).getTime();
@@ -221,6 +226,10 @@ function buildBar(indicator: StripIndicatorInput, axis: Axis): StripBar {
     const last = segments[segments.length - 1];
     if (indicator.endedAt === null && last && last.ended_at === null) {
         markers.push({ kind: "now", atMs: axis.now, offsetPct: axis.pct(axis.now), level: last.level, from: null, openedBy: null });
+    } else if (indicator.endedAt !== null && last) {
+        // Pedido del usuario (20-nov): la finalizada cierra su barra con un círculo, como "Ahora" en las activas.
+        const endMs = last.ended_at ? toMs(last.ended_at) : alertEndMs;
+        markers.push({ kind: "end", atMs: endMs, offsetPct: axis.pct(endMs), level: last.level, from: null, openedBy: null });
     }
 
     return { id: indicator.id, event: indicator.event, pieces, markers, durationMs: totalDurationMs(segments, axis.now) };
@@ -246,11 +255,15 @@ export function pieceAccessibleLabel(piece: StripPiece, indicatorLabel: string):
     return `${indicatorLabel}, ${pieceLevelLabel(piece)}, ${range}, ${formatDuration(piece.endMs - piece.startMs)}`;
 }
 
-/** Tooltip de un círculo (§5.2): `24/08 22:00 · Naranja → Rojo`, `24/08 05:00 · Apertura · Amarillo` o `Ahora · Rojo`. */
+/**
+ * Tooltip de un círculo (§5.2): `24/08 22:00 · Naranja → Rojo`, `24/08 05:00 · Apertura · Amarillo`,
+ * `Ahora · Rojo` o `25/08 19:00 · Finalizada · Rojo`.
+ */
 export function markerTooltip(marker: StripMarker): string {
     const level = levelStyle(marker.level).label;
     if (marker.kind === "now") return `${NOW_LABEL} · ${level}`;
     const at = formatColombiaShort(marker.atMs);
+    if (marker.kind === "end") return `${at} · ${END_LABEL} · ${level}`;
     if (marker.from) return `${at} · ${levelStyle(marker.from).label} → ${level}`;
     const reason = marker.openedBy ? OPENED_BY_LABEL[marker.openedBy] : null;
     return reason ? `${at} · ${reason} · ${level}` : `${at} · ${level}`;
@@ -264,4 +277,43 @@ export function tickLabel(tick: StripTick): string {
 /** La marca del eje en renglones: fecha arriba y hora abajo, para que ocupe la mitad del ancho. */
 export function tickLabelLines(tick: StripTick): string[] {
     return tickLabel(tick).split(" ");
+}
+
+/** Rango bajo el cursor en la línea de tiempo (§5.3). `endMs` null = hasta ahora; igual a `startMs` = un instante. */
+export interface HoverRange {
+    startMs: number;
+    endMs: number | null;
+}
+
+/** Banda punteada del cursor de tiempo sobre todas las barras (§5.3). */
+export interface StripCursor {
+    offsetPct: number;
+    /** 0 en un instante (un mensaje): se dibuja como una línea. */
+    widthPct: number;
+}
+
+/**
+ * Posición del cursor de tiempo. Sin etiqueta de texto (decisión del usuario, 20-nov): tapaba la franja y la
+ * fecha ya está en la fase o el mensaje bajo el cursor.
+ */
+export function buildStripCursor(strip: TimeStrip, range: HoverRange): StripCursor {
+    const startMs = clamp(range.startMs, strip.startMs, strip.endMs);
+    const endMs = clamp(range.endMs ?? strip.endMs, startMs, strip.endMs);
+    const spanMs = Math.max(1, strip.endMs - strip.startMs);
+    const pct = (value: number) => ((value - strip.startMs) / spanMs) * FULL_PCT;
+    return { offsetPct: pct(startMs), widthPct: pct(endMs) - pct(startMs) };
+}
+
+// Franja compacta (§5.3, ≈54 px con una barra): sin el eje de fechas; cada barra en una fila de 16 px con su
+// nombre, duración y círculos; 4 px entre filas, 10 px de relleno arriba y abajo (más holgada, pedido del
+// usuario), 1 px de borde y 8 px de aire arriba y abajo de la franja pegada. TimeStrip
+// usa este alto y la línea de tiempo lo usa (más un respiro) como scroll-margin-top, para que la franja no
+// tape el título de la fase.
+const COMPACT_ROW_PX = 16;
+const COMPACT_ROW_GAP_PX = 4;
+const COMPACT_CHROME_PX = 2 * 10 + 2 * 1 + 2 * 8;
+
+export function compactStripHeightPx(barCount: number): number {
+    const rows = Math.max(1, barCount);
+    return COMPACT_CHROME_PX + rows * COMPACT_ROW_PX + (rows - 1) * COMPACT_ROW_GAP_PX;
 }

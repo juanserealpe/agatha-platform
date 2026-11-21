@@ -2,9 +2,11 @@ import { useId, useMemo, useState } from "react";
 import type { AlertDetail, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import { useTimelineNavigation } from "../../hooks/useTimelineNavigation";
 import { allowedClassifications } from "../../lib/classificationForm";
 import type { ManagementMode } from "../../lib/managementMode";
 import { describeExisting } from "../../lib/managementOutcome";
+import { compactStripHeightPx } from "../../lib/timeStrip";
 import { AlertExplanation } from "./AlertExplanation";
 import { ClassificationStep } from "./ClassificationStep";
 import { EventTimeline } from "./EventTimeline";
@@ -15,6 +17,9 @@ import { ManagementSummary } from "./ManagementSummary";
 import { ObservationList } from "./ObservationList";
 import { StepHeading } from "./StepHeading";
 import { TimeStrip } from "./TimeStrip";
+
+// Aire entre la franja compacta y el título de la fase a la que se navega, para que se lea dónde se está.
+const PHASE_SCROLL_GAP_PX = 12;
 
 interface Notice {
     tone: NoticeTone;
@@ -51,6 +56,7 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
         () => [{ id: detail.id, event: detail.event, levels: detail.levels, endedAt }],
         [detail.id, detail.event, detail.levels, endedAt]
     );
+    const navigation = useTimelineNavigation();
 
     const canClassify = allowedClassifications(detail.available_actions).length > 0;
     const canLabel = detail.available_actions.includes("ADD_LABEL") && detail.classification !== null;
@@ -121,7 +127,15 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
     return (
         <>
             <ManagementHeader alert={detail} />
-            <TimeStrip indicators={stripIndicators} />
+            {/* -mx-5/px-5 y -top-5: al quedar fija se pega al borde del modal y cubre su relleno (p-5). Sin -top-5
+                Chrome la pega a 20 px del borde, el marcador de useIsStuck nunca sale de la vista y no se compacta. */}
+            <TimeStrip
+                indicators={stripIndicators}
+                selected={navigation.selected}
+                onSelectPhase={navigation.navigateToPhase}
+                hoverRange={navigation.hoverRange}
+                className="-top-5 -mx-5 px-5"
+            />
             {notice && <ManagementNotice tone={notice.tone}>{notice.text}</ManagementNotice>}
             {/* Contexto del evento en todos los modos: para clasificar hay que entender qué pasó. En los pasos
                 la explicación va plegada para que el formulario quede a la vista. */}
@@ -130,6 +144,8 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
                 levels={detail.levels}
                 endedAt={endedAt}
                 pendingClassification={detail.management_status === "SIN_CLASIFICAR"}
+                controls={navigation}
+                scrollMarginTopPx={compactStripHeightPx(stripIndicators.length) + PHASE_SCROLL_GAP_PX}
             />
             {body}
         </>

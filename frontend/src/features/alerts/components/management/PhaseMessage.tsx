@@ -9,16 +9,20 @@ interface PhaseMessageProps {
     message: TimelineMessage;
     /** Nivel de la fase que contiene el mensaje: define su fondo, no el tipo de mensaje (D8). */
     phaseLevel: AlertLevel;
+    /** Cursor sobre el mensaje: la franja marca su hora (cursor de tiempo, §7.2). */
+    onHoverChange?: (hovering: boolean) => void;
 }
 
 /** Mensaje de una fase de la línea de tiempo, con el fondo suave del color de su fase (spec multiindicador §7). */
-export function PhaseMessage({ message, phaseLevel }: PhaseMessageProps) {
+export function PhaseMessage({ message, phaseLevel, onHoverChange }: PhaseMessageProps) {
     const variant = MESSAGE_VARIANT_META[messageVariant(message)];
     const { Icon } = variant;
 
     // title y body ya vienen redactados por el backend: se muestran como texto, nunca como HTML.
     return (
         <li
+            onMouseEnter={() => onHoverChange?.(true)}
+            onMouseLeave={() => onHoverChange?.(false)}
             className={cn(
                 "flex flex-col gap-0.5 rounded-md px-2.5 py-2 ring-1 ring-transparent transition-colors",
                 levelStyle(phaseLevel).phaseMessageClass,
