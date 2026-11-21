@@ -128,6 +128,11 @@ type Alert struct {
 	TempStableFrom        *time.Time
 	TempStableTo          *time.Time
 	LastMotionEvaluatedAt *time.Time
+	// MotionHistory es el historial (motion-v2) del OPENED que abrió o
+	// reactivó la alerta de MOVIMIENTO; MotionTableLevel, el nivel calculado
+	// máximo (puede superar al enviado mientras Naranja o Rojo están en observación).
+	MotionHistory    map[string]any
+	MotionTableLevel Level
 
 	// StartedAt es la primera hora sobre el umbral de la racha que abrió el
 	// episodio; OpenedAt, la hora en que se creó; EndedAt, el CLEARED (nil = en curso).

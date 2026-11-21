@@ -238,8 +238,10 @@ func TestCatalog_UpConfirmedVariantsPrependTheSignature(t *testing.T) {
 	}
 }
 
-// §8.3: todo mensaje de movimiento o temperatura cita un dato ("Dato: …"); el
-// fin cita la duración. Ninguno usa las palabras de una interpretación.
+// v7 §8.3 / v8 §10.1: los TEMP_* citan un dato ("Dato: …"); los de
+// movimiento llevan el número en la frase (TestCatalog_MotionV8Language
+// prohíbe "Dato:"); el fin cita la duración. Ninguno usa las palabras de una
+// interpretación.
 func TestCatalog_MotionMessagesCiteDataAndStayNeutral(t *testing.T) {
 	banned := []string{"umbral", "persistencia", "cierre", "cerrado", "reapertura", "flujo de gas"}
 	motion := 0
@@ -248,7 +250,7 @@ func TestCatalog_MotionMessagesCiteDataAndStayNeutral(t *testing.T) {
 			continue
 		}
 		motion++
-		if key != Key(CodeEndNormal, VariantMotion) && !strings.Contains(tpl.Body, "Dato:") {
+		if strings.HasPrefix(key, "TEMP_") && !strings.Contains(tpl.Body, "Dato:") {
 			t.Errorf("%s no cita un dato: %q", key, tpl.Body)
 		}
 		if key == Key(CodeEndNormal, VariantMotion) && !strings.Contains(tpl.Body, "{duracion}") {
@@ -261,10 +263,11 @@ func TestCatalog_MotionMessagesCiteDataAndStayNeutral(t *testing.T) {
 			}
 		}
 	}
-	// §8.1 sin LEAK_JOINED, MOV_JOINED ni PART_NORMAL (ruido/sensor): FUGA y
-	// MOVIMIENTO son alertas separadas.
-	if motion != 12 {
-		t.Fatalf("códigos de movimiento = %d, se esperaban 12 (§8.1 sin los del acople)", motion)
+	// v8: 4 variantes de MOV_OPEN, 3 de MOV_DISPLACED, MOV_LEVEL_UP,
+	// MOV_LEVEL_OBSERVED, MOV_SLOW_ONGOING, 3 de MOV_DAILY, MOV_RETURN, los 4
+	// TEMP_* y END_NORMAL/MOVIMIENTO; sin los del acople (LEAK_JOINED, MOV_JOINED, PART_NORMAL).
+	if motion != 19 {
+		t.Fatalf("códigos de movimiento = %d, se esperaban 19", motion)
 	}
 }
 
@@ -286,7 +289,7 @@ func TestCatalog_NoInterventionCode(t *testing.T) {
 			t.Fatalf("sigue la clave %s", key)
 		}
 	}
-	if MessageCatalogVersion != 7 {
+	if MessageCatalogVersion != 8 {
 		t.Fatalf("MessageCatalogVersion = %d", MessageCatalogVersion)
 	}
 }

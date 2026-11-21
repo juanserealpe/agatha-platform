@@ -137,6 +137,7 @@ func (s *MotionSource) ListAfter(ctx context.Context, pointID int64, after, to t
 		Select(`e.id, e.measuring_point_id, e.evaluated_at, e.status, e.motion_state, e.temp_state, v.temp_mode,
 			e.computed_level, e.in_episode, e.episode_event, e.displaced, e.pitch_now, e.roll_now, e.ref_pitch, e.ref_roll,
 			e.shift_started_at, e.gap_from, e.gap_to, e.temp_stable_from, e.temp_stable_to, e.reasons::text AS reasons,
+			e.table_level, e.episode_kind, e.history::text AS history, e.rules_hit::text AS rules_hit,
 			e.threshold_version_id, v.alerts_enabled`).
 		Joins("JOIN motion_threshold_versions v ON v.id = e.threshold_version_id").
 		Where("e.measuring_point_id = ? AND v.alerts_enabled", pointID)

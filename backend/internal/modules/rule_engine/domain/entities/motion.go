@@ -6,7 +6,7 @@ import "time"
 const EventTypeMotion EventType = "MOVIMIENTO"
 
 // MotionAlgorithmVersion identifica la versión del algoritmo MotionAssess.
-const MotionAlgorithmVersion = "motion-v1"
+const MotionAlgorithmVersion = "motion-v2"
 
 // MotionStatus indica si la hora tuvo registros suficientes.
 type MotionStatus string
@@ -66,6 +66,9 @@ const (
 	ReasonMovAbrupt         ReasonCode = "MOV_ABRUPT"
 	ReasonMovStill          ReasonCode = "MOV_STILL"
 	ReasonMovNewPosition    ReasonCode = "MOV_NEW_POSITION"
+	ReasonMovCumulative     ReasonCode = "MOV_CUMULATIVE"
+	ReasonMovLevelUp        ReasonCode = "MOV_LEVEL_UP"
+	ReasonMovDaily          ReasonCode = "MOV_DAILY"
 	ReasonTempVerifying     ReasonCode = "TEMP_VERIFYING"
 	ReasonTempStabilized    ReasonCode = "TEMP_STABILIZED"
 	ReasonTempNotStabilized ReasonCode = "TEMP_NOT_STABILIZED"
@@ -132,6 +135,29 @@ type MotionParams struct {
 	StillStableEveryHours int
 
 	TrendDeg7d float64
+
+	// motion-v2 (§5.2). Rules es la tabla de lo normal (motion_threshold_rules):
+	// no es columna de la versión; AbruptDeg y AbruptHours ya no se usan.
+	Rules []MotionRule
+
+	SendNaranja MotionSendMode
+	SendRojo    MotionSendMode
+
+	LongHoldHours   int
+	LongMinCoverage float64
+	LongCloseHours  int
+	LongCloseNetDeg float64
+
+	ClosureCapLevel Level
+	ClosureMaxDeg   float64
+
+	DailySummary bool
+
+	HistoryStepDeg         float64
+	HistoryStepWindowHours int
+	HistoryStepGroupHours  int
+	HistoryStepShare       float64
+	HistoryPreviousDays    int
 }
 
 // DefaultMotionParams son los valores v1 del MP-11556 (§5.2).
@@ -151,6 +177,14 @@ func DefaultMotionParams() MotionParams {
 		StabilizeMaxHours:     36,
 		StillStableFirstHours: 6, StillStableEveryHours: 12,
 		TrendDeg7d: 0.04,
+
+		Rules:       DefaultMotionRules(),
+		SendNaranja: MotionSendObservation, SendRojo: MotionSendObservation,
+		LongHoldHours: 12, LongMinCoverage: 0.5, LongCloseHours: 72, LongCloseNetDeg: 0.02,
+		ClosureCapLevel: LevelAmarillo, ClosureMaxDeg: 0.20,
+		DailySummary:   true,
+		HistoryStepDeg: 0.015, HistoryStepWindowHours: 6, HistoryStepGroupHours: 8, HistoryStepShare: 0.7,
+		HistoryPreviousDays: 90,
 	}
 }
 
@@ -169,12 +203,14 @@ type MotionThresholdVersion struct {
 	Version          int
 	// PreviousVersionID no es columna: lo completa el caso de uso.
 	PreviousVersionID *int64
-	Params            MotionParams
-	ValidFrom         time.Time
-	ValidTo           *time.Time
-	Reason            string
-	CreatedBy         string
-	CreatedAt         time.Time
+	// Warnings no es columna: los avisos de la tabla (§5.4) que devuelve CreateVersion.
+	Warnings  []string
+	Params    MotionParams
+	ValidFrom time.Time
+	ValidTo   *time.Time
+	Reason    string
+	CreatedBy string
+	CreatedAt time.Time
 }
 
 // PendingGap es un hueco cuya hora de evaluación fue NO_CALCULABLE.
@@ -207,6 +243,20 @@ type MotionState struct {
 	EpisodeOpenedAt *time.Time
 	AbruptActive    bool
 	PendingGaps     []PendingGap
+
+	// motion-v2 (§6.1). Los Ep* solo valen dentro del episodio (fuera quedan
+	// en cero, salvo EpKind en la hora del CLEARED). LongHold guarda solo las
+	// claves con horas > 0.
+	RestAt        *time.Time
+	LongHold      map[string]int
+	LastPatternAt *time.Time
+	LastFastAt    *time.Time
+	EpLevel       Level
+	EpKind        MotionEpisodeKind
+	EpStartAt     *time.Time
+	EpRefPitch    *float64
+	EpRefRoll     *float64
+	EpHasLong     bool
 }
 
 // InitialMotionState es el estado antes de la primera hora de un punto.
@@ -223,13 +273,23 @@ func InitialMotionState(p MotionParams) MotionState {
 //   - MOV_JUMP: DP, DR (nil si no hay dp_1h), Deriva (sin redondear).
 //   - MOV_SHIFT / MOV_RETURN: DP, DR, StartedAt.
 //   - MOV_SHIFT_GAP: DP, DR, GapFrom, GapTo.
-//   - MOV_ABRUPT: Axis, Delta, Hours.
-//   - MOV_STILL / TEMP_NOT_STABILIZED: Hours.
+//   - MOV_ABRUPT: Hit (umbral corto de mayor nivel), AmarilloDeg.
+//   - MOV_CUMULATIVE: Hit (umbral largo de mayor nivel), AmarilloDeg, Steps,
+//     StepList, Pattern, RatePerDay3d.
+//   - MOV_LEVEL_UP: FromLevel, ToLevel, SentFrom, SentTo, Hit (nil si ningún
+//     umbral tiene ese nivel).
+//   - MOV_DAILY: NoData, CalculatedHours24h, Day; si hay datos, Level, Sent,
+//     DP24h, DPTotal, DR24h, DRTotal.
+//   - MOV_NEW_POSITION: DPTotal, DRTotal.
+//   - MOV_STILL: Hours, DPTotal, DRTotal, StartedAt, Level (max_level), Sent
+//     (max_sent), LongEpisode.
+//   - TEMP_NOT_STABILIZED: Hours.
 //   - TEMP_STABILIZED: TempRateMax6h, TempStableFrom.
 //   - TEMP_VARIES_AGAIN: Rate, TempStableFrom, TempStableTo.
 //   - TEMP_STILL_STABLE: Hours, TempRateMax6h (nil si no hay tasas).
 //
-// Los grados y °C/h van redondeados a 3 decimales, salvo Deriva.
+// Los grados y °C/h van redondeados a 3 decimales, salvo Deriva; las
+// velocidades por día, a 4.
 type MotionReason struct {
 	Code           ReasonCode
 	DP             *float64
@@ -238,13 +298,28 @@ type MotionReason struct {
 	StartedAt      *time.Time
 	GapFrom        *time.Time
 	GapTo          *time.Time
-	Axis           string
-	Delta          float64
 	Hours          int
 	TempRateMax6h  *float64
 	Rate           float64
 	TempStableFrom *time.Time
 	TempStableTo   *time.Time
+
+	// motion-v2.
+	Hit                *MotionRuleHit
+	AmarilloDeg        *float64
+	Steps              int
+	StepList           []MotionStep
+	Pattern            string
+	RatePerDay3d       *float64
+	FromLevel, ToLevel Level
+	SentFrom, SentTo   Level
+	Level, Sent        Level
+	NoData             bool
+	CalculatedHours24h int
+	Day                int
+	DP24h, DR24h       *float64
+	DPTotal, DRTotal   *float64
+	LongEpisode        bool
 }
 
 // Data devuelve el objeto data del motivo con las claves de cada código.
@@ -258,8 +333,47 @@ func (r MotionReason) Data() map[string]any {
 	case ReasonMovShiftGap:
 		return map[string]any{"dp": fptr(r.DP), "dr": fptr(r.DR), "gap_from": tptr(r.GapFrom), "gap_to": tptr(r.GapTo)}
 	case ReasonMovAbrupt:
-		return map[string]any{"axis": r.Axis, "delta": r.Delta, "hours": r.Hours}
-	case ReasonMovStill, ReasonTempNotStabilized:
+		d := map[string]any{"amarillo_deg": fptr(r.AmarilloDeg)}
+		if h := r.Hit; h != nil {
+			d["axis"], d["delta"], d["hours"], d["window_hours"], d["level"], d["deg"] =
+				h.Axis, h.Delta, h.SpanHours, h.WindowHours, string(h.Level), h.Deg
+		}
+		return d
+	case ReasonMovCumulative:
+		d := map[string]any{"amarillo_deg": fptr(r.AmarilloDeg), "steps": r.Steps, "pattern": r.Pattern,
+			"rate_per_day_3d": fptr(r.RatePerDay3d)}
+		steps := make([]any, len(r.StepList))
+		for i, s := range r.StepList {
+			steps[i] = map[string]any{"at": s.At.UTC().Format(time.RFC3339), "delta": s.Delta}
+		}
+		d["step_list"] = steps
+		if h := r.Hit; h != nil {
+			d["axis"], d["delta"], d["window_hours"], d["since"], d["span_hours"], d["level"], d["deg"] =
+				h.Axis, h.Delta, h.WindowHours, tptr(h.Since), h.SpanHours, string(h.Level), h.Deg
+		}
+		return d
+	case ReasonMovLevelUp:
+		d := map[string]any{"from_level": string(r.FromLevel), "to_level": string(r.ToLevel),
+			"sent_from": string(r.SentFrom), "sent_to": string(r.SentTo),
+			"axis": nil, "delta": nil, "window_hours": nil, "span_hours": nil, "deg": nil}
+		if h := r.Hit; h != nil {
+			d["axis"], d["delta"], d["window_hours"], d["span_hours"], d["deg"] = h.Axis, h.Delta, h.WindowHours, h.SpanHours, h.Deg
+		}
+		return d
+	case ReasonMovDaily:
+		if r.NoData {
+			return map[string]any{"no_data": true, "calculated_hours_24h": 0, "day": r.Day}
+		}
+		return map[string]any{"no_data": false, "calculated_hours_24h": r.CalculatedHours24h, "day": r.Day,
+			"level": string(r.Level), "sent": string(r.Sent),
+			"dp_24h": fptr(r.DP24h), "dp_total": fptr(r.DPTotal), "dr_24h": fptr(r.DR24h), "dr_total": fptr(r.DRTotal)}
+	case ReasonMovNewPosition:
+		return map[string]any{"dp_total": fptr(r.DPTotal), "dr_total": fptr(r.DRTotal)}
+	case ReasonMovStill:
+		return map[string]any{"hours": r.Hours, "dp_total": fptr(r.DPTotal), "dr_total": fptr(r.DRTotal),
+			"started_at": tptr(r.StartedAt), "max_level": string(r.Level), "max_sent": string(r.Sent),
+			"long_episode": r.LongEpisode}
+	case ReasonTempNotStabilized:
 		return map[string]any{"hours": r.Hours}
 	case ReasonTempStabilized:
 		return map[string]any{"temp_rate_max_6h": fptr(r.TempRateMax6h), "temp_stable_from": tptr(r.TempStableFrom)}
@@ -331,10 +445,21 @@ type MotionEvaluation struct {
 	State MotionState
 
 	// Resultado.
-	MotionState   MotionStateValue
-	EpisodeEvent  EpisodeEvent
+	MotionState  MotionStateValue
+	EpisodeEvent EpisodeEvent
+	// ComputedLevel es el nivel ENVIADO del episodio (NORMAL fuera).
 	ComputedLevel Level
 	Reasons       []MotionReason
+
+	// motion-v2. TableLevelHour solo en horas CALCULATED (vacío en
+	// NO_CALCULABLE); TableLevel es el nivel calculado del episodio (NORMAL
+	// fuera); EpisodeKind dentro del episodio y en la hora del CLEARED;
+	// RulesHit los umbrales que cuentan; History solo en la hora OPENED.
+	TableLevelHour Level
+	TableLevel     Level
+	EpisodeKind    MotionEpisodeKind
+	RulesHit       []MotionRuleHit
+	History        *MotionHistory
 
 	// Trazabilidad.
 	ThresholdVersionID int64

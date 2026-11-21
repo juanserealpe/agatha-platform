@@ -317,7 +317,7 @@ func TestMotionAssess_AbruptOncePerChange(t *testing.T) {
 		t.Fatalf("MOV_ABRUPT en %v, se esperaba solo en %v", got, hourAt(49))
 	}
 	r, _ := reasonOf(m[hourAt(49)], entities.ReasonMovAbrupt)
-	if r.Axis != "roll" || r.Delta != 0.05 || r.Hours != 1 {
+	if r.Hit == nil || r.Hit.Axis != "roll" || r.Hit.Delta != 0.05 || r.Hit.SpanHours != 1 || r.Hit.WindowHours != 1 {
 		t.Fatalf("MOV_ABRUPT %+v, se esperaba roll +0.05 en 1 h", r)
 	}
 	for _, h := range []int{49, 50, 51} {
@@ -373,5 +373,80 @@ func TestMotionAssess_SlowMovementHasNoEpisode(t *testing.T) {
 				t.Fatalf("shift_sign ≠ 0 en alguna hora = %v, se esperaba %v", signed, tc.wantShift)
 			}
 		})
+	}
+}
+
+// CA-8: un salto conjunto mayor que closure_max_deg (0,20°) no se queda en el
+// tope del patrón conjunto; uno de 0,15° sí.
+func TestMotionAssessV2_JointJumpAboveClosureMax(t *testing.T) {
+	for _, tc := range []struct {
+		jump float64
+		want entities.Level
+	}{{0.25, entities.LevelRojo}, {0.15, entities.LevelAmarillo}} {
+		recs := synth(120, func(h float64) (float64, float64, float64, float64, bool) {
+			if h < 48 {
+				return baseP, baseR, 0, rampTemp(h), true
+			}
+			der := 0.0
+			if h == 48 {
+				der = 0.05
+			}
+			return baseP + tc.jump, baseR + tc.jump, der, rampTemp(h), true
+		})
+		max := entities.LevelNormal
+		opened := 0
+		for _, e := range runMotion(recs, entities.DefaultMotionParams()) {
+			max = entities.MaxLevel(max, e.TableLevel)
+			if e.EpisodeEvent == entities.EpisodeEventOpened {
+				opened++
+			}
+			if e.ComputedLevel != entities.LevelNormal && e.ComputedLevel != entities.LevelAmarillo {
+				t.Fatalf("+%.2f: computed_level %s con Rojo en OBSERVATION", tc.jump, e.ComputedLevel)
+			}
+		}
+		if opened != 1 || max != tc.want {
+			t.Errorf("salto conjunto +%.2f°: %d episodios, table_level máximo %s; se esperaba 1 y %s", tc.jump, opened, max, tc.want)
+		}
+	}
+}
+
+// CA-11: una versión nueva con el episodio abierto no baja ep_level ni lo cierra.
+func TestMotionAssessV2_NewVersionKeepsEpisodeLevel(t *testing.T) {
+	// Pitch −0,25° en h = 48: Rojo por la fila de 1 h.
+	recs := synth(80, func(h float64) (float64, float64, float64, float64, bool) {
+		p := baseP
+		if h >= 48 {
+			p -= 0.25
+		}
+		return p, baseR, 0, rampTemp(h), true
+	})
+	strict := entities.DefaultMotionParams()
+	lax := entities.DefaultMotionParams()
+	lax.Rules = []entities.MotionRule{{WindowHours: 1, Axis: entities.MotionAxisAny, AmarilloDeg: 0.30}}
+	state := entities.InitialMotionState(strict)
+	switchAt := hourAt(50)
+	for h := hourAt(1); !h.After(hourAt(72)); h = h.Add(time.Hour) {
+		p := strict
+		if !h.Before(switchAt) {
+			p = lax
+		}
+		from, _ := entities.MotionWindow(h)
+		var win []entities.RawRecord
+		for _, r := range recs {
+			if !r.Timestamp.Before(from) && r.Timestamp.Before(h) {
+				win = append(win, r)
+			}
+		}
+		e := MotionAssess(win, state, p, h, nil)
+		state = e.State
+		if h.Equal(hourAt(49)) && (e.EpisodeEvent != entities.EpisodeEventOpened || e.TableLevel != entities.LevelRojo) {
+			t.Fatalf("49 h: %s %s; se esperaba OPENED en ROJO", e.EpisodeEvent, e.TableLevel)
+		}
+		if h.After(switchAt) && h.Before(hourAt(73)) {
+			if !e.State.InEpisode || e.TableLevel != entities.LevelRojo {
+				t.Fatalf("%v: in_episode %v, table_level %s; la versión nueva no baja el nivel ni cierra antes de 24 h",
+					h, e.State.InEpisode, e.TableLevel)
+			}
+		}
 	}
 }

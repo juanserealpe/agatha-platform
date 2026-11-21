@@ -143,8 +143,9 @@ func subscribeMotionEvaluated(bus eventbus.Bus, handler motionEvaluatedHandler, 
 	)
 }
 
-// toMotionNotice traduce rule_engine.motion_evaluated v1. El evento solo se
-// publica con alerts_enabled (el modo sombra no llega al bus).
+// toMotionNotice traduce rule_engine.motion_evaluated (v1 o v2; v2 agrega
+// table_level, episode_kind, rules_hit e history). El evento solo se publica
+// con alerts_enabled (el modo sombra no llega al bus).
 func toMotionNotice(e ruleEngineContract.MotionEvaluated) alertEntities.MotionNotice {
 	n := alertEntities.MotionNotice{
 		MotionEvaluationID: e.MotionEvaluationID,
@@ -166,6 +167,15 @@ func toMotionNotice(e ruleEngineContract.MotionEvaluated) alertEntities.MotionNo
 		TempStableTo:       copyTime(e.TempStable.To),
 		ThresholdVersionID: e.ThresholdVersionID,
 		AlertsEnabled:      true,
+		TableLevel:         alertEntities.Level(e.TableLevel),
+		EpisodeKind:        e.EpisodeKind,
+		History:            e.History,
+		SchemaVersion:      e.SchemaVersion,
+	}
+	for _, h := range e.RulesHit {
+		if m, ok := h.(map[string]any); ok {
+			n.RulesHit = append(n.RulesHit, m)
+		}
 	}
 	for _, r := range e.Reasons {
 		n.Reasons = append(n.Reasons, alertEntities.ParseMotionReason(r.Code, r.Data))

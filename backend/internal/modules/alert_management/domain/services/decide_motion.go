@@ -24,12 +24,13 @@ type MotionInput struct {
 	Device entities.Device
 }
 
-// DecideMotion aplica una hora de movimiento a la alerta de MOVIMIENTO del
-// punto (§7.4 sin el acople con FUGA). Es pura: el caso de uso garantiza el
-// orden, filtra duplicados y persiste la Decision igual que la de Decide. La
-// alerta abre con OPENED (o reactiva la última), finaliza con CLEARED, siempre
-// en Amarillo, y tiene sus propios colores, mensajes y gestión. Los mensajes
-// salen en el orden de la tabla de §7.4.
+// DecideMotion (v8, REQ_MOVIMIENTO_UMBRALES_V2 §9) aplica una hora de
+// movimiento a la alerta de MOVIMIENTO del punto. Es pura: el caso de uso
+// garantiza el orden, filtra duplicados y persiste la Decision igual que la de
+// Decide. La alerta abre con OPENED (o reactiva la última) en el nivel enviado
+// (computed_level), sube con MOV_LEVEL_UP cuando el nivel enviado sube (si no,
+// MOV_LEVEL_OBSERVED), nunca baja y finaliza con CLEARED. MOV_DAILY sale
+// también en una hora NO_CALCULABLE. Los mensajes salen en el orden de §9.2.
 func DecideMotion(in MotionInput) (Decision, error) {
 	n := in.Notice
 	if in.Active != nil && (in.Active.MeasuringPointID != n.MeasuringPointID || in.Active.EventType != entities.EventTypeMovement) {
@@ -40,18 +41,21 @@ func DecideMotion(in MotionInput) (Decision, error) {
 	firstHour := in.State.LastEvaluatedAt == nil
 	d.State.MeasuringPointID, d.State.EventType = n.MeasuringPointID, entities.EventTypeMovement
 	d.State.LastEvaluatedAt = &at
+	m := motionBuilder{builder: builder{in: DecideInput{Policy: in.Policy, Device: in.Device}, at: at}, in: in}
 
 	if !n.Calculated() {
 		d.State.LastStatus = entities.StatusNoCalculable
-		return d, nil
+		if in.Active != nil && n.Reason(entities.MotionDaily) != nil {
+			a := cloneAlert(*in.Active)
+			m.daily(&d, &a)
+			d.Alert, d.Outcome = &a, OutcomeUpdated
+		}
+		return d, m.err
 	}
 	d.State.LastStatus = entities.StatusCalculated
 
-	m := motionBuilder{builder: builder{in: DecideInput{Policy: in.Policy, Device: in.Device}, at: at}, in: in}
 	opens := n.EpisodeEvent == entities.EpisodeOpened || (firstHour && n.InEpisode && n.EpisodeEvent != entities.EpisodeCleared)
-
 	var a entities.Alert
-	openedNow := false
 	switch {
 	case in.Active != nil:
 		// Un OPENED con la alerta ya activa (p. ej. tras perder el CLEARED) no
@@ -60,16 +64,19 @@ func DecideMotion(in MotionInput) (Decision, error) {
 		d.Outcome = OutcomeUpdated
 	case opens:
 		a = m.open(&d)
-		openedNow = true
+		m.track(&a)
+		d.Alert = &a
+		return d, m.err
 	default:
 		return d, nil
 	}
 
 	m.track(&a)
-	if !openedNow {
-		m.displaced(&d, &a)
-	}
+	m.displaced(&d, &a)
+	m.levelUp(&d, &a)
 	m.temperature(&d, &a, true)
+	m.slowOngoing(&d, &a)
+	m.daily(&d, &a)
 	if n.EpisodeEvent == entities.EpisodeCleared {
 		m.cleared(&d, &a)
 	}
@@ -94,50 +101,69 @@ func (m *motionBuilder) track(a *entities.Alert) {
 	}
 }
 
-// openVariant es la variante de MOV_OPEN: el primer motivo en el orden
-// MOV_SHIFT_GAP (hueco), MOV_SHIFT o MOV_JUMP (salto), MOV_ABRUPT (brusco).
-func openVariant(n entities.MotionNotice) string {
+// msg arma un mensaje de movimiento con el data del motivo en params["datos"]
+// (para poder regenerar el texto).
+func (m *motionBuilder) msg(a *entities.Alert, key string, params map[string]string, r *entities.MotionReason,
+	kind entities.MessageKind, level entities.Level) entities.Message {
+	if r != nil {
+		params["datos"] = messages.ReasonDataJSON(r)
+	}
+	return m.message(a, key, params, kind, level, false)
+}
+
+// episodeKind es el tipo del episodio; con un evento v1 se deduce de los motivos.
+func episodeKind(n entities.MotionNotice) string {
+	if n.EpisodeKind != "" {
+		return n.EpisodeKind
+	}
 	switch {
 	case n.Reason(entities.MotionShiftGap) != nil:
-		return messages.VariantGap
-	case n.Reason(entities.MotionShift) != nil || n.Reason(entities.MotionJump) != nil:
-		return messages.VariantJump
-	case n.Reason(entities.MotionAbrupt) != nil:
-		return messages.VariantAbrupt
+		return entities.MotionKindHueco
+	case n.Reason(entities.MotionAbrupt) != nil && n.Reason(entities.MotionJump) == nil && n.Reason(entities.MotionShift) == nil:
+		return entities.MotionKindRapido
+	case n.Reason(entities.MotionCumulative) != nil:
+		return entities.MotionKindAcumulado
 	}
-	return messages.VariantJump
+	return entities.MotionKindSalto
 }
 
-// motionStartedAt (§7.5): con MOV_ABRUPT, t − (hours − 1) h; con
-// MOV_SHIFT_GAP, el fin de la hora que contiene gap_from; si no, t.
+// shortHit es el cambio rápido de la hora: MOV_ABRUPT o, si no salió (dentro
+// de un patrón conjunto), el umbral corto de mayor nivel y |delta|.
+func shortHit(n entities.MotionNotice) *entities.MotionReason {
+	if r := n.Reason(entities.MotionAbrupt); r != nil {
+		return r
+	}
+	var best *entities.MotionReason
+	for _, h := range n.RulesHit {
+		x := entities.MotionReason{Data: h}
+		if x.Str("kind") != "SHORT" {
+			continue
+		}
+		if best == nil || entities.Level(x.Str("level")).Rank() > entities.Level(best.Str("level")).Rank() ||
+			(x.Str("level") == best.Str("level") && math.Abs(deref(x.Num("delta"))) > math.Abs(deref(best.Num("delta")))) {
+			c := x
+			c.Data = map[string]any{"axis": h["axis"], "delta": h["delta"], "hours": h["span_hours"],
+				"window_hours": h["window_hours"], "level": h["level"], "deg": h["deg"]}
+			best = &c
+		}
+	}
+	return best
+}
+
+// motionStartedAt (§9.2): RAPIDO, t − (hours − 1) h; HUECO, el fin de la hora
+// que contiene gap_from; SALTO y ACUMULADO, t.
 func motionStartedAt(n entities.MotionNotice, at time.Time) time.Time {
-	switch openVariant(n) {
-	case messages.VariantGap:
-		if r := n.Reason(entities.MotionShiftGap); r.GapFrom != nil {
+	switch episodeKind(n) {
+	case entities.MotionKindHueco:
+		if r := n.Reason(entities.MotionShiftGap); r != nil && r.GapFrom != nil {
 			return r.GapFrom.UTC().Truncate(time.Hour).Add(time.Hour)
 		}
-	case messages.VariantAbrupt:
-		r := n.Reason(entities.MotionAbrupt)
-		return at.Add(-time.Duration(max(r.Hours, 1)-1) * time.Hour)
+	case entities.MotionKindRapido:
+		if r := shortHit(n); r != nil {
+			return at.Add(-time.Duration(max(r.Int("hours"), 1)-1) * time.Hour)
+		}
 	}
 	return at
-}
-
-// pair devuelve pitch y roll del primer motivo que los trae (SHIFT_GAP,
-// SHIFT, JUMP); con MOV_ABRUPT, el delta en su eje; si no, el desplazamiento.
-func pair(n entities.MotionNotice) (float64, float64) {
-	for _, code := range []string{entities.MotionShiftGap, entities.MotionShift, entities.MotionJump} {
-		if r := n.Reason(code); r != nil && r.DP != nil && r.DR != nil {
-			return *r.DP, *r.DR
-		}
-	}
-	if r := n.Reason(entities.MotionAbrupt); r != nil {
-		if r.Axis == "roll" {
-			return 0, r.Delta
-		}
-		return r.Delta, 0
-	}
-	return deref(n.ShiftPitch), deref(n.ShiftRoll)
 }
 
 func deref(v *float64) float64 {
@@ -147,39 +173,81 @@ func deref(v *float64) float64 {
 	return *v
 }
 
-func (m *motionBuilder) openParams(variant string) map[string]string {
+// sentLevel es el nivel enviado de la hora (AMARILLO si viene vacío o NORMAL).
+func sentLevel(n entities.MotionNotice) entities.Level {
+	return entities.MaxLevel(n.ComputedLevel, entities.LevelAmarillo)
+}
+
+// tableLevel es el nivel calculado de la hora (el enviado con un evento v1).
+func tableLevel(n entities.MotionNotice) entities.Level {
+	return entities.MaxLevel(n.TableLevel, sentLevel(n))
+}
+
+// openMessage arma MOV_OPEN con su variante según episode_kind (§10.2).
+func (m *motionBuilder) openMessage(a *entities.Alert, kind entities.MessageKind, level entities.Level) entities.Message {
 	n := m.in.Notice
-	params := map[string]string{"hora": messages.FormatClock(m.at), "fecha": messages.FormatDate(m.at)}
-	switch variant {
-	case messages.VariantGap:
-		r := n.Reason(entities.MotionShiftGap)
-		if r.GapTo != nil {
-			params["hora"], params["fecha"] = messages.FormatClock(*r.GapTo), messages.FormatDate(*r.GapTo)
-		}
-		hours := 0
-		if r.GapFrom != nil && r.GapTo != nil {
-			hours = int(math.Round(r.GapTo.Sub(*r.GapFrom).Hours()))
-		}
-		params["duracion_hueco"] = messages.FormatDuration(hours)
-		params["dp"], params["dr"] = messages.FormatDegrees(deref(r.DP)), messages.FormatDegrees(deref(r.DR))
-	case messages.VariantAbrupt:
-		r := n.Reason(entities.MotionAbrupt)
-		params["eje"], params["delta"], params["horas"] = r.Axis, messages.FormatDegrees(r.Delta), strconv.Itoa(r.Hours)
-	default:
-		dp, dr := pair(n)
-		params["dp"], params["dr"] = messages.FormatDegrees(dp), messages.FormatDegrees(dr)
+	t := m.at
+	params := map[string]string{
+		"calculado": messages.ObservedLevelText(tableLevel(n), sentLevel(n)),
+		"historial": "",
 	}
-	return params
+	if h := messages.MotionHistoryText(n.History); h != "" {
+		params["historial"] = "\n" + h
+	}
+	var variant string
+	var r *entities.MotionReason
+	switch episodeKind(n) {
+	case entities.MotionKindHueco:
+		variant, r = messages.VariantGap, n.Reason(entities.MotionShiftGap)
+		if r != nil && r.GapFrom != nil && r.GapTo != nil {
+			params["gap_from"], params["gap_to"] = messages.FormatHour(*r.GapFrom), messages.FormatHour(*r.GapTo)
+			params["duracion"] = messages.FormatSpan(r.GapTo.Sub(*r.GapFrom).Hours())
+		}
+		if r != nil {
+			params["dp"], params["dr"] = messages.FormatDegreesPtr(r.DP), messages.FormatDegreesPtr(r.DR)
+		}
+	case entities.MotionKindRapido:
+		variant, r = messages.VariantAbrupt, shortHit(n)
+		if r != nil {
+			hrs := r.Int("hours")
+			params["entre"] = messages.Between(t.Add(-time.Duration(hrs)*time.Hour), t)
+			params["eje"], params["delta"], params["horas"] = r.Str("axis"), messages.FormatDegreesPtr(r.Num("delta")), messages.FormatWindow(hrs)
+			// Un evento v1 no trae la fila: su regla fija era 0,04° en 3 h.
+			normal, window := 0.04, 3
+			if v := r.Num("amarillo_deg"); v != nil {
+				normal = *v
+			}
+			if w := r.Int("window_hours"); w > 0 {
+				window = w
+			}
+			params["normal"], params["ventana"] = messages.FormatDegreesAbs(normal), messages.FormatWindow(window)
+		}
+	case entities.MotionKindAcumulado:
+		variant, r = messages.VariantCumulative, n.Reason(entities.MotionCumulative)
+		if r != nil {
+			params["acumulado"] = messages.CumulativeText(t, *r)
+		}
+	default:
+		variant, r = messages.VariantJump, n.Reason(entities.MotionJump)
+		params["entre"] = messages.Between(t.Add(-time.Hour), t)
+		var dp, dr *float64
+		if r != nil {
+			dp, dr = r.DP, r.DR
+		}
+		params["dp"], params["dr"] = messages.FormatDegreesPtr(dp), messages.FormatDegreesPtr(dr)
+	}
+	return m.msg(a, messages.Key(messages.CodeMovOpen, variant), params, r, kind, level)
 }
 
 // open: sin alerta ACTIVA, reactiva la última FINALIZADA (menos de
-// merge_window_hours y sin clasificar) o crea una alerta de MOVIMIENTO en Amarillo.
+// merge_window_hours y sin clasificar) o crea una alerta de MOVIMIENTO en el
+// nivel enviado. Guarda el historial y el nivel calculado (§9.1).
 func (m *motionBuilder) open(d *Decision) entities.Alert {
 	n := m.in.Notice
 	p := m.in.Policy
-	variant := openVariant(n)
 	started := motionStartedAt(n, m.at)
 	at := m.at
+	sent := sentLevel(n)
 
 	last := m.in.Last
 	withinWindow := last != nil && last.EndedAt != nil && last.State == entities.AlertFinished &&
@@ -187,7 +255,7 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 	if withinWindow && (!last.Management.Classified() || !p.ReactivateOnlyIfUnclassified) {
 		a := cloneAlert(*last)
 		paused := last.Runtime.PausedHours + max(int(started.Sub(*a.EndedAt).Hours()), 0)
-		level := entities.MaxLevel(a.CurrentLevel, entities.LevelAmarillo)
+		level := entities.MaxLevel(a.CurrentLevel, sent)
 		a.State = entities.AlertActive
 		a.EndedAt = nil
 		a.ReactivationCount++
@@ -196,7 +264,9 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 		a.MaxLevel = entities.MaxLevel(a.MaxLevel, level)
 		a.BelowLevelHours = 0
 		a.Runtime = entities.Runtime{PausedHours: paused}
-		d.Messages = append(d.Messages, m.message(&a, messages.Key(messages.CodeMovOpen, variant), m.openParams(variant), entities.KindNotification, level, false))
+		a.MotionHistory = n.History
+		a.MotionTableLevel = entities.MaxLevel(a.MotionTableLevel, tableLevel(n))
+		d.Messages = append(d.Messages, m.openMessage(&a, entities.KindNotification, level))
 		d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentReactivation, Level: level, StartedAt: started}
 		d.State.LastAlertID = nil
 		d.Outcome = OutcomeReactivated
@@ -209,16 +279,18 @@ func (m *motionBuilder) open(d *Decision) entities.Alert {
 		State:            entities.AlertActive,
 		StartedAt:        started,
 		OpenedAt:         at,
-		CurrentLevel:     entities.LevelAmarillo,
-		MaxLevel:         entities.LevelAmarillo,
+		CurrentLevel:     sent,
+		MaxLevel:         sent,
 		LastEvaluatedAt:  at,
 		HoursCalculated:  1,
 		PolicyVersionID:  p.ID,
 		Management:       entities.Management{Status: entities.StatusUnclassified},
+		MotionHistory:    n.History,
+		MotionTableLevel: tableLevel(n),
 	}
-	d.Messages = append(d.Messages, m.message(&a, messages.Key(messages.CodeMovOpen, variant), m.openParams(variant), "", entities.LevelAmarillo, false))
+	d.Messages = append(d.Messages, m.openMessage(&a, "", sent))
 	d.IsNew = true
-	d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentOpen, Level: entities.LevelAmarillo, StartedAt: started}
+	d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentOpen, Level: sent, StartedAt: started}
 	d.Outcome = OutcomeOpened
 	return a
 }
@@ -236,31 +308,106 @@ func shiftStart(a entities.Alert, n entities.MotionNotice, at time.Time) time.Ti
 	return at
 }
 
-// displaced: un desplazamiento o cambio brusco nuevo en una hora que no abre.
+// displaced: un desplazamiento (MOV_SHIFT, MOV_SHIFT_GAP) o cambio rápido
+// (MOV_ABRUPT) nuevo en una hora que no abre.
 func (m *motionBuilder) displaced(d *Decision, a *entities.Alert) {
 	n := m.in.Notice
-	var variant string
-	var r *entities.MotionReason
-	for _, c := range []struct{ code, variant string }{
-		{entities.MotionShiftGap, messages.VariantGap}, {entities.MotionShift, messages.VariantJump}, {entities.MotionAbrupt, messages.VariantAbrupt},
-	} {
-		if r = n.Reason(c.code); r != nil {
-			variant = c.variant
-			break
+	for _, code := range []string{entities.MotionShift, entities.MotionShiftGap, entities.MotionAbrupt} {
+		r := n.Reason(code)
+		if r == nil {
+			continue
 		}
+		params := map[string]string{}
+		variant := messages.VariantJump
+		switch code {
+		case entities.MotionAbrupt:
+			variant = messages.VariantAbrupt
+			params["entre"] = messages.Between(m.at.Add(-time.Duration(r.Hours)*time.Hour), m.at)
+			params["eje"], params["delta"] = r.Axis, messages.FormatDegrees(r.Delta)
+		default:
+			start := r.StartedAt
+			if code == entities.MotionShiftGap {
+				variant, start = messages.VariantGap, r.GapFrom
+			}
+			if start == nil {
+				s := shiftStart(*a, n, m.at)
+				start = &s
+			}
+			params["inicio"] = messages.FormatHour(*start)
+			params["dp"], params["dr"] = messages.FormatDegreesPtr(r.DP), messages.FormatDegreesPtr(r.DR)
+		}
+		d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeMovDisplaced, variant), params, r, "", a.CurrentLevel))
 	}
+}
+
+// levelUp: con MOV_LEVEL_UP, si el nivel enviado sube abre un color nuevo
+// (MOV_LEVEL_UP, Notificación); si no, solo registra el nivel calculado
+// (MOV_LEVEL_OBSERVED). La alerta nunca baja.
+func (m *motionBuilder) levelUp(d *Decision, a *entities.Alert) {
+	r := m.in.Notice.Reason(entities.MotionLevelUp)
 	if r == nil {
 		return
 	}
-	params := map[string]string{}
-	if variant == messages.VariantAbrupt {
-		params["hora"], params["eje"] = messages.FormatClock(m.at), r.Axis
-		params["delta"], params["horas"] = messages.FormatDegrees(r.Delta), strconv.Itoa(r.Hours)
-	} else {
-		params["hora_inicio"] = messages.FormatHour(shiftStart(*a, n, m.at))
-		params["dp"], params["dr"] = messages.FormatDegrees(deref(r.DP)), messages.FormatDegrees(deref(r.DR))
+	to := entities.Level(r.Str("to_level"))
+	sentFrom, sentTo := entities.Level(r.Str("sent_from")), entities.Level(r.Str("sent_to"))
+	a.MotionTableLevel = entities.MaxLevel(a.MotionTableLevel, to)
+	params := map[string]string{
+		"eje": r.Str("axis"), "delta": messages.FormatDegreesPtr(r.Num("delta")), "span": messages.FormatWindow(r.Int("span_hours")),
+		"nivel_calc": messages.LevelName(to), "deg": messages.FormatDegreesAbs(deref(r.Num("deg"))),
+		"ventana": messages.FormatWindow(r.Int("window_hours")),
 	}
-	d.Messages = append(d.Messages, m.message(a, messages.Key(messages.CodeMovDisplaced, variant), params, "", a.CurrentLevel, false))
+	if sentTo.Rank() > sentFrom.Rank() && sentTo.Rank() > a.CurrentLevel.Rank() {
+		at := m.at
+		a.CurrentLevel = sentTo
+		a.MaxLevel = entities.MaxLevel(a.MaxLevel, sentTo)
+		d.CloseSegmentAt = &at
+		d.NewSegment = &entities.Segment{OpenedBy: entities.SegmentUp, Level: sentTo, StartedAt: at}
+		params["nivel"] = messages.LevelName(sentTo)
+		d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeMovLevelUp, ""), params, r, "", sentTo))
+		return
+	}
+	params["nivel_enviado"] = messages.LevelName(a.CurrentLevel)
+	d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeMovLevelObserved, ""), params, r, "", a.CurrentLevel))
+}
+
+// slowOngoing: MOV_CUMULATIVE en una hora que no abre.
+func (m *motionBuilder) slowOngoing(d *Decision, a *entities.Alert) {
+	if r := m.in.Notice.Reason(entities.MotionCumulative); r != nil {
+		d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeMovSlowOngoing, ""),
+			map[string]string{"acumulado": messages.CumulativeText(m.at, *r)}, r, "", a.CurrentLevel))
+	}
+}
+
+// daily: el resumen de cada 24 h de alerta (MOV_DAILY, §6.5 y §10.2).
+func (m *motionBuilder) daily(d *Decision, a *entities.Alert) {
+	r := m.in.Notice.Reason(entities.MotionDaily)
+	if r == nil {
+		return
+	}
+	params := map[string]string{"n": strconv.Itoa(r.Int("day"))}
+	variant := ""
+	dp24, dr24, dpt, drt := r.Num("dp_24h"), r.Num("dr_24h"), r.Num("dp_total"), r.Num("dr_total")
+	switch {
+	case r.Bool("no_data"):
+		variant = messages.VariantNoData
+	case dp24 == nil || dr24 == nil:
+		variant = messages.VariantPartial
+		params["n_horas"], params["total"] = strconv.Itoa(r.Int("calculated_hours_24h")), ""
+		if dpt != nil {
+			params["total"] = " Desde el inicio del movimiento: pitch " + messages.FormatDegreesPtr(dpt) + ", roll " + messages.FormatDegreesPtr(drt) + "."
+		}
+	default:
+		params["dp_dia"], params["dr_dia"] = messages.FormatDegreesPtr(dp24), messages.FormatDegreesPtr(dr24)
+		params["dp_total"], params["dr_total"] = messages.FormatDegreesPtr(dpt), messages.FormatDegreesPtr(drt)
+		params["sin_cambios"], params["cobertura"] = "", ""
+		if math.Abs(*dp24) < 0.01 && math.Abs(*dr24) < 0.01 {
+			params["sin_cambios"] = " Sin cambios en las últimas 24 h."
+		}
+		if h := r.Int("calculated_hours_24h"); h < 20 {
+			params["cobertura"] = " Con datos en " + strconv.Itoa(h) + " de las 24 h."
+		}
+	}
+	d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeMovDaily, variant), params, r, "", a.CurrentLevel))
 }
 
 // temperature: TEMP_STABILIZED, MOV_RETURN, TEMP_VARIES_AGAIN,
@@ -285,11 +432,9 @@ func (m *motionBuilder) temperature(d *Decision, a *entities.Alert, withReturn b
 		if r.StartedAt != nil {
 			back = *r.StartedAt
 		}
-		start := shiftStart(*a, n, m.at)
-		d.Messages = append(d.Messages, m.message(a, messages.Key(messages.CodeMovReturn, ""), map[string]string{
-			"hora": messages.FormatClock(back), "hora_inicio": messages.FormatClock(start), "fecha_inicio": messages.FormatDate(start),
-			"dp": messages.FormatDegrees(deref(r.DP)), "dr": messages.FormatDegrees(deref(r.DR)),
-		}, "", a.CurrentLevel, false))
+		d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeMovReturn, ""), map[string]string{
+			"hora": messages.FormatClock(back), "dp": messages.FormatDegreesPtr(r.DP), "dr": messages.FormatDegreesPtr(r.DR),
+		}, r, "", a.CurrentLevel))
 	}
 	if r := n.Reason(entities.MotionTempVariesAgain); r != nil {
 		at := m.at
@@ -327,25 +472,42 @@ func (m *motionBuilder) temperature(d *Decision, a *entities.Alert, withReturn b
 	}
 }
 
-// cleared: el episodio de movimiento terminó; la alerta de MOVIMIENTO finaliza.
+// cleared: el episodio de movimiento terminó; la alerta de MOVIMIENTO
+// finaliza con el cambio total y el nivel máximo (END_NORMAL v8).
 func (m *motionBuilder) cleared(d *Decision, a *entities.Alert) {
 	n := m.in.Notice
 	at := m.at
 	a.State = entities.AlertFinished
 	a.EndedAt = &at
 	d.CloseSegmentAt = &at
-	tramo := ""
+	r := n.Reason(entities.MotionStill)
+	still := entities.MotionReason{}
+	if r != nil {
+		still = *r
+	}
+	params := map[string]string{
+		"quieto": "24 h sin moverse", "reactivacion": "", "por_magnitud": "", "tramo": "", "nueva_posicion": "",
+		"dp_total": messages.FormatDegreesPtr(still.Num("dp_total")), "dr_total": messages.FormatDegreesPtr(still.Num("dr_total")),
+		"nivel_enviado": messages.LevelName(a.MaxLevel),
+		"duracion":      messages.FormatSpan(at.Sub(a.StartedAt).Hours()),
+	}
+	if still.Bool("long_episode") {
+		params["quieto"] = "3 días sin cambio neto"
+	}
+	if a.ReactivationCount > 0 && a.LastReactivatedAt != nil {
+		params["duracion"] = messages.FormatSpan(at.Sub(*a.LastReactivatedAt).Hours())
+		params["reactivacion"] = " desde que se reactivó; la alerta en total, " + messages.FormatSpan(at.Sub(a.StartedAt).Hours())
+	}
+	if calc := entities.Level(still.Str("max_level")); calc.Rank() > a.MaxLevel.Rank() {
+		params["por_magnitud"] = " (por su magnitud correspondía a " + messages.LevelName(calc) + ")"
+	}
 	if a.TempStableFrom != nil && a.TempStableTo != nil {
-		tramo = " Temperatura estable del " + messages.FormatHour(*a.TempStableFrom) + " al " + messages.FormatHour(*a.TempStableTo) + "."
+		params["tramo"] = " Temperatura estable del " + messages.FormatHour(*a.TempStableFrom) + " al " + messages.FormatHour(*a.TempStableTo) + "."
 	}
-	newPosition := ""
 	if n.Reason(entities.MotionNewPosition) != nil {
-		newPosition = " La posición actual del sensor queda como la normal."
+		params["nueva_posicion"] = " La posición actual queda como la nueva referencia del sensor."
 	}
-	d.Messages = append(d.Messages, m.message(a, messages.Key(messages.CodeEndNormal, messages.VariantMotion), map[string]string{
-		"duracion": messages.FormatDuration(a.DurationHours(at)), "max": messages.LevelName(a.MaxLevel),
-		"tramo": tramo, "nueva_posicion": newPosition,
-	}, "", a.CurrentLevel, false))
+	d.Messages = append(d.Messages, m.msg(a, messages.Key(messages.CodeEndNormal, messages.VariantMotion), params, r, "", a.CurrentLevel))
 	if a.ID != 0 {
 		id := a.ID
 		d.State.LastAlertID = &id

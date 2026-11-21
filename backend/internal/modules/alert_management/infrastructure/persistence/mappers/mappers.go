@@ -36,7 +36,8 @@ func ToAlertModel(a entities.Alert) models.AlertModel {
 		MotionState: strPtr(a.MotionState), TempState: strPtr(a.TempState),
 		TempStableFrom: utcPtr(a.TempStableFrom), TempStableTo: utcPtr(a.TempStableTo),
 		LastMotionEvaluatedAt: utcPtr(a.LastMotionEvaluatedAt),
-		StartedAt:             a.StartedAt.UTC(), OpenedAt: a.OpenedAt.UTC(), EndedAt: a.EndedAt,
+		MotionHistory:         jsonPtr(a.MotionHistory), MotionTableLevel: strPtr(string(a.MotionTableLevel)),
+		StartedAt: a.StartedAt.UTC(), OpenedAt: a.OpenedAt.UTC(), EndedAt: a.EndedAt,
 		ReactivationCount: a.ReactivationCount, LastReactivatedAt: a.LastReactivatedAt,
 		CurrentLevel: string(a.CurrentLevel), MaxLevel: string(a.MaxLevel),
 		OpeningIndicatorValue: a.OpeningIndicatorValue, LastIndicatorValue: a.LastIndicatorValue,
@@ -108,7 +109,8 @@ func ToAlert(m models.AlertModel) entities.Alert {
 		MotionState: str(m.MotionState), TempState: str(m.TempState),
 		TempStableFrom: utcPtr(m.TempStableFrom), TempStableTo: utcPtr(m.TempStableTo),
 		LastMotionEvaluatedAt: utcPtr(m.LastMotionEvaluatedAt),
-		State:                 entities.AlertState(m.State), StartedAt: m.StartedAt.UTC(), OpenedAt: m.OpenedAt.UTC(),
+		MotionHistory:         jsonMap(m.MotionHistory), MotionTableLevel: entities.Level(str(m.MotionTableLevel)),
+		State: entities.AlertState(m.State), StartedAt: m.StartedAt.UTC(), OpenedAt: m.OpenedAt.UTC(),
 		EndedAt: utcPtr(m.EndedAt), ReactivationCount: m.ReactivationCount, LastReactivatedAt: utcPtr(m.LastReactivatedAt),
 		CurrentLevel: entities.Level(m.CurrentLevel), MaxLevel: entities.Level(m.MaxLevel),
 		OpeningIndicatorValue: m.OpeningIndicatorValue, LastIndicatorValue: m.LastIndicatorValue,
@@ -145,9 +147,34 @@ func ProcessingColumns(a entities.Alert) map[string]any {
 		"motion_state": m.MotionState, "temp_state": m.TempState,
 		"temp_stable_from": m.TempStableFrom, "temp_stable_to": m.TempStableTo,
 		"last_motion_evaluated_at": m.LastMotionEvaluatedAt,
+		"motion_history":           m.MotionHistory, "motion_table_level": m.MotionTableLevel,
 		// La firma de fuga siempre se escribe (NULL incluido): describe la última hora.
 		"leak_d_pl": m.LeakDPl, "leak_d_pl_min": m.LeakDPlMin, "leak_confirmed": m.LeakConfirmed,
 	}
+}
+
+// jsonPtr / jsonMap: columnas jsonb con un objeto (NULL = nil).
+func jsonPtr(v map[string]any) *string {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	s := string(b)
+	return &s
+}
+
+func jsonMap(raw *string) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal([]byte(*raw), &out) != nil {
+		return nil
+	}
+	return out
 }
 
 func utcPtr(t *time.Time) *time.Time {
@@ -329,6 +356,14 @@ func ToMotionNotice(r models.MotionEvaluationReadModel) entities.MotionNotice {
 		EpisodeEvent:   entities.EpisodeEvent(r.EpisodeEvent),
 		TempStableFrom: utcPtr(r.TempStableFrom), TempStableTo: utcPtr(r.TempStableTo),
 		ThresholdVersionID: r.ThresholdVersionID, AlertsEnabled: r.AlertsEnabled,
+		TableLevel: entities.Level(str(r.TableLevel)), EpisodeKind: str(r.EpisodeKind), History: jsonMap(r.History),
+		SchemaVersion: 1,
+	}
+	if r.TableLevel != nil {
+		n.SchemaVersion = 2
+	}
+	if r.RulesHit != nil {
+		_ = json.Unmarshal([]byte(*r.RulesHit), &n.RulesHit)
 	}
 	if r.Displaced {
 		n.ShiftStartedAt, n.GapFrom, n.GapTo = utcPtr(r.ShiftStartedAt), utcPtr(r.GapFrom), utcPtr(r.GapTo)

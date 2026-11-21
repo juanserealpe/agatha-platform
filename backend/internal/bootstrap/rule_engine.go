@@ -47,6 +47,7 @@ type RuleEngineModule struct {
 	// MotionBackfiller lo usa cmd/rule_engine -backfill -motion.
 	MotionBackfiller *ruleEngineServices.MotionBackfillService
 	MotionSimulator  *ruleEngineServices.MotionSimulationService
+	MotionObserver   *ruleEngineServices.MotionObservedService
 	// NewMotionScheduler crea el MotionScheduler (al arrancar + minuto RULE_ENGINE_MOTION_MINUTE).
 	NewMotionScheduler func() *ruleEngineScheduling.MotionScheduler
 
@@ -140,7 +141,8 @@ func wireRuleEngine(bus eventbus.Bus, deps ruleEngineDeps, log *logger.Logger) *
 
 	catchUp := ruleEngineServices.NewCatchUpService(evaluator, deps.source, deps.evaluations, deps.backfill.BatchSize, log)
 
-	motionThresholds := ruleEngineServices.NewMotionThresholdService(deps.motionThresholds, deps.clock, log)
+	motionThresholds := ruleEngineServices.NewMotionThresholdService(deps.motionThresholds, deps.clock, log).
+		WithMeasurementSource(deps.rawSource)
 	motionEvaluator := ruleEngineServices.NewMotionEvaluationService(
 		deps.motionThresholds,
 		deps.motionEvaluations,
@@ -157,6 +159,7 @@ func wireRuleEngine(bus eventbus.Bus, deps ruleEngineDeps, log *logger.Logger) *
 		MotionBackfiller: ruleEngineServices.NewMotionBackfillService(motionEvaluator,
 			ruleEngineServices.MotionBackfillConfig{Environment: deps.backfill.Environment}),
 		MotionSimulator: ruleEngineServices.NewMotionSimulationService(deps.motionThresholds, deps.rawSource, deps.clock, log),
+		MotionObserver:  ruleEngineServices.NewMotionObservedService(deps.motionThresholds, deps.motionEvaluations, deps.clock, log),
 		NewMotionScheduler: func() *ruleEngineScheduling.MotionScheduler {
 			return ruleEngineScheduling.NewMotionScheduler(motionEvaluator, log, deps.motionMinute)
 		},
@@ -185,7 +188,7 @@ func memorySandbox(seed ruleEngineEntities.ThresholdVersion) (ruleEngineReposito
 // autenticación de usuarios todavía: created_by viaja en el cuerpo.
 func (m *RuleEngineModule) RegisterRoutes(mux *http.ServeMux) {
 	ruleEngineHTTP.NewThresholdHandler(m.Thresholds, m.Simulator, m.log).RegisterRoutes(mux)
-	ruleEngineHTTP.NewMotionHandler(m.MotionThresholds, m.MotionSimulator, m.log).RegisterRoutes(mux)
+	ruleEngineHTTP.NewMotionHandler(m.MotionThresholds, m.MotionSimulator, m.log).WithObserver(m.MotionObserver).RegisterRoutes(mux)
 }
 
 // SubscribeIndicatorEvaluated suscribe el Rule Engine a processing.indicator_evaluated.

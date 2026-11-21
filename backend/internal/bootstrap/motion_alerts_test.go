@@ -86,8 +86,15 @@ func optFloatField(s string) *float64 {
 // referenceMotionNotices corre el Rule Engine sobre motion_input.csv y traduce cada fila.
 func referenceMotionNotices(t *testing.T) []alertEntities.MotionNotice {
 	t.Helper()
+	return motionNoticesFrom(t, motionTestdataDir+"motion_input.csv", ruleEngineEntities.DefaultMotionParams())
+}
+
+// motionNoticesFrom corre el Rule Engine (backfill en memoria) sobre una
+// entrada con unos parámetros y traduce cada fila al evento v2 → MotionNotice.
+func motionNoticesFrom(t *testing.T, path string, params ruleEngineEntities.MotionParams) []alertEntities.MotionNotice {
+	t.Helper()
 	var records []ruleEngineEntities.RawRecord
-	for _, r := range readCSVFile(t, motionTestdataDir+"motion_input.csv")[1:] {
+	for _, r := range readCSVFile(t, path)[1:] {
 		ts, _ := time.Parse(time.RFC3339, r[0])
 		records = append(records, ruleEngineEntities.RawRecord{Timestamp: ts, Pitch: optFloatField(r[1]), Roll: optFloatField(r[2]),
 			Deriva: optFloatField(r[3]), Temp: optFloatField(r[4])})
@@ -97,7 +104,6 @@ func referenceMotionNotices(t *testing.T) []alertEntities.MotionNotice {
 	now := time.Date(2026, 11, 17, 19, 30, 0, 0, time.UTC)
 	clock := ruleEnginePorts.ClockFunc(func() time.Time { return now })
 	log := logger.New("MotionAlertsTest", "Error")
-	params := ruleEngineEntities.DefaultMotionParams()
 	thresholds := ruleEngineMemory.NewMotionThresholdRepository(ruleEngineEntities.MotionThresholdVersion{
 		MeasuringPointID: ruleEngineEntities.MotionPilotPointID, Version: 1, Params: params, ValidFrom: records[0].Timestamp, Reason: "r", CreatedBy: "c",
 	})

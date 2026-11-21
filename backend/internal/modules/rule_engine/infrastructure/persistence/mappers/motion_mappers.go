@@ -2,6 +2,7 @@ package mappers
 
 import (
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/entities"
@@ -28,8 +29,17 @@ func ToMotionThresholdVersionModel(v entities.MotionThresholdVersion) models.Mot
 		TempFlowRate: p.TempFlowRate, TempFlowHours: p.TempFlowHours,
 		StabilizeMaxHours:     p.StabilizeMaxHours,
 		StillStableFirstHours: p.StillStableFirstHours, StillStableEveryHours: p.StillStableEveryHours,
-		TrendDeg7d: p.TrendDeg7d,
-		ValidFrom:  v.ValidFrom.UTC(), ValidTo: utcPtr(v.ValidTo),
+		TrendDeg7d:  p.TrendDeg7d,
+		SendNaranja: string(p.SendNaranja), SendRojo: string(p.SendRojo),
+		LongHoldHours: p.LongHoldHours, LongMinCoverage: p.LongMinCoverage,
+		LongCloseHours: p.LongCloseHours, LongCloseNetDeg: p.LongCloseNetDeg,
+		ClosureCapLevel: string(p.ClosureCapLevel), ClosureMaxDeg: p.ClosureMaxDeg,
+		DailySummary:   p.DailySummary,
+		HistoryStepDeg: p.HistoryStepDeg, HistoryStepWindowHours: p.HistoryStepWindowHours,
+		HistoryStepGroupHours: p.HistoryStepGroupHours, HistoryStepShare: p.HistoryStepShare,
+		HistoryPreviousDays: p.HistoryPreviousDays,
+		Rules:               ToMotionThresholdRuleModels(v.ID, p.Rules),
+		ValidFrom:           v.ValidFrom.UTC(), ValidTo: utcPtr(v.ValidTo),
 		Reason: v.Reason, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt.UTC(),
 	}
 }
@@ -53,11 +63,47 @@ func ToMotionThresholdVersion(m models.MotionThresholdVersionModel) entities.Mot
 			TempFlowRate: m.TempFlowRate, TempFlowHours: m.TempFlowHours,
 			StabilizeMaxHours:     m.StabilizeMaxHours,
 			StillStableFirstHours: m.StillStableFirstHours, StillStableEveryHours: m.StillStableEveryHours,
-			TrendDeg7d: m.TrendDeg7d,
+			TrendDeg7d:  m.TrendDeg7d,
+			SendNaranja: entities.MotionSendMode(m.SendNaranja), SendRojo: entities.MotionSendMode(m.SendRojo),
+			LongHoldHours: m.LongHoldHours, LongMinCoverage: m.LongMinCoverage,
+			LongCloseHours: m.LongCloseHours, LongCloseNetDeg: m.LongCloseNetDeg,
+			ClosureCapLevel: entities.Level(m.ClosureCapLevel), ClosureMaxDeg: m.ClosureMaxDeg,
+			DailySummary:   m.DailySummary,
+			HistoryStepDeg: m.HistoryStepDeg, HistoryStepWindowHours: m.HistoryStepWindowHours,
+			HistoryStepGroupHours: m.HistoryStepGroupHours, HistoryStepShare: m.HistoryStepShare,
+			HistoryPreviousDays: m.HistoryPreviousDays,
+			Rules:               ToMotionRules(m.Rules),
 		},
 		ValidFrom: m.ValidFrom.UTC(), ValidTo: utcPtr(m.ValidTo),
 		Reason: m.Reason, CreatedBy: m.CreatedBy, CreatedAt: m.CreatedAt.UTC(),
 	}
+}
+
+// ToMotionThresholdRuleModels / ToMotionRules: motion_threshold_rules. Las
+// filas vuelven ordenadas por ventana y eje.
+func ToMotionThresholdRuleModels(versionID int64, rules []entities.MotionRule) []models.MotionThresholdRuleModel {
+	out := make([]models.MotionThresholdRuleModel, len(rules))
+	for i, r := range rules {
+		out[i] = models.MotionThresholdRuleModel{
+			ThresholdVersionID: versionID, WindowHours: r.WindowHours, Axis: r.Axis,
+			AmarilloDeg: r.AmarilloDeg, NaranjaDeg: r.NaranjaDeg, RojoDeg: r.RojoDeg,
+		}
+	}
+	return out
+}
+
+func ToMotionRules(rows []models.MotionThresholdRuleModel) []entities.MotionRule {
+	out := make([]entities.MotionRule, len(rows))
+	for i, m := range rows {
+		out[i] = entities.MotionRule{WindowHours: m.WindowHours, Axis: m.Axis, AmarilloDeg: m.AmarilloDeg, NaranjaDeg: m.NaranjaDeg, RojoDeg: m.RojoDeg}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].WindowHours != out[j].WindowHours {
+			return out[i].WindowHours < out[j].WindowHours
+		}
+		return out[i].Axis < out[j].Axis
+	})
+	return entities.CloneMotionRules(out)
 }
 
 func ToMotionThresholdVersions(rows []models.MotionThresholdVersionModel) []entities.MotionThresholdVersion {
@@ -96,12 +142,27 @@ func ToMotionEvaluationModel(e entities.MotionEvaluation) models.MotionEvaluatio
 		MotionState: optString(string(e.MotionState)), EpisodeEvent: string(e.EpisodeEvent),
 		ComputedLevel: string(e.ComputedLevel), Reasons: MotionReasonsJSON(e.Reasons),
 
+		TableLevelHour: optString(string(e.TableLevelHour)), TableLevel: optString(string(e.TableLevel)),
+		EpisodeKind: optString(string(e.EpisodeKind)), RulesHit: rulesHitJSON(e),
+		History: historyJSON(e.History), RestAt: utcPtr(s.RestAt), LongHold: longHoldJSON(s.LongHold),
+		LastPatternAt: utcPtr(s.LastPatternAt), LastFastAt: utcPtr(s.LastFastAt),
+		EpStartAt: utcPtr(s.EpStartAt), EpRefPitch: s.EpRefPitch, EpRefRoll: s.EpRefRoll, EpHasLong: s.EpHasLong,
+
 		ThresholdVersionID: e.ThresholdVersionID, AlgorithmVersion: e.AlgorithmVersion,
 		Trigger: string(e.Trigger), InputMaxTS: utcPtr(e.InputMaxTS), CreatedAt: e.CreatedAt.UTC(),
 	}
 }
 
 func ToMotionEvaluation(m models.MotionEvaluationModel) entities.MotionEvaluation {
+	e := toMotionEvaluation(m)
+	// ep_level viaja en table_level (dentro del episodio son iguales).
+	if e.State.InEpisode {
+		e.State.EpLevel = e.TableLevel
+	}
+	return e
+}
+
+func toMotionEvaluation(m models.MotionEvaluationModel) entities.MotionEvaluation {
 	return entities.MotionEvaluation{
 		ID: m.ID, MeasuringPointID: m.MeasuringPointID, EvaluatedAt: m.EvaluatedAt.UTC(),
 		Status: entities.MotionStatus(m.Status), NRecords: m.NRecords, Coverage: m.Coverage,
@@ -123,10 +184,17 @@ func ToMotionEvaluation(m models.MotionEvaluationModel) entities.MotionEvaluatio
 			TempStableFrom: utcPtr(m.TempStableFrom), TempStableTo: utcPtr(m.TempStableTo),
 			StillStableMsgs: m.StillStableMsgs, InEpisode: m.InEpisode, EpisodeOpenedAt: utcPtr(m.EpisodeOpenedAt),
 			AbruptActive: m.AbruptActive, PendingGaps: pendingGapsFromJSON(m.PendingGaps),
+			RestAt: utcPtr(m.RestAt), LongHold: longHoldFromJSON(m.LongHold),
+			LastPatternAt: utcPtr(m.LastPatternAt), LastFastAt: utcPtr(m.LastFastAt),
+			EpKind:    entities.MotionEpisodeKind(deref(m.EpisodeKind)),
+			EpStartAt: utcPtr(m.EpStartAt), EpRefPitch: m.EpRefPitch, EpRefRoll: m.EpRefRoll, EpHasLong: m.EpHasLong,
 		},
 
 		MotionState: entities.MotionStateValue(deref(m.MotionState)), EpisodeEvent: entities.EpisodeEvent(m.EpisodeEvent),
 		ComputedLevel: entities.Level(m.ComputedLevel), Reasons: MotionReasonsFromJSON(m.Reasons),
+		TableLevelHour: entities.Level(deref(m.TableLevelHour)), TableLevel: entities.Level(deref(m.TableLevel)),
+		EpisodeKind: entities.MotionEpisodeKind(deref(m.EpisodeKind)),
+		RulesHit:    rulesHitFromJSON(m.RulesHit), History: historyFromJSON(m.History),
 
 		ThresholdVersionID: m.ThresholdVersionID, AlgorithmVersion: m.AlgorithmVersion,
 		Trigger: entities.MotionTrigger(m.Trigger), InputMaxTS: utcPtr(m.InputMaxTS), CreatedAt: m.CreatedAt.UTC(),
@@ -160,14 +228,13 @@ func MotionReasonsFromJSON(raw string) []entities.MotionReason {
 			StartedAt:      timePtr(d["started_at"]),
 			GapFrom:        timePtr(d["gap_from"]),
 			GapTo:          timePtr(d["gap_to"]),
-			Axis:           str(d["axis"]),
-			Delta:          num(d["delta"]),
 			Hours:          int(num(d["hours"])),
 			TempRateMax6h:  numPtr(d["temp_rate_max_6h"]),
 			Rate:           num(d["rate"]),
 			TempStableFrom: timePtr(d["temp_stable_from"]),
 			TempStableTo:   timePtr(d["temp_stable_to"]),
 		}
+		v2ReasonFromData(&out[i], d)
 	}
 	return out
 }

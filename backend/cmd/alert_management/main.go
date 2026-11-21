@@ -35,7 +35,9 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
-const runTimeout = 2 * time.Hour
+// defaultRunTimeout cubre un rebuild completo contra Supabase (un punto con
+// cuatro meses de FUGA y MOVIMIENTO tarda más de 2 h).
+const defaultRunTimeout = 12 * time.Hour
 
 func main() {
 	log := logger.New("AlertManagementCLI", "Info")
@@ -46,6 +48,7 @@ func main() {
 	toRaw := flag.String("to", "", "fin RFC3339 en UTC, exclusivo (default: última hora)")
 	rebuild := flag.Bool("rebuild", false, "borra las alertas del punto y las reconstruye (no en production)")
 	dropManagement := flag.Bool("drop-management", false, "con -rebuild: borra también la gestión (clasificación, etiqueta, observaciones); sin él, un punto con gestión aborta")
+	runTimeout := flag.Duration("timeout", defaultRunTimeout, "tiempo máximo de la corrida (p. ej. 12h); al vencer aborta y repetirlo retoma")
 	flag.Parse()
 
 	if !*backfill {
@@ -61,6 +64,10 @@ func main() {
 		log.Error("-point debe ser > 0")
 		os.Exit(2)
 	}
+	if *runTimeout <= 0 {
+		log.Error("-timeout debe ser > 0")
+		os.Exit(2)
+	}
 	from, to := parseTime(log, "-from", *fromRaw), parseTime(log, "-to", *toRaw)
 
 	platform, err := bootstrap.NewPlatform()
@@ -74,7 +81,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, runTimeout)
+	ctx, cancel := context.WithTimeout(ctx, *runTimeout)
 	defer cancel()
 
 	result, err := module.Replay.Backfill(ctx, alertServices.BackfillCommand{
