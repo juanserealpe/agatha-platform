@@ -15,14 +15,18 @@ const MotionWindowHours = entities.MotionWindowHours
 // (cambio brusco y quieto).
 const eps = 1e-9
 
-// MotionAssess evalúa la hora t (que cubre [t − 1 h, t)) a partir de los
-// registros crudos de [t − 169 h, t), el estado de la hora anterior y los
-// parámetros. Es pura y sin reloj: reproduce motion_ref.py (§5).
+// MotionAssess evalúa la hora t (que cubre [t − 1 h, t)) con motion-v2 a
+// partir de los registros crudos de [t − MotionWindowHours h, t), el estado de
+// la hora anterior, los parámetros y los episodios ya cerrados del punto
+// (para el historial). Es pura y sin reloj: reproduce motion_v2_ref.py.
 //
 // Los niveles y saltos de las horas anteriores se recalculan desde la ventana
-// en vez de viajar en el estado: así la fila anterior solo lleva lo de §5.4.
-func MotionAssess(window []entities.RawRecord, prev entities.MotionState, p entities.MotionParams, t time.Time) entities.MotionEvaluation {
+// en vez de viajar en el estado: así la fila anterior solo lleva lo de §6.1.
+func MotionAssess(window []entities.RawRecord, prev entities.MotionState, p entities.MotionParams, t time.Time,
+	past []entities.MotionEpisode) entities.MotionEvaluation {
 	a := newAssessor(window, p)
+	a.from, _ = entities.MotionWindow(t.UTC())
+	a.past = past
 	return a.assess(prev, t)
 }
 
@@ -43,6 +47,8 @@ type assessor struct {
 	levels map[int64]*level
 	lvlOK  map[int64]bool
 	jumps  map[int64]bool
+	from   time.Time // inicio de la ventana
+	past   []entities.MotionEpisode
 }
 
 func newAssessor(window []entities.RawRecord, p entities.MotionParams) *assessor {
@@ -228,8 +234,6 @@ func sign(v float64) int {
 	return 0
 }
 
-func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
-
 func fp(v float64) *float64 { return &v }
 
 func tp(v time.Time) *time.Time { return &v }
@@ -238,6 +242,13 @@ func hours(n int) time.Duration { return time.Duration(n) * time.Hour }
 
 func cloneState(s entities.MotionState) entities.MotionState {
 	s.PendingGaps = append([]entities.PendingGap(nil), s.PendingGaps...)
+	if s.LongHold != nil {
+		h := make(map[string]int, len(s.LongHold))
+		for k, v := range s.LongHold {
+			h[k] = v
+		}
+		s.LongHold = h
+	}
 	return s
 }
 
@@ -271,6 +282,12 @@ func (a *assessor) assess(prev entities.MotionState, t time.Time) entities.Motio
 		S.PendingGaps = append(S.PendingGaps, gaps...)
 		if S.Displaced {
 			ev.MotionState = entities.MotionDesplazado
+		}
+		// 11) El resumen diario sale también en una hora NO_CALCULABLE.
+		if S.InEpisode {
+			if d := a.dailyReason(t, S); d != nil {
+				ev.Reasons = append(ev.Reasons, *d)
+			}
 		}
 		return a.finish(ev, S)
 	}
@@ -444,36 +461,17 @@ func (a *assessor) assess(prev entities.MotionState, t time.Time) entities.Motio
 		reasons = append(reasons, r)
 	}
 
-	// 8) Cambio brusco.
-	abruptFire := false
-	var bestAxis string
-	var bestDelta float64
-	bestK := 0
-	for k := 1; k <= p.AbruptHours; k++ {
-		lk := a.level(t.Add(-hours(k)))
-		if lk == nil {
-			continue
-		}
-		for _, ax := range [2]struct {
-			name      string
-			cur, prev float64
-		}{{"pitch", Pn, lk.p}, {"roll", Rn, lk.r}} {
-			d := ax.cur - ax.prev
-			if math.Abs(d) >= p.AbruptDeg-eps && (bestK == 0 || math.Abs(d) > math.Abs(bestDelta)) {
-				bestAxis, bestDelta, bestK = ax.name, d, k
-			}
-		}
-	}
-	sup := S.LastJointAt != nil && t.Sub(*S.LastJointAt) <= hours(p.AbruptSuppressAfterJointHours)
-	abrupt := bestK != 0 && !J && !S.Displaced && !newly && !sup
-	ev.Abrupt = abrupt
-	if abrupt && !S.AbruptActive {
+	// 8) Tabla de lo normal (motion-v2, §6.2).
+	tab := a.tableStep(&S, t, Pn, Rn, J, newly, returned)
+	ev.RulesHit, ev.TableLevelHour = tab.hits, tab.hourLevel
+	ev.Abrupt = tab.abrupt
+	if tab.abrupt && !S.AbruptActive {
+		hb := *bestHit(tab.short)
 		reasons = append(reasons, entities.MotionReason{
-			Code: entities.ReasonMovAbrupt, Axis: bestAxis, Delta: round3(bestDelta), Hours: bestK,
+			Code: entities.ReasonMovAbrupt, Hit: &hb, AmarilloDeg: entities.NormalOf(p.Rules, hb.WindowHours, hb.Axis),
 		})
-		abruptFire = true
 	}
-	S.AbruptActive = abrupt
+	S.AbruptActive = tab.abrupt
 	ev.SlowDriftFlag = dp24 != nil && dr24 != nil &&
 		(math.Abs(*dp24) >= p.SlowDriftDeg24h || math.Abs(*dr24) >= p.SlowDriftDeg24h)
 
@@ -506,28 +504,14 @@ func (a *assessor) assess(prev entities.MotionState, t time.Time) entities.Motio
 		reasons = a.tempStep(&S, t, newly, returned, flat, flow, maxR6, rl, reasons)
 	}
 
-	// 10) Episodio.
-	opener := J || newly || abruptFire
-	if !S.InEpisode && opener {
-		S.InEpisode = true
-		S.EpisodeOpenedAt = tp(t)
-		ev.EpisodeEvent = entities.EpisodeEventOpened
-	} else if S.InEpisode {
-		okLine := S.TempState == "" || S.TempState == entities.TempVariable || S.TempState == entities.TempSinEstabilizar
-		if stillRun >= p.StillHours && okLine && t.Sub(*S.EpisodeOpenedAt) >= hours(p.StillHours) {
-			S.InEpisode = false
-			ev.EpisodeEvent = entities.EpisodeEventCleared
-			if S.Displaced {
-				S.Displaced = false
-				reasons = append(reasons, entities.MotionReason{Code: entities.ReasonMovNewPosition})
-			}
-			if S.TempState == entities.TempSinEstabilizar {
-				S.TempState = entities.TempVariable
-				S.TempSince = tp(t)
-			}
-			reasons = append(reasons, entities.MotionReason{Code: entities.ReasonMovStill, Hours: stillRun})
-		}
+	// 10–12) Episodio, resumen diario e historial.
+	if J || newly || returned {
+		S.LastPatternAt = tp(t)
 	}
+	if len(tab.short) > 0 {
+		S.LastFastAt = tp(t)
+	}
+	reasons = a.episodeStep(&S, &ev, t, tab, J, newly, stillRun, reasons)
 
 	ev.Reasons = reasons
 	switch {
@@ -545,12 +529,26 @@ func (a *assessor) assess(prev entities.MotionState, t time.Time) entities.Motio
 	return a.finish(ev, S)
 }
 
+// finish arma la salida (§6.4) y deja en cero lo del episodio fuera de él,
+// para que el estado en memoria sea idéntico al que vuelve de la fila.
 func (a *assessor) finish(ev entities.MotionEvaluation, S entities.MotionState) entities.MotionEvaluation {
-	ev.State = S
-	ev.ComputedLevel = entities.LevelNormal
+	ev.ComputedLevel, ev.TableLevel = entities.LevelNormal, entities.LevelNormal
 	if S.InEpisode {
-		ev.ComputedLevel = entities.LevelAmarillo
+		ev.TableLevel = S.EpLevel
+		ev.ComputedLevel = a.p.SentLevel(S.EpLevel)
+		ev.EpisodeKind = S.EpKind
+	} else {
+		if ev.EpisodeEvent == entities.EpisodeEventCleared {
+			ev.EpisodeKind = S.EpKind
+		} else {
+			S.EpKind = ""
+		}
+		S.EpLevel, S.EpStartAt, S.EpRefPitch, S.EpRefRoll, S.EpHasLong = "", nil, nil, nil, false
 	}
+	if len(S.LongHold) == 0 {
+		S.LongHold = nil
+	}
+	ev.State = S
 	return ev
 }
 

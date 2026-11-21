@@ -1,0 +1,242 @@
+[
+ {
+  "alert": "MOV-1",
+  "started_at": "2026-08-25 12:00:00+00:00",
+  "ended_at": "2026-08-28 21:00:00+00:00",
+  "reactivations": 0,
+  "max_level": "AMARILLO",
+  "max_calc": "AMARILLO",
+  "messages": [
+   {
+    "evaluated_at": "2026-08-25 12:00:00+00:00",
+    "hora_col": "25/08 07:00",
+    "code": "MOV_OPEN",
+    "kind": "NOTIFICACION",
+    "title": "Cambio brusco de inclinación en pitch y roll",
+    "body": "Entre las 06:00 y las 07:00 del 25/08 el pitch y el roll cambiaron juntos y de golpe: pitch +0,02°, roll +0,04° en 1 h. En este sensor lo normal es menos de 0,01° por hora.\nAntes de esta alerta. Últimos 7 días: pitch estable (0,00°); roll -0,03°, de forma continua. Últimos 30 días: pitch -0,07°, de forma continua; roll -0,09°, de forma continua. Lo normal en este sensor: menos de 0,10° en 7 días y 0,15° en 30 días. Sin alertas de movimiento en los últimos 90 días."
+   },
+   {
+    "evaluated_at": "2026-08-25 14:00:00+00:00",
+    "hora_col": "25/08 09:00",
+    "code": "MOV_DISPLACED",
+    "kind": "ACTUALIZACION",
+    "title": "El sensor sigue en la nueva posición",
+    "body": "No ha vuelto a su posición desde las 06:15 del 25/08. Pitch +0,06°, roll +0,12°."
+   },
+   {
+    "evaluated_at": "2026-08-26 03:00:00+00:00",
+    "hora_col": "25/08 22:00",
+    "code": "TEMP_STABILIZED",
+    "kind": "NOTIFICACION",
+    "title": "La temperatura de la tubería se estabilizó",
+    "body": "Desde que se movió el sensor (06:15 del 25/08) la temperatura casi no cambia. Pasó lo mismo antes en este punto, pero no está confirmado. Dato: máximo 0,025 °C por hora (normal: más de 0,08)."
+   },
+   {
+    "evaluated_at": "2026-08-26 12:00:00+00:00",
+    "hora_col": "26/08 07:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 1 de la alerta",
+    "body": "Últimas 24 h: pitch +0,08°, roll +0,14°. Desde el inicio del movimiento: pitch +0,08°, roll +0,14°."
+   },
+   {
+    "evaluated_at": "2026-08-27 12:00:00+00:00",
+    "hora_col": "27/08 07:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 2 de la alerta",
+    "body": "Últimas 24 h: pitch 0,00°, roll 0,00°. Desde el inicio del movimiento: pitch +0,08°, roll +0,14°. Sin cambios en las últimas 24 h."
+   },
+   {
+    "evaluated_at": "2026-08-27 19:00:00+00:00",
+    "hora_col": "27/08 14:00",
+    "code": "MOV_RETURN",
+    "kind": "ACTUALIZACION",
+    "title": "El sensor volvió a su posición",
+    "body": "Regresó a las 12:45 a la posición que tenía antes del movimiento. Pitch -0,05°, roll -0,09°."
+   },
+   {
+    "evaluated_at": "2026-08-27 19:00:00+00:00",
+    "hora_col": "27/08 14:00",
+    "code": "TEMP_VARIES_AGAIN",
+    "kind": "NOTIFICACION",
+    "title": "La temperatura de la tubería volvió a variar",
+    "body": "Estuvo estable 2 días y 7 h (06:15 del 25/08 – 12:45 del 27/08). Dato: 0,25 °C en una hora."
+   },
+   {
+    "evaluated_at": "2026-08-28 12:00:00+00:00",
+    "hora_col": "28/08 07:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 3 de la alerta",
+    "body": "Últimas 24 h: pitch -0,08°, roll -0,16°. Desde el inicio del movimiento: pitch 0,00°, roll -0,02°."
+   },
+   {
+    "evaluated_at": "2026-08-28 21:00:00+00:00",
+    "hora_col": "28/08 16:00",
+    "code": "END_NORMAL",
+    "kind": "FIN",
+    "title": "Volvió a la normalidad",
+    "body": "La inclinación lleva 24 h sin moverse. Duró 3 días y 9 h. Cambio total desde el inicio del movimiento: pitch +0,01°, roll -0,02°. Nivel máximo: Amarillo. Temperatura estable del 06:15 del 25/08 al 12:45 del 27/08."
+   }
+  ]
+ },
+ {
+  "alert": "MOV-2",
+  "started_at": "2026-09-15 15:00:00+00:00",
+  "ended_at": "2026-09-16 15:00:00+00:00",
+  "reactivations": 0,
+  "max_level": "AMARILLO",
+  "max_calc": "ROJO",
+  "messages": [
+   {
+    "evaluated_at": "2026-09-15 15:00:00+00:00",
+    "hora_col": "15/09 10:00",
+    "code": "MOV_OPEN",
+    "kind": "NOTIFICACION",
+    "title": "Cambio rápido de inclinación",
+    "body": "Entre las 09:00 y las 10:00 del 15/09 el pitch cambió -0,25° (1 hora). En este sensor lo normal es menos de 0,04° en 1 hora. Por su magnitud correspondería a Rojo; ese nivel todavía no está activo para este sensor, por eso la alerta se emite en Amarillo.\nAntes de esta alerta. Últimos 7 días: pitch estable (0,00°); roll estable (-0,01°). Últimos 30 días: pitch +0,02°, en 3 cambios (con alerta: 25/08 y 27/08; sin alerta: 16/08); roll -0,05°, en 6 cambios (los últimos, con alerta: 25/08 y 27/08; sin alerta: 01/09, 02/09 y 03/09). Lo normal en este sensor: menos de 0,10° en 7 días y 0,15° en 30 días. Alertas de movimiento en los últimos 90 días: 1 (25/08 cambio brusco de pitch y roll)."
+   },
+   {
+    "evaluated_at": "2026-09-16 15:00:00+00:00",
+    "hora_col": "16/09 10:00",
+    "code": "END_NORMAL",
+    "kind": "FIN",
+    "title": "Volvió a la normalidad",
+    "body": "La inclinación lleva 24 h sin moverse. Duró 1 día. Cambio total desde el inicio del movimiento: pitch -0,25°, roll +0,01°. Nivel máximo: Amarillo (por su magnitud correspondía a Rojo). La posición actual queda como la nueva referencia del sensor."
+   }
+  ]
+ },
+ {
+  "alert": "MOV-3",
+  "started_at": "2026-10-12 04:00:00+00:00",
+  "ended_at": "2026-10-14 10:00:00+00:00",
+  "reactivations": 1,
+  "max_level": "AMARILLO",
+  "max_calc": "AMARILLO",
+  "messages": [
+   {
+    "evaluated_at": "2026-10-12 06:00:00+00:00",
+    "hora_col": "12/10 01:00",
+    "code": "MOV_OPEN",
+    "kind": "NOTIFICACION",
+    "title": "Cambio rápido de inclinación",
+    "body": "Entre las 22:00 del 11/10 y las 01:00 del 12/10 el roll cambió +0,04° (3 horas). En este sensor lo normal es menos de 0,04° en 3 horas.\nAntes de esta alerta. Últimos 7 días: pitch estable (0,00°); roll estable (0,00°). Últimos 30 días: pitch -0,25°, en un cambio (con alerta: 15/09); roll estable (+0,01°). Lo normal en este sensor: menos de 0,10° en 7 días y 0,15° en 30 días. Alertas de movimiento en los últimos 90 días: 2 (25/08 cambio brusco de pitch y roll; 15/09 cambio rápido)."
+   },
+   {
+    "evaluated_at": "2026-10-13 06:00:00+00:00",
+    "hora_col": "13/10 01:00",
+    "code": "END_NORMAL",
+    "kind": "FIN",
+    "title": "Volvió a la normalidad",
+    "body": "La inclinación lleva 24 h sin moverse. Duró 1 día y 2 h. Cambio total desde el inicio del movimiento: pitch 0,00°, roll +0,05°. Nivel máximo: Amarillo. La posición actual queda como la nueva referencia del sensor."
+   },
+   {
+    "evaluated_at": "2026-10-13 10:00:00+00:00",
+    "hora_col": "13/10 05:00",
+    "code": "MOV_OPEN",
+    "kind": "NOTIFICACION",
+    "title": "Cambio rápido de inclinación",
+    "body": "Entre las 02:00 y las 05:00 del 13/10 el roll cambió +0,04° (3 horas). En este sensor lo normal es menos de 0,04° en 3 horas.\nAntes de esta alerta. Últimos 7 días: pitch estable (0,00°); roll +0,05°, en un cambio (con alerta: 12/10). Últimos 30 días: pitch -0,25°, en un cambio (con alerta: 15/09); roll +0,06°, de forma continua. Lo normal en este sensor: menos de 0,10° en 7 días y 0,15° en 30 días. Alertas de movimiento en los últimos 90 días: 3 (25/08 cambio brusco de pitch y roll; 15/09 cambio rápido; 12/10 cambio rápido)."
+   },
+   {
+    "evaluated_at": "2026-10-14 10:00:00+00:00",
+    "hora_col": "14/10 05:00",
+    "code": "END_NORMAL",
+    "kind": "FIN",
+    "title": "Volvió a la normalidad",
+    "body": "La inclinación lleva 24 h sin moverse. Duró 1 día desde que se reactivó; la alerta en total, 2 días y 6 h. Cambio total desde el inicio del movimiento: pitch 0,00°, roll +0,06°. Nivel máximo: Amarillo. La posición actual queda como la nueva referencia del sensor."
+   }
+  ]
+ },
+ {
+  "alert": "MOV-4",
+  "started_at": "2026-10-20 15:00:00+00:00",
+  "ended_at": "2026-10-27 01:00:00+00:00",
+  "reactivations": 0,
+  "max_level": "AMARILLO",
+  "max_calc": "AMARILLO",
+  "messages": [
+   {
+    "evaluated_at": "2026-10-21 14:00:00+00:00",
+    "hora_col": "21/10 09:00",
+    "code": "MOV_OPEN",
+    "kind": "NOTIFICACION",
+    "title": "Cambio de inclinación durante una pérdida de datos",
+    "body": "El sensor no transmitió entre las 09:15 del 20/10 y las 08:00 del 21/10 (23 h). Al volver los datos, el pitch estaba +0,10° y el roll +0,08° respecto a antes de la pérdida de datos.\nAntes de esta alerta. Últimos 7 días: pitch estable (+0,01°); roll +0,05°, en 2 cambios (con alerta: 13/10; sin alerta: 19/10). Últimos 30 días: pitch estable (+0,01°); roll +0,17°, en 3 cambios (con alerta: 12/10 y 13/10; sin alerta: 19/10). Lo normal en este sensor: menos de 0,10° en 7 días y 0,15° en 30 días. Alertas de movimiento en los últimos 90 días: 4 (25/08 cambio brusco de pitch y roll; 15/09 cambio rápido; 12/10 cambio rápido; 13/10 cambio rápido)."
+   },
+   {
+    "evaluated_at": "2026-10-21 19:00:00+00:00",
+    "hora_col": "21/10 14:00",
+    "code": "TEMP_STABILIZED",
+    "kind": "NOTIFICACION",
+    "title": "La temperatura de la tubería se estabilizó",
+    "body": "Desde que se movió el sensor (09:15 del 20/10) la temperatura casi no cambia. Pasó lo mismo antes en este punto, pero no está confirmado. Dato: máximo 0,015 °C por hora (normal: más de 0,08)."
+   },
+   {
+    "evaluated_at": "2026-10-22 14:00:00+00:00",
+    "hora_col": "22/10 09:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 1 de la alerta",
+    "body": "Últimas 24 h: pitch -0,01°, roll +0,04°. Desde el inicio del movimiento: pitch +0,09°, roll +0,12°."
+   },
+   {
+    "evaluated_at": "2026-10-23 14:00:00+00:00",
+    "hora_col": "23/10 09:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 2 de la alerta",
+    "body": "Últimas 24 h: pitch 0,00°, roll 0,00°. Desde el inicio del movimiento: pitch +0,09°, roll +0,12°. Sin cambios en las últimas 24 h."
+   },
+   {
+    "evaluated_at": "2026-10-24 14:00:00+00:00",
+    "hora_col": "24/10 09:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 3 de la alerta",
+    "body": "Últimas 24 h: pitch -0,01°, roll 0,00°. Desde el inicio del movimiento: pitch +0,08°, roll +0,12°."
+   },
+   {
+    "evaluated_at": "2026-10-25 14:00:00+00:00",
+    "hora_col": "25/10 09:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 4 de la alerta",
+    "body": "Últimas 24 h: pitch 0,00°, roll 0,00°. Desde el inicio del movimiento: pitch +0,08°, roll +0,12°. Sin cambios en las últimas 24 h."
+   },
+   {
+    "evaluated_at": "2026-10-26 01:00:00+00:00",
+    "hora_col": "25/10 20:00",
+    "code": "MOV_RETURN",
+    "kind": "ACTUALIZACION",
+    "title": "El sensor volvió a su posición",
+    "body": "Regresó a las 18:30 a la posición que tenía antes del movimiento. Pitch -0,11°, roll -0,08°."
+   },
+   {
+    "evaluated_at": "2026-10-26 01:00:00+00:00",
+    "hora_col": "25/10 20:00",
+    "code": "TEMP_VARIES_AGAIN",
+    "kind": "NOTIFICACION",
+    "title": "La temperatura de la tubería volvió a variar",
+    "body": "Estuvo estable 5 días y 9 h (09:15 del 20/10 – 18:30 del 25/10). Dato: 0,215 °C en una hora."
+   },
+   {
+    "evaluated_at": "2026-10-26 14:00:00+00:00",
+    "hora_col": "26/10 09:00",
+    "code": "MOV_DAILY",
+    "kind": "RESUMEN",
+    "title": "Resumen del día 5 de la alerta",
+    "body": "Últimas 24 h: pitch -0,11°, roll -0,12°. Desde el inicio del movimiento: pitch -0,02°, roll 0,00°."
+   },
+   {
+    "evaluated_at": "2026-10-27 01:00:00+00:00",
+    "hora_col": "26/10 20:00",
+    "code": "END_NORMAL",
+    "kind": "FIN",
+    "title": "Volvió a la normalidad",
+    "body": "La inclinación lleva 24 h sin moverse. Duró 6 días y 10 h. Cambio total desde el inicio del movimiento: pitch -0,03°, roll 0,00°. Nivel máximo: Amarillo. Temperatura estable del 09:15 del 20/10 al 18:30 del 25/10. La posición actual queda como la nueva referencia del sensor."
+   }
+  ]
+ }
+]

@@ -14,10 +14,21 @@ import (
 // punto se solapen (rangos [valid_from, valid_to), NULL = infinito).
 const MotionExcludeConstraint = "ex_motion_threshold_versions_no_overlap"
 
-// migrateMotion crea motion_threshold_versions y motion_evaluations (tags de
-// los modelos) y el EXCLUDE de vigencias. Idempotente. btree_gist ya lo creó Migrate.
+// motionV1Checks son los CHECK de motion-v1 que motion-v2 amplía: se borran
+// antes del AutoMigrate, que los vuelve a crear con la definición nueva.
+var motionV1Checks = []string{"chk_motion_evaluations_computed_level"}
+
+// migrateMotion crea motion_threshold_versions, motion_threshold_rules y
+// motion_evaluations (tags de los modelos), el EXCLUDE de vigencias y siembra
+// la tabla de §5.3 en las versiones sin filas. Idempotente y aditiva.
+// btree_gist ya lo creó Migrate.
 func migrateMotion(db *gorm.DB) error {
-	if err := db.AutoMigrate(&models.MotionThresholdVersionModel{}, &models.MotionEvaluationModel{}); err != nil {
+	for _, chk := range motionV1Checks {
+		if err := db.Exec(`ALTER TABLE IF EXISTS motion_evaluations DROP CONSTRAINT IF EXISTS ` + chk).Error; err != nil {
+			return fmt.Errorf("borrar %s: %w", chk, err)
+		}
+	}
+	if err := db.AutoMigrate(&models.MotionThresholdVersionModel{}, &models.MotionThresholdRuleModel{}, &models.MotionEvaluationModel{}); err != nil {
 		return fmt.Errorf("automigrate movimiento del rule_engine: %w", err)
 	}
 	err := db.Exec(`
@@ -35,7 +46,32 @@ END $$;`).Error
 	if err != nil {
 		return fmt.Errorf("crear %s: %w", MotionExcludeConstraint, err)
 	}
+	if _, err := SeedMissingMotionRules(db); err != nil {
+		return fmt.Errorf("sembrar motion_threshold_rules: %w", err)
+	}
 	return nil
+}
+
+// SeedMissingMotionRules siembra la tabla de §5.3 en cada versión de
+// movimiento que no tenga filas (al migrar, las versiones motion-v1; hoy, la
+// id 1). Es la misma excepción deliberada a la no retroactividad que el seed:
+// sin ella, el backfill no tendría tabla para el histórico. Devuelve cuántas
+// filas insertó.
+func SeedMissingMotionRules(db *gorm.DB) (int64, error) {
+	rules := entities.DefaultMotionRules()
+	values := make([]string, len(rules))
+	args := make([]any, 0, len(rules)*5)
+	for i, r := range rules {
+		values[i] = "(?::integer, ?::text, ?::numeric, ?::numeric, ?::numeric)"
+		args = append(args, r.WindowHours, r.Axis, r.AmarilloDeg, r.NaranjaDeg, r.RojoDeg)
+	}
+	result := db.Exec(`
+INSERT INTO motion_threshold_rules (threshold_version_id, window_hours, axis, amarillo_deg, naranja_deg, rojo_deg)
+SELECT v.id, r.w, r.a, r.am, r.na, r.ro
+FROM motion_threshold_versions v
+CROSS JOIN (VALUES `+strings.Join(values, ", ")+`) AS r(w, a, am, na, ro)
+WHERE NOT EXISTS (SELECT 1 FROM motion_threshold_rules x WHERE x.threshold_version_id = v.id)`, args...)
+	return result.RowsAffected, result.Error
 }
 
 // SeedInitialMotionThresholds crea, UNA sola vez (solo si
@@ -72,7 +108,8 @@ func SeedInitialMotionThresholds(db *gorm.DB) (int64, error) {
 			}
 			created += result.RowsAffected
 		}
-		return nil
+		_, err := SeedMissingMotionRules(tx)
+		return err
 	})
 	return created, err
 }
@@ -87,11 +124,7 @@ func motionSeedInsert(p entities.MotionParams, where string) (string, []any) {
 	for i, f := range fields {
 		cols[i] = f.Name
 		marks[i] = "?"
-		v := f.Get(p)
-		if m, ok := v.(entities.TempMode); ok {
-			v = string(m)
-		}
-		args = append(args, v)
+		args = append(args, f.GetString(p))
 	}
 	args = append(args, entities.SeedReason, entities.SystemCreatedBy, entities.MotionPilotPointID)
 

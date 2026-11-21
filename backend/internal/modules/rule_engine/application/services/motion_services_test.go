@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"sync"
@@ -190,10 +191,12 @@ func expectedCodes(t *testing.T, raw string) []string {
 	return out
 }
 
-// assertMatchesExpected compara las filas guardadas con motion_expected.csv.
+// assertMatchesExpected compara las filas guardadas con motion_v2_expected.csv
+// (estado, nivel, tipo, motivos y el historial de las horas OPENED, que
+// depende de los episodios anteriores leídos con ListEpisodes).
 func assertMatchesExpected(t *testing.T, rows []entities.MotionEvaluation) {
 	t.Helper()
-	want := readMotionCSV(t, "motion_expected.csv")
+	want := readMotionCSV(t, "../motion_v2/motion_v2_expected.csv")
 	if len(rows) != len(want) {
 		t.Fatalf("filas = %d, se esperaban %d", len(rows), len(want))
 	}
@@ -204,7 +207,8 @@ func assertMatchesExpected(t *testing.T, rows []entities.MotionEvaluation) {
 			"evaluated_at": g.EvaluatedAt.Format(time.RFC3339), "status": string(g.Status),
 			"motion_state": string(g.MotionState), "temp_state": string(g.State.TempState),
 			"in_episode": bstr[g.State.InEpisode], "episode_event": string(g.EpisodeEvent),
-			"computed_level": string(g.ComputedLevel),
+			"computed_level": string(g.ComputedLevel), "table_level": string(g.TableLevel),
+			"episode_kind": string(g.EpisodeKind),
 		}
 		for k, v := range got {
 			if v != w[k] {
@@ -213,6 +217,15 @@ func assertMatchesExpected(t *testing.T, rows []entities.MotionEvaluation) {
 		}
 		if gc, wc := reasonCodes(g), expectedCodes(t, w["reasons"]); len(gc) != len(wc) || (len(gc) > 0 && !equalStrings(gc, wc)) {
 			t.Fatalf("%s motivos = %v, se esperaban %v", w["evaluated_at"], gc, wc)
+		}
+		if w["history"] != "" || g.History != nil {
+			var wh, gh any
+			_ = json.Unmarshal([]byte(w["history"]), &wh)
+			b, _ := json.Marshal(g.History)
+			_ = json.Unmarshal(b, &gh)
+			if !reflect.DeepEqual(wh, gh) {
+				t.Fatalf("%s history:\n got  %s\n want %s", w["evaluated_at"], b, w["history"])
+			}
 		}
 	}
 }
@@ -336,7 +349,8 @@ func TestMotionLive_CatchUpThenLiveAndPublishesEvent(t *testing.T) {
 	switch {
 	case e.EventType != "MOVIMIENTO", e.Status != "CALCULATED", e.MotionState != "DESPLAZADO",
 		e.TempState != "TEMP_ESTABLE", e.TempMode != "MOVIMIENTO_Y_TEMPERATURA", e.ComputedLevel != "AMARILLO",
-		!e.InEpisode, e.EpisodeEvent != "NONE", e.SchemaVersion != 1, e.MotionEvaluationID != last.ID:
+		!e.InEpisode, e.EpisodeEvent != "NONE", e.SchemaVersion != 2, e.MotionEvaluationID != last.ID,
+		e.TableLevel != "AMARILLO", e.EpisodeKind != "SALTO", e.History != nil:
 		t.Fatalf("evento %+v", e)
 	case e.EpisodeOpenedAt == nil || !e.EpisodeOpenedAt.Equal(opened):
 		t.Fatalf("episode_opened_at = %v", e.EpisodeOpenedAt)
@@ -417,15 +431,15 @@ func TestMotionThresholds_CreateCopiesAndClosesTheOpenVersion(t *testing.T) {
 	f := newMotionFixture(t, "")
 	ctx := context.Background()
 	v, err := f.thresholdUC.CreateVersion(ctx, services.CreateMotionThresholdVersionCommand{
-		PointID: pilot, Patch: entities.MotionPatch{"abrupt_deg": 0.05, "alerts_enabled": false},
+		PointID: pilot, Patch: entities.MotionPatch{"still_hours": 25, "alerts_enabled": false},
 		Reason: "calibración", CreatedBy: "ana",
 	})
 	if err != nil {
 		t.Fatalf("crear: %v", err)
 	}
 	want := entities.DefaultMotionParams()
-	want.AbruptDeg, want.AlertsEnabled = 0.05, false
-	if v.Version != 2 || v.Params != want || v.PreviousVersionID == nil || !v.ValidFrom.Equal(f.clock.Now()) {
+	want.StillHours, want.AlertsEnabled = 25, false
+	if v.Version != 2 || !reflect.DeepEqual(v.Params, want) || v.PreviousVersionID == nil || !v.ValidFrom.Equal(f.clock.Now()) {
 		t.Fatalf("versión %+v", v)
 	}
 	history, _ := f.thresholdUC.GetHistory(ctx, pilot)
@@ -455,6 +469,29 @@ func TestMotionThresholds_Validation(t *testing.T) {
 			Patch: entities.MotionPatch{"min_records_hour": 5}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionRecordsRange},
 		{"parámetro desconocido", services.CreateMotionThresholdVersionCommand{PointID: pilot,
 			Patch: entities.MotionPatch{"amarillo": 0.2}, Reason: "r", CreatedBy: "c"}, domain.ErrInvalidPatch},
+		// CA-4 (§5.4).
+		{"amarillo_deg <= 0,01", rulesCmd(rule(3, "ANY", 0.01, nil, nil)), domain.ErrMotionRuleAmarillo},
+		{"naranja <= amarillo", rulesCmd(rule(3, "ANY", 0.04, f64(0.04), nil)), domain.ErrMotionRuleOrder},
+		{"rojo <= naranja", rulesCmd(rule(3, "ANY", 0.04, f64(0.10), f64(0.10))), domain.ErrMotionRuleOrder},
+		{"rojo <= amarillo sin naranja", rulesCmd(rule(1, "ANY", 0.04, nil, f64(0.03))), domain.ErrMotionRuleOrder},
+		{"ventana repetida", rulesCmd(rule(3, "PITCH", 0.04, nil, nil), rule(3, "PITCH", 0.05, nil, nil)), domain.ErrMotionRuleDuplicate},
+		{"ANY con PITCH", rulesCmd(rule(3, "ANY", 0.04, nil, nil), rule(3, "PITCH", 0.05, nil, nil)), domain.ErrMotionRuleDuplicate},
+		{"ventana 0", rulesCmd(rule(0, "ANY", 0.04, nil, nil)), domain.ErrMotionRuleWindow},
+		{"ventana 721", rulesCmd(rule(721, "ANY", 0.04, nil, nil)), domain.ErrMotionRuleWindow},
+		{"eje inválido", rulesCmd(rule(3, "YAW", 0.04, nil, nil)), domain.ErrMotionRuleAxis},
+		{"tabla vacía", rulesCmd(), domain.ErrMotionRulesEmpty},
+		{"send_naranja inválido", services.CreateMotionThresholdVersionCommand{PointID: pilot,
+			Patch: entities.MotionPatch{"send_naranja": "ON"}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionSendMode},
+		{"closure_cap_level inválido", services.CreateMotionThresholdVersionCommand{PointID: pilot,
+			Patch: entities.MotionPatch{"closure_cap_level": "NORMAL"}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionClosureCap},
+		{"long_min_coverage 0", services.CreateMotionThresholdVersionCommand{PointID: pilot,
+			Patch: entities.MotionPatch{"long_min_coverage": 0.0}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionFraction},
+		{"history_step_share > 1", services.CreateMotionThresholdVersionCommand{PointID: pilot,
+			Patch: entities.MotionPatch{"history_step_share": 1.5}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionFraction},
+		{"abrupt_deg retirado", services.CreateMotionThresholdVersionCommand{PointID: pilot,
+			Patch: entities.MotionPatch{"abrupt_deg": 0.05}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionAbruptRetired},
+		{"abrupt_hours retirado", services.CreateMotionThresholdVersionCommand{PointID: pilot,
+			Patch: entities.MotionPatch{"abrupt_hours": 4}, Reason: "r", CreatedBy: "c"}, domain.ErrMotionAbruptRetired},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -465,6 +502,77 @@ func TestMotionThresholds_Validation(t *testing.T) {
 	}
 	if h, _ := f.thresholdUC.GetHistory(ctx, pilot); len(h) != 1 {
 		t.Fatalf("se crearon versiones inválidas: %d", len(h))
+	}
+}
+
+func rule(w int, axis string, am float64, na, ro *float64) entities.MotionRule {
+	return entities.MotionRule{WindowHours: w, Axis: axis, AmarilloDeg: am, NaranjaDeg: na, RojoDeg: ro}
+}
+
+func rulesCmd(rules ...entities.MotionRule) services.CreateMotionThresholdVersionCommand {
+	if rules == nil {
+		rules = []entities.MotionRule{}
+	}
+	return services.CreateMotionThresholdVersionCommand{PointID: pilot,
+		Patch: entities.MotionPatch{entities.MotionRulesParam: rules}, Reason: "r", CreatedBy: "c"}
+}
+
+// CA-4: los cuatro avisos se guardan igual y vuelven en Warnings.
+func TestMotionThresholds_Warnings(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name  string
+		rules []entities.MotionRule
+		want  []string
+	}{
+		{"tabla de §5.3", entities.DefaultMotionRules(), nil},
+		{"lo normal no crece", []entities.MotionRule{rule(3, "ANY", 0.10, nil, nil), rule(168, "PITCH", 0.05, nil, nil)},
+			[]string{entities.MotionWarnNormalNotIncreasing}},
+		{"sin regla larga", []entities.MotionRule{rule(3, "ANY", 0.04, nil, nil)}, []string{entities.MotionWarnNoLongRule}},
+		{"sin regla corta", []entities.MotionRule{rule(168, "ANY", 0.10, nil, nil)}, []string{entities.MotionWarnNoShortRule}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newMotionFixture(t, "")
+			v, err := f.thresholdUC.CreateVersion(ctx, rulesCmd(tc.rules...))
+			if err != nil || !equalStrings(v.Warnings, tc.want) {
+				t.Fatalf("warnings %v (err %v), se esperaba %v", v.Warnings, err, tc.want)
+			}
+			if h, _ := f.thresholdUC.GetHistory(ctx, pilot); len(h) != 2 {
+				t.Fatalf("con avisos se guarda igual: %d versiones", len(h))
+			}
+		})
+	}
+	// WINDOW_LONGER_THAN_HISTORY: con 10 días de historia, la ventana de 30 días avisa.
+	f := newMotionFixture(t, "")
+	f.thresholdUC.WithMeasurementSource(f.source)
+	f.clock.set(motionFirst.Add(10 * 24 * time.Hour))
+	v, err := f.thresholdUC.CreateVersion(ctx, rulesCmd(entities.DefaultMotionRules()...))
+	if err != nil || !equalStrings(v.Warnings, []string{entities.MotionWarnWindowLongerThanHistory}) {
+		t.Fatalf("warnings %v (err %v)", v.Warnings, err)
+	}
+}
+
+// CA-5: sin rules se copia la tabla; con rules se reemplaza completa; el
+// historial devuelve la tabla de cada versión.
+func TestMotionThresholds_RulesCopyAndReplace(t *testing.T) {
+	f := newMotionFixture(t, "")
+	ctx := context.Background()
+	v2, err := f.thresholdUC.CreateVersion(ctx, services.CreateMotionThresholdVersionCommand{PointID: pilot,
+		Patch: entities.MotionPatch{"send_naranja": "ACTIVE"}, Reason: "r", CreatedBy: "c"})
+	if err != nil || !reflect.DeepEqual(v2.Params.Rules, entities.DefaultMotionRules()) || v2.Params.SendNaranja != entities.MotionSendActive {
+		t.Fatalf("sin rules: %+v (err %v)", v2.Params, err)
+	}
+	f.clock.set(f.clock.Now().Add(time.Hour))
+	only := []entities.MotionRule{rule(3, "PITCH", 0.05, nil, nil), rule(168, "ANY", 0.12, nil, nil)}
+	v3, err := f.thresholdUC.CreateVersion(ctx, rulesCmd(only...))
+	if err != nil || !reflect.DeepEqual(v3.Params.Rules, only) || v3.Params.SendNaranja != entities.MotionSendActive {
+		t.Fatalf("con rules: %+v (err %v)", v3.Params.Rules, err)
+	}
+	h, _ := f.thresholdUC.GetHistory(ctx, pilot)
+	if len(h) != 3 || !reflect.DeepEqual(h[0].Params.Rules, entities.DefaultMotionRules()) ||
+		!reflect.DeepEqual(h[1].Params.Rules, entities.DefaultMotionRules()) || !reflect.DeepEqual(h[2].Params.Rules, only) {
+		t.Fatalf("historial de tablas: %+v", h)
 	}
 }
 
@@ -488,13 +596,24 @@ func TestMotionSimulation_ComparesWithCurrentVersion(t *testing.T) {
 		t.Fatalf("episodio de agosto %+v", aug)
 	}
 
-	// Subir abrupt_deg a 0,05° quita los dos cambios bruscos de octubre (+0,04° y +0,045°).
-	higher, err := sim.Simulate(ctx, services.MotionSimulateCommand{PointID: pilot, Patch: entities.MotionPatch{"abrupt_deg": 0.05}, From: from, To: to})
+	// CA-6: tipos y niveles de §11.1.
+	for i, k := range []entities.MotionEpisodeKind{entities.MotionEpisodeSalto, entities.MotionEpisodeRapido,
+		entities.MotionEpisodeRapido, entities.MotionEpisodeHueco} {
+		if e := same.Episodes[i]; e.Kind != k || e.TableLevel != entities.LevelAmarillo || e.SentLevel != entities.LevelAmarillo {
+			t.Fatalf("episodio %d: %s %s/%s, se esperaba %s AMARILLO/AMARILLO", i, e.Kind, e.TableLevel, e.SentLevel, k)
+		}
+	}
+
+	// CA-6: con amarillo_deg = 0,03 en la fila de 3 h aparecen episodios nuevos.
+	rules := entities.DefaultMotionRules()
+	rules[1].AmarilloDeg = 0.03
+	lower, err := sim.Simulate(ctx, services.MotionSimulateCommand{PointID: pilot,
+		Patch: entities.MotionPatch{entities.MotionRulesParam: rules}, From: from, To: to})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(higher.Episodes) != 2 || higher.RemovedEpisodes != 2 || higher.NewEpisodes != 0 {
-		t.Fatalf("abrupt_deg 0,05: %d episodios, nuevos %d, quitados %d", len(higher.Episodes), higher.NewEpisodes, higher.RemovedEpisodes)
+	if lower.NewEpisodes == 0 || len(lower.Episodes) <= 4 || len(lower.CurrentEpisodes) != 4 {
+		t.Fatalf("amarillo 0,03 en 3 h: %d episodios, nuevos %d, vigentes %d", len(lower.Episodes), lower.NewEpisodes, len(lower.CurrentEpisodes))
 	}
 	if len(f.evaluations.All(pilot)) != 0 {
 		t.Fatal("la simulación escribió filas")
@@ -502,3 +621,26 @@ func TestMotionSimulation_ComparesWithCurrentVersion(t *testing.T) {
 }
 
 var _ ports.RawMeasurementSource = (*fakeRawSource)(nil)
+
+// §8 (P2): observed lee motion_evaluations (ListRange) y, con la tabla
+// vigente, da los máximos de §2 en los últimos 90 días; days fuera de 1..365 es 400.
+func TestMotionObserved_LastNinetyDays(t *testing.T) {
+	f := newMotionFixture(t, "")
+	ctx := context.Background()
+	if _, err := f.backfill.Backfill(ctx, services.MotionBackfillCommand{PointID: pilot}); err != nil {
+		t.Fatal(err)
+	}
+	obs := services.NewMotionObservedService(f.thresholds, f.evaluations, f.clock, testLogger())
+	res, err := obs.Observed(ctx, pilot, 90)
+	if err != nil || len(res.Rows) != 10 || !res.To.Equal(motionEnd) {
+		t.Fatalf("observed %+v (err %v)", res, err)
+	}
+	if r := res.Rows[len(res.Rows)-1]; r.WindowHours != 720 || r.Axis != "roll" || r.Max == nil || *r.Max != 0.095 {
+		t.Fatalf("30 días roll %+v", r)
+	}
+	for _, days := range []int{0, 366} {
+		if _, err := obs.Observed(ctx, pilot, days); !errors.Is(err, domain.ErrMotionObservedDays) {
+			t.Fatalf("days %d: %v", days, err)
+		}
+	}
+}

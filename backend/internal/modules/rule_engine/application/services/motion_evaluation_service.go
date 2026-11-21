@@ -17,7 +17,7 @@ import (
 )
 
 // defaultMotionChunkHours son las horas que se evalúan por cada lectura de
-// raw_measurements: una semana de horas + la ventana de 169 h en una consulta.
+// raw_measurements: una semana de horas + la ventana de MotionWindowHours en una consulta.
 const defaultMotionChunkHours = 168
 
 // MotionPointRun es el resumen de un punto en una corrida (scheduler o backfill).
@@ -121,6 +121,14 @@ func (s *MotionEvaluationService) evaluateRange(
 		state = prev.State
 	}
 	var version *entities.MotionThresholdVersion
+	// Episodios cerrados antes de from (historial de motion-v2); se extiende
+	// con cada CLEARED del tramo.
+	past, err := s.evaluations.ListEpisodes(ctx, pointID, from)
+	if err != nil {
+		s.log.Error("[MotionEvaluationService] Error consultando los episodios anteriores", "measuring_point_id", pointID, "error", err)
+		run.Err = domain.ErrConsultingMotionEvaluations
+		return
+	}
 
 	for chunk := from; !chunk.After(to); chunk = chunk.Add(time.Duration(s.chunkHours) * time.Hour) {
 		if ctx.Err() != nil {
@@ -155,7 +163,7 @@ func (s *MotionEvaluationService) evaluateRange(
 				continue
 			}
 
-			ev := domainServices.MotionAssess(windowOf(records, t), state, version.Params, t)
+			ev := domainServices.MotionAssess(windowOf(records, t), state, version.Params, t, past)
 			ev.MeasuringPointID = pointID
 			ev.ThresholdVersionID = version.ID
 			ev.Trigger = trigger(t)
@@ -179,10 +187,16 @@ func (s *MotionEvaluationService) evaluateRange(
 					return
 				}
 				state = stored.State
+				if ep, ok := entities.EpisodeFromCleared(*stored); ok {
+					past = append(past, ep)
+				}
 				continue
 			}
 			ev.ID = id
 			state = ev.State
+			if ep, ok := entities.EpisodeFromCleared(ev); ok {
+				past = append(past, ep)
+			}
 			s.count(run, ev)
 			if publish && version.Params.AlertsEnabled {
 				if s.publish(ctx, MotionEvaluatedFromRow(ev, version.Params, s.clock.Now().UTC())) {
@@ -256,7 +270,7 @@ func (s *MotionEvaluationService) lock(pointID int64) (unlock func()) {
 	return l.Unlock
 }
 
-// windowOf devuelve los registros de [t − 169 h, t) de un tramo ordenado.
+// windowOf devuelve los registros de la ventana de t de un tramo ordenado.
 func windowOf(records []entities.RawRecord, t time.Time) []entities.RawRecord {
 	from, to := entities.MotionWindow(t)
 	i := sort.Search(len(records), func(k int) bool { return !records[k].Timestamp.Before(from) })
@@ -273,7 +287,7 @@ func ceilHour(t time.Time) time.Time {
 	return h
 }
 
-// MotionEvaluatedFromRow arma el evento v1 de una fila guardada (§6.3).
+// MotionEvaluatedFromRow arma el evento v2 de una fila guardada (§7.2 de motion-v2).
 func MotionEvaluatedFromRow(ev entities.MotionEvaluation, p entities.MotionParams, occurredAt time.Time) contract.MotionEvaluated {
 	st := ev.State
 	out := contract.MotionEvaluated{
@@ -286,6 +300,9 @@ func MotionEvaluatedFromRow(ev entities.MotionEvaluation, p entities.MotionParam
 		TempState:          string(st.TempState),
 		TempMode:           string(p.TempMode),
 		ComputedLevel:      string(ev.ComputedLevel),
+		TableLevel:         string(ev.TableLevel),
+		EpisodeKind:        string(ev.EpisodeKind),
+		RulesHit:           contract.JSONArray(ev.RulesHit),
 		InEpisode:          st.InEpisode,
 		EpisodeEvent:       string(ev.EpisodeEvent),
 		TempStable:         contract.TempStable{From: utc(ev.TempStableFrom()), To: utc(ev.TempStableTo())},
@@ -308,7 +325,10 @@ func MotionEvaluatedFromRow(ev entities.MotionEvaluation, p entities.MotionParam
 		}
 	}
 	for i, r := range ev.Reasons {
-		out.Reasons[i] = contract.MotionReason{Code: string(r.Code), Data: r.Data()}
+		out.Reasons[i] = contract.MotionReason{Code: string(r.Code), Data: contract.JSONObject(r.Data())}
+	}
+	if ev.EpisodeEvent == entities.EpisodeEventOpened && ev.History != nil {
+		out.History = contract.JSONObject(ev.History)
 	}
 	return out
 }

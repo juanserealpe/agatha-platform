@@ -36,7 +36,12 @@ func (s csvSource) ListPoints(context.Context) ([]int64, error) {
 
 func loadInput(t *testing.T) []entities.RawRecord {
 	t.Helper()
-	f, err := os.Open("../../../domain/services/testdata/motion/motion_input.csv")
+	return loadInputFile(t, "../../../domain/services/testdata/motion/motion_input.csv")
+}
+
+func loadInputFile(t *testing.T, path string) []entities.RawRecord {
+	t.Helper()
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +67,16 @@ func loadInput(t *testing.T) []entities.RawRecord {
 }
 
 // Las 3 182 horas reales del MP-11556 vuelven idénticas de motion_evaluations:
-// la hora siguiente lee exactamente el estado que se guardó.
+// la hora siguiente lee exactamente el estado que se guardó. El caso
+// sintético creep agrega MOV_CUMULATIVE, MOV_LEVEL_UP y MOV_DAILY sin datos.
 func TestMotionEvaluation_RoundTripOfTheWholeHistory(t *testing.T) {
-	records := loadInput(t)
+	for _, path := range []string{"../../../domain/services/testdata/motion/motion_input.csv",
+		"../../../domain/services/testdata/motion_v2/motion_input_creep.csv"} {
+		t.Run(path[len(path)-20:], func(t *testing.T) { roundTripAll(t, loadInputFile(t, path)) })
+	}
+}
+
+func roundTripAll(t *testing.T, records []entities.RawRecord) {
 	now := time.Date(2026, 11, 17, 19, 30, 0, 0, time.UTC)
 	clock := ports.ClockFunc(func() time.Time { return now })
 	log := logger.New("MapperTest", "Error")
@@ -84,10 +96,28 @@ func TestMotionEvaluation_RoundTripOfTheWholeHistory(t *testing.T) {
 		t.Fatalf("filas = %d", len(rows))
 	}
 	withReasons, withGaps := 0, 0
+	codes := map[entities.ReasonCode]bool{}
 	for _, want := range rows {
+		for _, r := range want.Reasons {
+			codes[r.Code] = true
+		}
 		got := ToMotionEvaluation(ToMotionEvaluationModel(want))
 		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("%v: la ida y vuelta cambió la fila\n got  %+v\n want %+v", want.EvaluatedAt, got, want)
+			for i := range want.Reasons {
+				if i < len(got.Reasons) && !reflect.DeepEqual(got.Reasons[i], want.Reasons[i]) {
+					t.Logf("motivo %d\n got  %+v\n want %+v", i, got.Reasons[i], want.Reasons[i])
+				}
+			}
+			if !reflect.DeepEqual(got.State, want.State) {
+				t.Logf("estado\n got  %+v\n want %+v", got.State, want.State)
+			}
+			if !reflect.DeepEqual(got.History, want.History) {
+				t.Logf("historial distinto")
+			}
+			if !reflect.DeepEqual(got.RulesHit, want.RulesHit) {
+				t.Logf("rules_hit\n got  %+v\n want %+v", got.RulesHit, want.RulesHit)
+			}
+			t.Fatalf("%v: la ida y vuelta cambió la fila", want.EvaluatedAt)
 		}
 		if len(want.Reasons) > 0 {
 			withReasons++
@@ -96,6 +126,7 @@ func TestMotionEvaluation_RoundTripOfTheWholeHistory(t *testing.T) {
 			withGaps++
 		}
 	}
+	t.Logf("códigos cubiertos: %d", len(codes))
 	if withReasons == 0 || withGaps == 0 {
 		t.Fatalf("el histórico no cubre motivos (%d) ni huecos pendientes (%d)", withReasons, withGaps)
 	}

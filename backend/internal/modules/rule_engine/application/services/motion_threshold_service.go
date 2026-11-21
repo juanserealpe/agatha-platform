@@ -32,14 +32,37 @@ type MotionThresholdService struct {
 	thresholds repositories.MotionThresholdRepository
 	clock      ports.Clock
 	log        *logger.Logger
+	// source da el largo del historial del punto (aviso
+	// WINDOW_LONGER_THAN_HISTORY); nil = no se avisa.
+	source ports.RawMeasurementSource
 }
 
 func NewMotionThresholdService(thresholds repositories.MotionThresholdRepository, clock ports.Clock, log *logger.Logger) *MotionThresholdService {
 	return &MotionThresholdService{thresholds: thresholds, clock: clock, log: log}
 }
 
+// WithMeasurementSource activa el aviso WINDOW_LONGER_THAN_HISTORY.
+func (s *MotionThresholdService) WithMeasurementSource(source ports.RawMeasurementSource) *MotionThresholdService {
+	s.source = source
+	return s
+}
+
+// historyHours es el largo del historial del punto en horas (-1 si no se sabe).
+func (s *MotionThresholdService) historyHours(ctx context.Context, pointID int64, at time.Time) float64 {
+	if s.source == nil {
+		return -1
+	}
+	first, err := s.source.FirstMeasurementAt(ctx, pointID)
+	if err != nil || first == nil {
+		return -1
+	}
+	return at.Sub(*first).Hours()
+}
+
 // CreateVersion crea la versión siguiente del punto. Sin versión previa, el
 // parche se aplica sobre la de punto nuevo (modo sombra, SOLO_MOVIMIENTO).
+// Un parche sin "rules" copia la tabla de la vigente; con "rules" la
+// reemplaza completa. Los avisos de la tabla vuelven en Warnings (se guarda igual).
 func (s *MotionThresholdService) CreateVersion(ctx context.Context, cmd CreateMotionThresholdVersionCommand) (entities.MotionThresholdVersion, error) {
 	if cmd.PointID <= 0 {
 		return entities.MotionThresholdVersion{}, domain.ErrInvalidMeasuringPointID
@@ -94,6 +117,7 @@ func (s *MotionThresholdService) CreateVersion(ctx context.Context, cmd CreateMo
 		if created.ID, err = tx.Insert(ctx, created); err != nil {
 			return err
 		}
+		created.Warnings = entities.MotionRuleWarnings(params.Rules, s.historyHours(ctx, cmd.PointID, validFrom))
 		if open != nil {
 			previous := open.ID
 			created.PreviousVersionID = &previous
@@ -118,7 +142,8 @@ func (s *MotionThresholdService) CreateVersion(ctx context.Context, cmd CreateMo
 	s.log.Info("[MotionThresholdService] Versión de movimiento creada",
 		"measuring_point_id", created.MeasuringPointID, "version", created.Version,
 		"alerts_enabled", created.Params.AlertsEnabled, "temp_mode", created.Params.TempMode,
-		"valid_from", created.ValidFrom, "reason", created.Reason, "created_by", created.CreatedBy)
+		"valid_from", created.ValidFrom, "reason", created.Reason, "created_by", created.CreatedBy,
+		"rules", len(created.Params.Rules), "warnings", created.Warnings)
 	return created, nil
 }
 
@@ -201,4 +226,36 @@ func (s *MotionThresholdService) GetHistory(ctx context.Context, pointID int64) 
 		history[n].PreviousVersionID = &previous
 	}
 	return history, nil
+}
+
+// MotionTimelineSegment es un tramo de vigencia recortado a [from, to).
+type MotionTimelineSegment struct {
+	From, To time.Time
+	Version  entities.MotionThresholdVersion
+}
+
+// GetTimeline devuelve los tramos de vigencia de las versiones de movimiento
+// que se solapan con [from, to), recortados al rango (como en FUGA).
+func (s *MotionThresholdService) GetTimeline(ctx context.Context, pointID int64, from, to time.Time) ([]MotionTimelineSegment, error) {
+	if !from.Before(to) {
+		return nil, domain.ErrInvalidTimeRange
+	}
+	history, err := s.GetHistory(ctx, pointID)
+	if err != nil {
+		return nil, err
+	}
+	var out []MotionTimelineSegment
+	for _, v := range history {
+		start, end := v.ValidFrom, to
+		if v.ValidTo != nil && v.ValidTo.Before(end) {
+			end = *v.ValidTo
+		}
+		if start.Before(from) {
+			start = from
+		}
+		if start.Before(end) {
+			out = append(out, MotionTimelineSegment{From: start.UTC(), To: end.UTC(), Version: v})
+		}
+	}
+	return out, nil
 }

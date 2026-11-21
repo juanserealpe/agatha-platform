@@ -15,12 +15,20 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/rule_engine/domain/entities"
 )
 
-// Prueba dorada (§12.1): MotionAssess hora a hora sobre motion_input.csv con
-// los parámetros v1 debe reproducir motion_expected.csv (salida de motion_ref.py).
+// Prueba dorada v1 (§12.1 de v1) vista desde motion-v2 (CA-1, §11.1): las
+// columnas v1 de motion-v2 coinciden con motion_expected.csv en todas las
+// horas. Los motivos NO se comparan aquí: motion-v2 agrega MOV_DAILY y
+// MOV_NEW_POSITION y cambia los datos de MOV_ABRUPT y MOV_STILL; los compara
+// TestMotionAssessV2_Golden contra motion_v2_expected.csv.
 
 func loadMotionInput(t *testing.T) []entities.RawRecord {
 	t.Helper()
-	rows := readCSV(t, "testdata/motion/motion_input.csv")
+	return loadMotionCSV(t, "testdata/motion/motion_input.csv")
+}
+
+func loadMotionCSV(t *testing.T, path string) []entities.RawRecord {
+	t.Helper()
+	rows := readCSV(t, path)
 	out := make([]entities.RawRecord, 0, len(rows))
 	for _, r := range rows {
 		ts, err := time.Parse(time.RFC3339, r["timestamp"])
@@ -72,7 +80,8 @@ func optFloat(t *testing.T, s string) *float64 {
 }
 
 // runMotion evalúa todas las horas, de ceil(primer registro con pitch y roll)
-// a floor(último), encadenando el estado como lo haría el scheduler.
+// a floor(último), encadenando el estado y los episodios cerrados como lo
+// haría el scheduler.
 func runMotion(records []entities.RawRecord, p entities.MotionParams) []entities.MotionEvaluation {
 	var first, last time.Time
 	for _, r := range records {
@@ -91,12 +100,16 @@ func runMotion(records []entities.RawRecord, p entities.MotionParams) []entities
 	t1 := last.Truncate(time.Hour)
 	state := entities.InitialMotionState(p)
 	var out []entities.MotionEvaluation
+	var past []entities.MotionEpisode
 	for t := t0; !t.After(t1); t = t.Add(time.Hour) {
 		from := t.Add(-MotionWindowHours * time.Hour)
 		i := sort.Search(len(records), func(k int) bool { return !records[k].Timestamp.Before(from) })
 		j := sort.Search(len(records), func(k int) bool { return !records[k].Timestamp.Before(t) })
-		ev := MotionAssess(records[i:j], state, p, t)
+		ev := MotionAssess(records[i:j], state, p, t, past)
 		state = ev.State
+		if ep, ok := entities.EpisodeFromCleared(ev); ok {
+			past = append(past, ep)
+		}
 		out = append(out, ev)
 	}
 	return out
@@ -226,7 +239,7 @@ func anyEqual(a, b any) bool {
 	}
 }
 
-func TestMotionAssess_GoldenMP11556(t *testing.T) {
+func TestMotionAssess_GoldenMP11556_V1Columns(t *testing.T) {
 	records := loadMotionInput(t)
 	want := readCSV(t, "testdata/motion/motion_expected.csv")
 	got := runMotion(records, entities.DefaultMotionParams())
@@ -236,7 +249,7 @@ func TestMotionAssess_GoldenMP11556(t *testing.T) {
 	}
 	var diffs []string
 	for i, w := range want {
-		g, gReasons := gotRow(got[i])
+		g, _ := gotRow(got[i])
 		for _, c := range exactCols {
 			if g[c] != w[c] {
 				diffs = append(diffs, fmt.Sprintf("%s %s: got %q want %q", w["evaluated_at"], c, g[c], w[c]))
@@ -246,14 +259,6 @@ func TestMotionAssess_GoldenMP11556(t *testing.T) {
 			if !numEqual(g[c], w[c]) {
 				diffs = append(diffs, fmt.Sprintf("%s %s: got %q want %q", w["evaluated_at"], c, g[c], w[c]))
 			}
-		}
-		var wReasons []map[string]any
-		if err := json.Unmarshal([]byte(w["reasons"]), &wReasons); err != nil {
-			t.Fatalf("%s reasons: %v", w["evaluated_at"], err)
-		}
-		if len(wReasons) != len(gReasons) || !anyEqual(toAny(wReasons), toAny(gReasons)) {
-			gb, _ := json.Marshal(gReasons)
-			diffs = append(diffs, fmt.Sprintf("%s reasons:\n  got  %s\n  want %s", w["evaluated_at"], gb, w["reasons"]))
 		}
 	}
 	if len(diffs) > 0 {
@@ -266,12 +271,4 @@ func TestMotionAssess_GoldenMP11556(t *testing.T) {
 		}
 		t.Fatalf("%d diferencias con motion_expected.csv", len(diffs))
 	}
-}
-
-func toAny(v []map[string]any) []any {
-	out := make([]any, len(v))
-	for i, m := range v {
-		out[i] = m
-	}
-	return out
 }

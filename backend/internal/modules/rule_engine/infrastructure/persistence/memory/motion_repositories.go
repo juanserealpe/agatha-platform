@@ -191,6 +191,33 @@ func (r *MotionEvaluationRepository) CountAfter(_ context.Context, pointID int64
 	return n, nil
 }
 
+func (r *MotionEvaluationRepository) ListRange(_ context.Context, pointID int64, from, to time.Time) ([]entities.MotionEvaluation, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []entities.MotionEvaluation
+	for _, x := range r.rows[pointID] {
+		if !x.EvaluatedAt.Before(from) && !x.EvaluatedAt.After(to) {
+			out = append(out, x)
+		}
+	}
+	return out, nil
+}
+
+func (r *MotionEvaluationRepository) ListEpisodes(_ context.Context, pointID int64, before time.Time) ([]entities.MotionEpisode, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []entities.MotionEpisode
+	for _, x := range r.rows[pointID] {
+		if !before.IsZero() && !x.EvaluatedAt.Before(before) {
+			break
+		}
+		if ep, ok := entities.EpisodeFromCleared(x); ok {
+			out = append(out, ep)
+		}
+	}
+	return out, nil
+}
+
 // All devuelve las filas del punto, ascendentes (para tests).
 func (r *MotionEvaluationRepository) All(pointID int64) []entities.MotionEvaluation {
 	r.mu.Lock()

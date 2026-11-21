@@ -232,6 +232,10 @@ type AlertDetailResponse struct {
 	LabelDetail           *ManagementStep   `json:"label_detail"`
 	Observations          []ObservationItem `json:"observations"`
 	Levels                []LevelItem       `json:"levels"`
+	// MotionHistory (motion-v2): historial del OPENED que abrió o reactivó la
+	// alerta de MOVIMIENTO; MotionTableLevel, el nivel calculado máximo. null en FUGA.
+	MotionHistory    map[string]any `json:"motion_history"`
+	MotionTableLevel *string        `json:"motion_table_level"`
 }
 
 func toDetail(d ports.AlertDetail) AlertDetailResponse {
@@ -243,6 +247,7 @@ func toDetail(d ports.AlertDetail) AlertDetailResponse {
 		LastIndicatorValue: a.LastIndicatorValue, MaxIndicatorValue: a.MaxIndicatorValue, LastEvaluatedAt: local(a.LastEvaluatedAt),
 		HoursCalculated: a.HoursCalculated, HoursNoData: a.HoursNoData, LowConfidenceAtOpen: a.LowConfidenceAtOpen,
 		ThresholdVersionID: a.ThresholdVersionIDAtOpen, Observations: []ObservationItem{}, Levels: toLevels(d.Segments),
+		MotionHistory: a.MotionHistory, MotionTableLevel: strOrNil(string(a.MotionTableLevel)),
 	}
 	if m.Classified() {
 		out.ClassificationDetail = &ManagementStep{Value: string(m.Classification), At: localPtr(m.ClassifiedAt),

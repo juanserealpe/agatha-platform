@@ -54,6 +54,10 @@ type AlertModel struct {
 	TempStableFrom        *time.Time `gorm:"column:temp_stable_from;type:timestamptz"`
 	TempStableTo          *time.Time `gorm:"column:temp_stable_to;type:timestamptz"`
 	LastMotionEvaluatedAt *time.Time `gorm:"column:last_motion_evaluated_at;type:timestamptz"`
+	// motion-v2 (§9.1, aditivas): el historial del OPENED que abrió o
+	// reactivó la alerta y el nivel calculado máximo.
+	MotionHistory    *string `gorm:"column:motion_history;type:jsonb"`
+	MotionTableLevel *string `gorm:"column:motion_table_level;type:text;check:chk_alerts_motion_table_level,motion_table_level IS NULL OR motion_table_level IN ('AMARILLO', 'NARANJA', 'ROJO')"`
 
 	StartedAt         time.Time  `gorm:"column:started_at;type:timestamptz;not null;index:ix_alerts_point_started,priority:2,sort:desc;index:ix_alerts_started"`
 	OpenedAt          time.Time  `gorm:"column:opened_at;type:timestamptz;not null"`
@@ -230,27 +234,32 @@ type DeviceReadModel struct {
 // MotionEvaluationReadModel es una fila de motion_evaluations con el
 // alerts_enabled de su versión (JOIN). Solo lectura: las tablas son del Rule Engine.
 type MotionEvaluationReadModel struct {
-	ID                 int64      `gorm:"column:id"`
-	MeasuringPointID   int64      `gorm:"column:measuring_point_id"`
-	EvaluatedAt        time.Time  `gorm:"column:evaluated_at"`
-	Status             string     `gorm:"column:status"`
-	MotionState        *string    `gorm:"column:motion_state"`
-	TempState          *string    `gorm:"column:temp_state"`
-	TempMode           string     `gorm:"column:temp_mode"`
-	ComputedLevel      string     `gorm:"column:computed_level"`
-	InEpisode          bool       `gorm:"column:in_episode"`
-	EpisodeEvent       string     `gorm:"column:episode_event"`
-	Displaced          bool       `gorm:"column:displaced"`
-	PitchNow           *float64   `gorm:"column:pitch_now"`
-	RollNow            *float64   `gorm:"column:roll_now"`
-	RefPitch           *float64   `gorm:"column:ref_pitch"`
-	RefRoll            *float64   `gorm:"column:ref_roll"`
-	ShiftStartedAt     *time.Time `gorm:"column:shift_started_at"`
-	GapFrom            *time.Time `gorm:"column:gap_from"`
-	GapTo              *time.Time `gorm:"column:gap_to"`
-	TempStableFrom     *time.Time `gorm:"column:temp_stable_from"`
-	TempStableTo       *time.Time `gorm:"column:temp_stable_to"`
-	Reasons            string     `gorm:"column:reasons"`
-	ThresholdVersionID int64      `gorm:"column:threshold_version_id"`
-	AlertsEnabled      bool       `gorm:"column:alerts_enabled"`
+	ID               int64      `gorm:"column:id"`
+	MeasuringPointID int64      `gorm:"column:measuring_point_id"`
+	EvaluatedAt      time.Time  `gorm:"column:evaluated_at"`
+	Status           string     `gorm:"column:status"`
+	MotionState      *string    `gorm:"column:motion_state"`
+	TempState        *string    `gorm:"column:temp_state"`
+	TempMode         string     `gorm:"column:temp_mode"`
+	ComputedLevel    string     `gorm:"column:computed_level"`
+	InEpisode        bool       `gorm:"column:in_episode"`
+	EpisodeEvent     string     `gorm:"column:episode_event"`
+	Displaced        bool       `gorm:"column:displaced"`
+	PitchNow         *float64   `gorm:"column:pitch_now"`
+	RollNow          *float64   `gorm:"column:roll_now"`
+	RefPitch         *float64   `gorm:"column:ref_pitch"`
+	RefRoll          *float64   `gorm:"column:ref_roll"`
+	ShiftStartedAt   *time.Time `gorm:"column:shift_started_at"`
+	GapFrom          *time.Time `gorm:"column:gap_from"`
+	GapTo            *time.Time `gorm:"column:gap_to"`
+	TempStableFrom   *time.Time `gorm:"column:temp_stable_from"`
+	TempStableTo     *time.Time `gorm:"column:temp_stable_to"`
+	Reasons          string     `gorm:"column:reasons"`
+	// motion-v2 (NULL en las filas motion-v1).
+	TableLevel         *string `gorm:"column:table_level"`
+	EpisodeKind        *string `gorm:"column:episode_kind"`
+	History            *string `gorm:"column:history"`
+	RulesHit           *string `gorm:"column:rules_hit"`
+	ThresholdVersionID int64   `gorm:"column:threshold_version_id"`
+	AlertsEnabled      bool    `gorm:"column:alerts_enabled"`
 }

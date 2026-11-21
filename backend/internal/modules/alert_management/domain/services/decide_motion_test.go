@@ -308,10 +308,12 @@ func TestScenario02_AbruptOneAxis(t *testing.T) {
 	if a.EventType != entities.EventTypeMovement || a.MaxLevel != A || !a.StartedAt.Equal(h(-2)) || !a.EndedAt.Equal(h(24)) {
 		t.Fatalf("alerta %+v", a)
 	}
-	if open := w.message("MOV_OPEN"); open.Title != "Movimiento brusco del sensor" || !strings.Contains(open.Body, "roll +0,04° en 3 h") {
+	// v8: evento v1 sin la fila de la tabla ⇒ lo normal es la regla fija de v1.
+	if open := w.message("MOV_OPEN"); open.Title != "Cambio rápido de inclinación" ||
+		!strings.HasPrefix(open.Body, "Entre las 02:00 y las 05:00 del 24/08 el roll cambió +0,04° (3 horas). En este sensor lo normal es menos de 0,04° en 3 horas.") {
 		t.Fatalf("MOV_OPEN %q / %q", open.Title, open.Body)
 	}
-	if end := w.message("END_NORMAL"); end.Title != "Volvió a la normalidad" || end.Body != "Duró 26 h, nivel máximo Amarillo." {
+	if end := w.message("END_NORMAL"); end.Title != "Volvió a la normalidad" || end.Body != "La inclinación lleva 24 h sin moverse. Duró 1 día y 2 h. Cambio total desde el inicio del movimiento: pitch s/d, roll s/d. Nivel máximo: Amarillo." {
 		t.Fatalf("END_NORMAL %q / %q", end.Title, end.Body)
 	}
 }
@@ -358,7 +360,7 @@ func TestScenario04_JumpStableReturnWithoutNoise(t *testing.T) {
 	if a.TempStableFrom == nil || a.TempStableTo == nil || a.State != entities.AlertFinished {
 		t.Fatalf("alerta %+v", a)
 	}
-	if ret := w.message("MOV_RETURN"); !strings.Contains(ret.Body, "a la posición que tenía antes de las 04:15 del 24/08") {
+	if ret := w.message("MOV_RETURN"); !strings.Contains(ret.Body, "a la posición que tenía antes del movimiento. Pitch -0,07°, roll -0,12°.") {
 		t.Fatalf("MOV_RETURN %q", ret.Body)
 	}
 	if end := w.message("END_NORMAL"); !strings.Contains(end.Body, " Temperatura estable del 04:15 del 24/08 al ") {
@@ -541,7 +543,7 @@ func TestScenario09_TemperatureNeverStabilizes(t *testing.T) {
 	if want := []string{"MOV_OPEN:" + notif, "TEMP_NOT_STABILIZED:" + update, "END_NORMAL:" + fin}; !slices.Equal(w.kinds(), want) {
 		t.Fatalf("mensajes %v", w.kinds())
 	}
-	if end := w.message("END_NORMAL"); !strings.HasSuffix(end.Body, " La posición actual del sensor queda como la normal.") {
+	if end := w.message("END_NORMAL"); !strings.HasSuffix(end.Body, " La posición actual queda como la nueva referencia del sensor.") {
 		t.Fatalf("END_NORMAL %q", end.Body)
 	}
 }
@@ -586,7 +588,7 @@ func TestScenario11_TemperatureVariesWithoutReturn(t *testing.T) {
 	if v := w.message("TEMP_VARIES_AGAIN"); v.Body != "Estuvo estable 9 h (04:15 del 24/08 – 13:00 del 24/08). El sensor no volvió a su posición anterior. Dato: 0,445 °C en una hora." {
 		t.Fatalf("TEMP_VARIES_AGAIN %q", v.Body)
 	}
-	if end := w.message("END_NORMAL"); !strings.Contains(end.Body, "queda como la normal") {
+	if end := w.message("END_NORMAL"); !strings.Contains(end.Body, "queda como la nueva referencia del sensor") {
 		t.Fatalf("END_NORMAL %q", end.Body)
 	}
 }
@@ -609,7 +611,8 @@ func TestScenario12_JumpDuringDataLoss(t *testing.T) {
 	if !a.StartedAt.Equal(h(-22)) {
 		t.Fatalf("started_at = %v, se esperaba el fin de la hora de gap_from (%v)", a.StartedAt, h(-22))
 	}
-	if open := w.message("MOV_OPEN"); open.Title != "El sensor cambió de posición sin datos" || !strings.Contains(open.Body, "Estuvo 22 h sin transmitir") {
+	if open := w.message("MOV_OPEN"); open.Title != "Cambio de inclinación durante una pérdida de datos" ||
+		!strings.Contains(open.Body, "El sensor no transmitió entre las 06:15 del 23/08 y las 04:00 del 24/08 (22 h).") {
 		t.Fatalf("MOV_OPEN %q / %q", open.Title, open.Body)
 	}
 }
@@ -735,7 +738,7 @@ func TestMotion_MotionOnlyMode(t *testing.T) {
 	if len(w.alerts) != 2 || w.alerts[123].State != entities.AlertFinished || w.motionActive == nil || w.motionActive.ID != 124 {
 		t.Fatalf("alertas %d", len(w.alerts))
 	}
-	if end := w.message("END_NORMAL"); !strings.Contains(end.Body, "queda como la normal") {
+	if end := w.message("END_NORMAL"); !strings.Contains(end.Body, "queda como la nueva referencia del sensor") {
 		t.Fatalf("END_NORMAL %q", end.Body)
 	}
 }

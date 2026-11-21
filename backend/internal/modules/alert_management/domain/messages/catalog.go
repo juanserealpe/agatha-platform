@@ -32,7 +32,12 @@ import (
 // UP_DURING_INTERVENTION. Los demás textos de fuga no cambian. FUGA y
 // MOVIMIENTO son alertas separadas (no hay LEAK_JOINED, MOV_JOINED ni
 // PART_NORMAL); los TEMP_* salen también en la alerta de FUGA vigente.
-const MessageCatalogVersion = 7
+// v8: movimiento con la tabla de lo normal (REQ_MOVIMIENTO_UMBRALES_V2 §10):
+// el número va en la frase (sin "Dato:"), lo normal de ESE sensor, nivel
+// calculado vs. enviado, historial al abrir, MOV_LEVEL_UP / MOV_LEVEL_OBSERVED,
+// MOV_SLOW_ONGOING, MOV_DAILY y el fin con el cambio total. MOV_OPEN tiene las
+// variantes SALTO, HUECO, RAPIDO y ACUMULADO. Los textos de FUGA y TEMP_* no cambian.
+const MessageCatalogVersion = 8
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
 const LowConfidenceMark = "Sensor en ajuste: resultado preliminar."
@@ -72,6 +77,12 @@ const (
 	CodeTempVariesAgain   = "TEMP_VARIES_AGAIN"
 	CodeTempNotStabilized = "TEMP_NOT_STABILIZED"
 	CodeTempStillStable   = "TEMP_STILL_STABLE"
+
+	// Movimiento v8.
+	CodeMovLevelUp       = "MOV_LEVEL_UP"
+	CodeMovLevelObserved = "MOV_LEVEL_OBSERVED"
+	CodeMovSlowOngoing   = "MOV_SLOW_ONGOING"
+	CodeMovDaily         = "MOV_DAILY"
 )
 
 // Variantes de un mismo código (el código guardado no cambia).
@@ -86,11 +97,15 @@ const (
 	// hora anterior estaba limitada y la planitud acaba de confirmarse.
 	VariantConfirmed = "CONFIRMADA"
 
-	// Variantes de movimiento (v7).
-	VariantJump   = "SALTO"  // MOV_OPEN / MOV_DISPLACED por salto o desplazamiento
-	VariantGap    = "HUECO"  // por un hueco de datos
-	VariantAbrupt = "BRUSCO" // cambio brusco de un eje
-	VariantMotion = "MOVIMIENTO"
+	// Variantes de movimiento (v8: las de episode_kind).
+	VariantJump       = "SALTO"     // MOV_OPEN / MOV_DISPLACED por salto o desplazamiento
+	VariantGap        = "HUECO"     // por un hueco de datos
+	VariantAbrupt     = "RAPIDO"    // cambio rápido de un eje
+	VariantCumulative = "ACUMULADO" // movimiento lento acumulado
+	VariantMotion     = "MOVIMIENTO"
+	// MOV_DAILY sin datos en las últimas 24 h o con datos que no alcanzan.
+	VariantNoData  = "SIN_DATOS"
+	VariantPartial = "PARCIAL"
 )
 
 // ConfirmedVariant es la variante "con firma de fuga confirmada" de la
@@ -300,43 +315,87 @@ var catalog = map[string]Template{
 		Vars:  []string{"etiqueta", "origen", "fecha", "hora", "registro", "observacion"},
 	},
 
-	// Movimiento y temperatura (v7, §8.1). Dicen lo que se midió: ningún
-	// texto afirma que el gasoducto se cerró o se reabrió.
+	// Movimiento (v8, REQ_MOVIMIENTO_UMBRALES_V2 §10.2). Describen el estado
+	// medido con el número en la frase; no dicen qué hacer ni interpretan la
+	// causa. {entre}, {calculado}, {historial} y {acumulado} los arma
+	// motion_v8.go; {historial} trae su salto de línea delante.
 	Key(CodeMovOpen, VariantJump): {
 		Code: CodeMovOpen, Kind: entities.KindNotification,
-		Title: "Movimiento brusco del sensor",
-		Body:  "Pitch y roll se inclinaron juntos y de golpe a las {hora} del {fecha}. Dato: pitch {dp}, roll {dr} en 1 h (lo normal es menos de 0,01°).",
-		Vars:  []string{"hora", "fecha", "dp", "dr"},
+		Title: "Cambio brusco de inclinación en pitch y roll",
+		Body:  "{entre} el pitch y el roll cambiaron juntos y de golpe: pitch {dp}, roll {dr} en 1 h. En este sensor lo normal es menos de 0,01° por hora.{calculado}{historial}",
+		Vars:  []string{"entre", "dp", "dr", "calculado", "historial"},
 	},
 	Key(CodeMovOpen, VariantGap): {
 		Code: CodeMovOpen, Kind: entities.KindNotification,
-		Title: "El sensor cambió de posición sin datos",
-		Body:  "Al volver los datos, a las {hora} del {fecha}, el sensor está en otra posición. Estuvo {duracion_hueco} sin transmitir. Dato: pitch {dp}, roll {dr}.",
-		Vars:  []string{"hora", "fecha", "duracion_hueco", "dp", "dr"},
+		Title: "Cambio de inclinación durante una pérdida de datos",
+		Body:  "El sensor no transmitió entre las {gap_from} y las {gap_to} ({duracion}). Al volver los datos, el pitch estaba {dp} y el roll {dr} respecto a antes de la pérdida de datos.{calculado}{historial}",
+		Vars:  []string{"gap_from", "gap_to", "duracion", "dp", "dr", "calculado", "historial"},
 	},
 	Key(CodeMovOpen, VariantAbrupt): {
 		Code: CodeMovOpen, Kind: entities.KindNotification,
-		Title: "Movimiento brusco del sensor",
-		Body:  "El sensor se movió de golpe hacia un solo lado a las {hora} del {fecha}. Dato: {eje} {delta} en {horas} h (lo normal es menos de 0,03° en 3 h).",
-		Vars:  []string{"hora", "fecha", "eje", "delta", "horas"},
+		Title: "Cambio rápido de inclinación",
+		Body:  "{entre} el {eje} cambió {delta} ({horas}). En este sensor lo normal es menos de {normal} en {ventana}.{calculado}{historial}",
+		Vars:  []string{"entre", "eje", "delta", "horas", "normal", "ventana", "calculado", "historial"},
+	},
+	Key(CodeMovOpen, VariantCumulative): {
+		Code: CodeMovOpen, Kind: entities.KindNotification,
+		Title: "Cambio lento de inclinación acumulado",
+		Body:  "{acumulado}{calculado}{historial}",
+		Vars:  []string{"acumulado", "calculado", "historial"},
+	},
+	Key(CodeMovLevelUp, ""): {
+		Code: CodeMovLevelUp, Kind: entities.KindNotification,
+		Title: "La alerta de movimiento subió a {nivel}",
+		Body:  "El {eje} ya cambió {delta} en {span}. En este sensor, {nivel_calc} es desde {deg} en {ventana}.",
+		Vars:  []string{"nivel", "eje", "delta", "span", "nivel_calc", "deg", "ventana"},
+	},
+	Key(CodeMovLevelObserved, ""): {
+		Code: CodeMovLevelObserved, Kind: entities.KindUpdate,
+		Title: "El cambio de inclinación sigue aumentando",
+		Body:  "El {eje} ya cambió {delta} en {span}. Por su magnitud correspondería a {nivel_calc} (desde {deg} en {ventana}); ese nivel todavía no está activo para este sensor, por eso la alerta sigue en {nivel_enviado}.",
+		Vars:  []string{"eje", "delta", "span", "nivel_calc", "deg", "ventana", "nivel_enviado"},
+	},
+	Key(CodeMovSlowOngoing, ""): {
+		Code: CodeMovSlowOngoing, Kind: entities.KindUpdate,
+		Title: "Además, cambio lento acumulado",
+		Body:  "{acumulado}",
+		Vars:  []string{"acumulado"},
+	},
+	Key(CodeMovDaily, ""): {
+		Code: CodeMovDaily, Kind: entities.KindSummary,
+		Title: "Resumen del día {n} de la alerta",
+		Body:  "Últimas 24 h: pitch {dp_dia}, roll {dr_dia}. Desde el inicio del movimiento: pitch {dp_total}, roll {dr_total}.{sin_cambios}{cobertura}",
+		Vars:  []string{"n", "dp_dia", "dr_dia", "dp_total", "dr_total", "sin_cambios", "cobertura"},
+	},
+	Key(CodeMovDaily, VariantNoData): {
+		Code: CodeMovDaily, Kind: entities.KindSummary,
+		Title: "Resumen del día {n} de la alerta",
+		Body:  "Sin datos del sensor en las últimas 24 h.",
+		Vars:  []string{"n"},
+	},
+	Key(CodeMovDaily, VariantPartial): {
+		Code: CodeMovDaily, Kind: entities.KindSummary,
+		Title: "Resumen del día {n} de la alerta",
+		Body:  "Con datos en {n_horas} de las últimas 24 h; no alcanza para calcular el cambio del día.{total}",
+		Vars:  []string{"n", "n_horas", "total"},
 	},
 	Key(CodeMovDisplaced, VariantJump): {
 		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
 		Title: "El sensor sigue en la nueva posición",
-		Body:  "No ha vuelto a su posición desde las {hora_inicio}. Dato: pitch {dp}, roll {dr}.",
-		Vars:  []string{"hora_inicio", "dp", "dr"},
+		Body:  "No ha vuelto a su posición desde las {inicio}. Pitch {dp}, roll {dr}.",
+		Vars:  []string{"inicio", "dp", "dr"},
 	},
 	Key(CodeMovDisplaced, VariantGap): {
 		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
 		Title: "El sensor sigue en la nueva posición",
-		Body:  "No ha vuelto a su posición desde las {hora_inicio}. Dato: pitch {dp}, roll {dr}.",
-		Vars:  []string{"hora_inicio", "dp", "dr"},
+		Body:  "No ha vuelto a su posición desde las {inicio}. Pitch {dp}, roll {dr}.",
+		Vars:  []string{"inicio", "dp", "dr"},
 	},
 	Key(CodeMovDisplaced, VariantAbrupt): {
 		Code: CodeMovDisplaced, Kind: entities.KindUpdate,
-		Title: "El sensor sigue en la nueva posición",
-		Body:  "El sensor se volvió a mover hacia un solo lado a las {hora}. Dato: {eje} {delta} en {horas} h.",
-		Vars:  []string{"hora", "eje", "delta", "horas"},
+		Title: "El sensor se volvió a mover",
+		Body:  "{entre} el {eje} cambió {delta}.",
+		Vars:  []string{"entre", "eje", "delta"},
 	},
 	// §8.1 dice "Pasó lo mismo en cierres anteriores", pero §8.3 prohíbe
 	// "cierre" en los textos de movimiento y temperatura: frase neutral.
@@ -349,8 +408,8 @@ var catalog = map[string]Template{
 	Key(CodeMovReturn, ""): {
 		Code: CodeMovReturn, Kind: entities.KindUpdate,
 		Title: "El sensor volvió a su posición",
-		Body:  "Regresó a las {hora} a la posición que tenía antes de las {hora_inicio} del {fecha_inicio}. Dato: pitch {dp}, roll {dr}.",
-		Vars:  []string{"hora", "hora_inicio", "fecha_inicio", "dp", "dr"},
+		Body:  "Regresó a las {hora} a la posición que tenía antes del movimiento. Pitch {dp}, roll {dr}.",
+		Vars:  []string{"hora", "dp", "dr"},
 	},
 	Key(CodeTempVariesAgain, ""): {
 		Code: CodeTempVariesAgain, Kind: entities.KindNotification,
@@ -373,8 +432,8 @@ var catalog = map[string]Template{
 	Key(CodeEndNormal, VariantMotion): {
 		Code: CodeEndNormal, Kind: entities.KindEnd,
 		Title: "Volvió a la normalidad",
-		Body:  "Duró {duracion}, nivel máximo {max}.{tramo}{nueva_posicion}",
-		Vars:  []string{"duracion", "max", "tramo", "nueva_posicion"},
+		Body:  "La inclinación lleva {quieto}. Duró {duracion}{reactivacion}. Cambio total desde el inicio del movimiento: pitch {dp_total}, roll {dr_total}. Nivel máximo: {nivel_enviado}{por_magnitud}.{tramo}{nueva_posicion}",
+		Vars:  []string{"quieto", "duracion", "reactivacion", "dp_total", "dr_total", "nivel_enviado", "por_magnitud", "tramo", "nueva_posicion"},
 	},
 }
 
@@ -496,19 +555,6 @@ func FormatClock(t time.Time) string { return t.In(colombia).Format("15:04") }
 
 func FormatDate(t time.Time) string { return t.In(colombia).Format("02/01") }
 
-// FormatDegrees son grados con signo y dos decimales, con coma: +0,08°.
-func FormatDegrees(v float64) string {
-	r := math.Round(v*100) / 100
-	if r == 0 {
-		return "0,00°"
-	}
-	s := strconv.FormatFloat(r, 'f', 2, 64)
-	if r > 0 {
-		s = "+" + s
-	}
-	return strings.Replace(s, ".", ",", 1) + "°"
-}
-
 // FormatRate es una tasa en °C/h: dos decimales y un tercero si hace falta.
 func FormatRate(v float64) string { return FormatValue(v) }
 
@@ -559,7 +605,7 @@ func IsMotionKey(key string) bool {
 	code, variant, _ := strings.Cut(key, "/")
 	switch code {
 	case CodeMovOpen, CodeMovDisplaced, CodeMovReturn, CodeTempStabilized, CodeTempVariesAgain,
-		CodeTempNotStabilized, CodeTempStillStable:
+		CodeTempNotStabilized, CodeTempStillStable, CodeMovLevelUp, CodeMovLevelObserved, CodeMovSlowOngoing, CodeMovDaily:
 		return true
 	case CodeEndNormal:
 		return variant == VariantMotion

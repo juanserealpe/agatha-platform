@@ -57,6 +57,25 @@ type MotionThresholdVersionModel struct {
 
 	TrendDeg7d float64 `gorm:"column:trend_deg_7d;type:numeric(6,4);not null"`
 
+	// motion-v2 (§5.2). Los defaults dejan las versiones motion-v1 válidas.
+	SendNaranja            string  `gorm:"column:send_naranja;type:text;not null;default:'OBSERVATION';check:chk_motion_threshold_versions_send,send_naranja IN ('ACTIVE', 'OBSERVATION') AND send_rojo IN ('ACTIVE', 'OBSERVATION')"`
+	SendRojo               string  `gorm:"column:send_rojo;type:text;not null;default:'OBSERVATION'"`
+	LongHoldHours          int     `gorm:"column:long_hold_hours;type:integer;not null;default:12"`
+	LongMinCoverage        float64 `gorm:"column:long_min_coverage;type:numeric(3,2);not null;default:0.50;check:chk_motion_threshold_versions_fractions,long_min_coverage > 0 AND long_min_coverage <= 1 AND history_step_share > 0 AND history_step_share <= 1"`
+	LongCloseHours         int     `gorm:"column:long_close_hours;type:integer;not null;default:72"`
+	LongCloseNetDeg        float64 `gorm:"column:long_close_net_deg;type:numeric(6,4);not null;default:0.02"`
+	ClosureCapLevel        string  `gorm:"column:closure_cap_level;type:text;not null;default:'AMARILLO';check:chk_motion_threshold_versions_closure_cap,closure_cap_level IN ('AMARILLO', 'NARANJA', 'ROJO')"`
+	ClosureMaxDeg          float64 `gorm:"column:closure_max_deg;type:numeric(6,4);not null;default:0.20"`
+	DailySummary           bool    `gorm:"column:daily_summary;not null;default:true"`
+	HistoryStepDeg         float64 `gorm:"column:history_step_deg;type:numeric(6,4);not null;default:0.015"`
+	HistoryStepWindowHours int     `gorm:"column:history_step_window_hours;type:integer;not null;default:6"`
+	HistoryStepGroupHours  int     `gorm:"column:history_step_group_hours;type:integer;not null;default:8"`
+	HistoryStepShare       float64 `gorm:"column:history_step_share;type:numeric(3,2);not null;default:0.70"`
+	HistoryPreviousDays    int     `gorm:"column:history_previous_days;type:integer;not null;default:90"`
+
+	// Rules es la tabla de lo normal de la versión (motion_threshold_rules).
+	Rules []MotionThresholdRuleModel `gorm:"foreignKey:ThresholdVersionID;references:ID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT"`
+
 	ValidFrom time.Time  `gorm:"column:valid_from;type:timestamptz;not null;index:ix_motion_threshold_versions_effective,priority:2,sort:desc"`
 	ValidTo   *time.Time `gorm:"column:valid_to;type:timestamptz;check:chk_motion_threshold_versions_validity,valid_to IS NULL OR valid_to > valid_from"`
 	Reason    string     `gorm:"column:reason;type:text;not null"`
@@ -65,6 +84,21 @@ type MotionThresholdVersionModel struct {
 }
 
 func (MotionThresholdVersionModel) TableName() string { return "motion_threshold_versions" }
+
+// MotionThresholdRuleModel es una fila de motion_threshold_rules (§5.1): la
+// tabla de lo normal de una versión. Las filas son de la versión: una versión
+// nueva copia las de la vigente o trae las suyas.
+type MotionThresholdRuleModel struct {
+	ID                 int64    `gorm:"column:id;primaryKey;autoIncrement"`
+	ThresholdVersionID int64    `gorm:"column:threshold_version_id;not null;uniqueIndex:ux_motion_threshold_rules_version_window_axis,priority:1"`
+	WindowHours        int      `gorm:"column:window_hours;type:integer;not null;uniqueIndex:ux_motion_threshold_rules_version_window_axis,priority:2;check:chk_motion_threshold_rules_window,window_hours BETWEEN 1 AND 720"`
+	Axis               string   `gorm:"column:axis;type:text;not null;uniqueIndex:ux_motion_threshold_rules_version_window_axis,priority:3;check:chk_motion_threshold_rules_axis,axis IN ('ANY', 'PITCH', 'ROLL')"`
+	AmarilloDeg        float64  `gorm:"column:amarillo_deg;type:numeric(6,4);not null;check:chk_motion_threshold_rules_order,amarillo_deg > 0.01 AND (naranja_deg IS NULL OR naranja_deg > amarillo_deg) AND (rojo_deg IS NULL OR rojo_deg > COALESCE(naranja_deg, amarillo_deg))"`
+	NaranjaDeg         *float64 `gorm:"column:naranja_deg;type:numeric(6,4)"`
+	RojoDeg            *float64 `gorm:"column:rojo_deg;type:numeric(6,4)"`
+}
+
+func (MotionThresholdRuleModel) TableName() string { return "motion_threshold_rules" }
 
 // MotionEvaluationModel es una fila de motion_evaluations (§6.2): una por punto
 // y hora, también NO_CALCULABLE. Los grados y °C/h van en double precision
@@ -138,9 +172,26 @@ type MotionEvaluationModel struct {
 	// Resultado.
 	MotionState   *string `gorm:"column:motion_state;type:text;check:chk_motion_evaluations_motion_state,motion_state IS NULL OR motion_state IN ('NORMAL', 'SALTO', 'DESPLAZADO', 'RETORNO', 'BRUSCO')"`
 	EpisodeEvent  string  `gorm:"column:episode_event;type:text;not null;check:chk_motion_evaluations_episode_event,episode_event IN ('NONE', 'OPENED', 'CLEARED')"`
-	ComputedLevel string  `gorm:"column:computed_level;type:text;not null;check:chk_motion_evaluations_computed_level,computed_level IN ('NORMAL', 'AMARILLO')"`
+	ComputedLevel string  `gorm:"column:computed_level;type:text;not null;check:chk_motion_evaluations_computed_level,computed_level IN ('NORMAL', 'AMARILLO', 'NARANJA', 'ROJO')"`
 	// Reasons es un arreglo JSON [{code, data}].
 	Reasons string `gorm:"column:reasons;type:jsonb;not null;default:'[]'"`
+
+	// motion-v2 (§7.1). NULL en las filas motion-v1 hasta el rebuild.
+	// table_level_hour y rules_hit son NULL en las horas NO_CALCULABLE;
+	// history solo en la hora OPENED.
+	TableLevelHour *string    `gorm:"column:table_level_hour;type:text;check:chk_motion_evaluations_table_levels,(table_level_hour IS NULL OR table_level_hour IN ('NORMAL', 'AMARILLO', 'NARANJA', 'ROJO')) AND (table_level IS NULL OR table_level IN ('NORMAL', 'AMARILLO', 'NARANJA', 'ROJO'))"`
+	TableLevel     *string    `gorm:"column:table_level;type:text"`
+	EpisodeKind    *string    `gorm:"column:episode_kind;type:text;check:chk_motion_evaluations_episode_kind,episode_kind IS NULL OR episode_kind IN ('SALTO', 'HUECO', 'RAPIDO', 'ACUMULADO')"`
+	RulesHit       *string    `gorm:"column:rules_hit;type:jsonb"`
+	History        *string    `gorm:"column:history;type:jsonb"`
+	RestAt         *time.Time `gorm:"column:rest_at;type:timestamptz"`
+	LongHold       string     `gorm:"column:long_hold;type:jsonb;not null;default:'{}'"`
+	LastPatternAt  *time.Time `gorm:"column:last_pattern_at;type:timestamptz"`
+	LastFastAt     *time.Time `gorm:"column:last_fast_at;type:timestamptz"`
+	EpStartAt      *time.Time `gorm:"column:ep_start_at;type:timestamptz"`
+	EpRefPitch     *float64   `gorm:"column:ep_ref_pitch;type:double precision"`
+	EpRefRoll      *float64   `gorm:"column:ep_ref_roll;type:double precision"`
+	EpHasLong      bool       `gorm:"column:ep_has_long;not null;default:false"`
 
 	// Trazabilidad.
 	ThresholdVersionID int64                       `gorm:"column:threshold_version_id;not null"`

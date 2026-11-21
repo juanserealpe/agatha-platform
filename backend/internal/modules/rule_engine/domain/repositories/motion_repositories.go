@@ -52,6 +52,14 @@ type MotionEvaluationRepository interface {
 	// Solo lo usa el backfill con -rebuild.
 	DeleteRange(ctx context.Context, pointID int64, from, to time.Time) (int64, error)
 
+	// ListEpisodes devuelve los episodios cerrados del punto (horas CLEARED
+	// con evaluated_at < before; cero = sin límite), ascendentes. Los usa el
+	// historial de motion-v2.
+	ListEpisodes(ctx context.Context, pointID int64, before time.Time) ([]entities.MotionEpisode, error)
+
+	// ListRange devuelve las filas del punto con from <= evaluated_at <= to, ascendentes.
+	ListRange(ctx context.Context, pointID int64, from, to time.Time) ([]entities.MotionEvaluation, error)
+
 	// CountAfter cuenta las filas del punto con evaluated_at >= at.
 	CountAfter(ctx context.Context, pointID int64, at time.Time) (int64, error)
 }

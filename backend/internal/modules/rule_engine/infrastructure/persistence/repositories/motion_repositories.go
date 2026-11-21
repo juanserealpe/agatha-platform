@@ -26,7 +26,7 @@ func NewMotionThresholdRepository(db *gorm.DB) *MotionThresholdRepository {
 
 func (r *MotionThresholdRepository) GetEffectiveAt(ctx context.Context, pointID int64, t time.Time) (*entities.MotionThresholdVersion, error) {
 	var rows []models.MotionThresholdVersionModel
-	err := r.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).Preload("Rules", orderRules).
 		Where("measuring_point_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)", pointID, t.UTC(), t.UTC()).
 		Order("valid_from DESC").Limit(1).Find(&rows).Error
 	if err != nil || len(rows) == 0 {
@@ -38,7 +38,7 @@ func (r *MotionThresholdRepository) GetEffectiveAt(ctx context.Context, pointID 
 
 func (r *MotionThresholdRepository) GetHistory(ctx context.Context, pointID int64) ([]entities.MotionThresholdVersion, error) {
 	var rows []models.MotionThresholdVersionModel
-	if err := r.db.WithContext(ctx).Where("measuring_point_id = ?", pointID).Order("version ASC").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Rules", orderRules).Where("measuring_point_id = ?", pointID).Order("version ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return mappers.ToMotionThresholdVersions(rows), nil
@@ -68,7 +68,7 @@ type motionThresholdWriter struct {
 
 func (w *motionThresholdWriter) LockOpen(ctx context.Context, pointID int64) (*entities.MotionThresholdVersion, error) {
 	var rows []models.MotionThresholdVersionModel
-	err := w.tx.WithContext(ctx).
+	err := w.tx.WithContext(ctx).Preload("Rules", orderRules).
 		Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"}).
 		Where("measuring_point_id = ? AND valid_to IS NULL", pointID).
 		Order("valid_from DESC").Limit(1).Find(&rows).Error
@@ -99,6 +99,9 @@ func (w *motionThresholdWriter) Insert(ctx context.Context, v entities.MotionThr
 	}
 	return row.ID, nil
 }
+
+// orderRules ordena la tabla de lo normal de una versión.
+func orderRules(db *gorm.DB) *gorm.DB { return db.Order("window_hours ASC, axis ASC") }
 
 // MotionEvaluationRepository persiste motion_evaluations.
 type MotionEvaluationRepository struct {
@@ -150,6 +153,41 @@ func (r *MotionEvaluationRepository) DeleteRange(ctx context.Context, pointID in
 	}
 	result := q.Delete(&models.MotionEvaluationModel{})
 	return result.RowsAffected, result.Error
+}
+
+func (r *MotionEvaluationRepository) ListRange(ctx context.Context, pointID int64, from, to time.Time) ([]entities.MotionEvaluation, error) {
+	var rows []models.MotionEvaluationModel
+	err := r.db.WithContext(ctx).
+		Where("measuring_point_id = ? AND evaluated_at >= ? AND evaluated_at <= ?", pointID, from.UTC(), to.UTC()).
+		Order("evaluated_at ASC").Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entities.MotionEvaluation, len(rows))
+	for i, m := range rows {
+		out[i] = mappers.ToMotionEvaluation(m)
+	}
+	return out, nil
+}
+
+// ListEpisodes arma los episodios cerrados del punto con las horas CLEARED
+// anteriores a before (cero = sin límite), ascendentes.
+func (r *MotionEvaluationRepository) ListEpisodes(ctx context.Context, pointID int64, before time.Time) ([]entities.MotionEpisode, error) {
+	q := r.db.WithContext(ctx).Where("measuring_point_id = ? AND episode_event = ?", pointID, string(entities.EpisodeEventCleared))
+	if !before.IsZero() {
+		q = q.Where("evaluated_at < ?", before.UTC())
+	}
+	var rows []models.MotionEvaluationModel
+	if err := q.Order("evaluated_at ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]entities.MotionEpisode, 0, len(rows))
+	for _, m := range rows {
+		if ep, ok := entities.EpisodeFromCleared(mappers.ToMotionEvaluation(m)); ok {
+			out = append(out, ep)
+		}
+	}
+	return out, nil
 }
 
 func (r *MotionEvaluationRepository) CountAfter(ctx context.Context, pointID int64, at time.Time) (int64, error) {

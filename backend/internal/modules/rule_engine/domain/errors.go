@@ -129,6 +129,51 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "min_records_hour debe ser <= records_per_hour",
 	}
+	// motion-v2: tabla de lo normal y parámetros nuevos (§5.4).
+	ErrMotionRulesEmpty = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "la tabla de lo normal (rules) necesita al menos una fila",
+	}
+	ErrMotionRuleWindow = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "window_hours de cada fila debe estar entre 1 y 720",
+	}
+	ErrMotionRuleAxis = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "axis de cada fila debe ser ANY, PITCH o ROLL",
+	}
+	ErrMotionRuleAmarillo = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "amarillo_deg debe ser > 0,01 (la resolución del equipo)",
+	}
+	ErrMotionRuleOrder = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "cada fila debe cumplir amarillo_deg < naranja_deg < rojo_deg",
+	}
+	ErrMotionRuleDuplicate = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "hay dos filas con la misma ventana para el mismo eje, o ANY junto con PITCH o ROLL en la misma ventana",
+	}
+	ErrMotionSendMode = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "send_naranja y send_rojo deben ser ACTIVE u OBSERVATION",
+	}
+	ErrMotionClosureCap = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "closure_cap_level debe ser AMARILLO, NARANJA o ROJO",
+	}
+	ErrMotionFraction = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "long_min_coverage e history_step_share deben cumplir 0 < valor <= 1",
+	}
+	ErrMotionAbruptRetired = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "abrupt_deg y abrupt_hours ya no se usan (motion-v2): el cambio rápido se configura en rules",
+	}
+	ErrMotionObservedDays = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "days debe estar entre 1 y 365",
+	}
 	ErrMotionThresholdsNotFound = &errors.AppError{
 		Code:    errors.CodeNotFound,
 		Message: "el punto no tiene umbrales de movimiento configurados",

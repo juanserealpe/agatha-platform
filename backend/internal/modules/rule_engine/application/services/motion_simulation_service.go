@@ -24,6 +24,11 @@ type MotionSimulateCommand struct {
 type SimulatedMotionEpisode struct {
 	OpenedAt  time.Time
 	ClearedAt *time.Time // nil = sigue abierto al final del rango
+	// Kind es el tipo de episodio; TableLevel el nivel calculado máximo y
+	// SentLevel el nivel enviado máximo (motion-v2).
+	Kind       entities.MotionEpisodeKind
+	TableLevel entities.Level
+	SentLevel  entities.Level
 	// Reasons son los códigos de motivo del episodio, sin repetir, en orden de aparición.
 	Reasons []entities.ReasonCode
 	// TempStableFrom / TempStableTo: el último tramo de temperatura estable del episodio.
@@ -49,7 +54,8 @@ type MotionSimulationResult struct {
 // MotionSimulationService corre MotionAssess en memoria sobre [From, To) con
 // unos parámetros propuestos y con los vigentes, sin escribir ni publicar.
 // Los parámetros aplican a todo el rango y la simulación arranca sin estado
-// en From (los niveles previos sí se leen de la ventana de 169 h).
+// en From (los niveles previos sí se leen de la ventana cruda; los episodios
+// anteriores del historial son solo los de la propia simulación).
 type MotionSimulationService struct {
 	thresholds repositories.MotionThresholdRepository
 	source     ports.RawMeasurementSource
@@ -110,22 +116,29 @@ func (s *MotionSimulationService) Simulate(ctx context.Context, cmd MotionSimula
 // SimulateMotionEpisodes evalúa las horas t de [start, to) y arma los episodios.
 func SimulateMotionEpisodes(records []entities.RawRecord, p entities.MotionParams, start, to time.Time) ([]SimulatedMotionEpisode, int) {
 	var (
-		state    entities.MotionState
+		state    = entities.InitialMotionState(p)
 		episodes []SimulatedMotionEpisode
 		open     *SimulatedMotionEpisode
+		past     []entities.MotionEpisode
 		hours    int
 	)
 	for t := start; t.Before(to); t = t.Add(time.Hour) {
 		hours++
-		ev := domainServices.MotionAssess(windowOf(records, t), state, p, t)
+		ev := domainServices.MotionAssess(windowOf(records, t), state, p, t, past)
 		state = ev.State
+		if ep, ok := entities.EpisodeFromCleared(ev); ok {
+			past = append(past, ep)
+		}
 		if ev.EpisodeEvent == entities.EpisodeEventOpened {
-			episodes = append(episodes, SimulatedMotionEpisode{OpenedAt: t})
+			episodes = append(episodes, SimulatedMotionEpisode{OpenedAt: t, Kind: ev.EpisodeKind,
+				TableLevel: entities.LevelNormal, SentLevel: entities.LevelNormal})
 			open = &episodes[len(episodes)-1]
 		}
 		if open == nil {
 			continue
 		}
+		open.TableLevel = entities.MaxLevel(open.TableLevel, ev.TableLevel)
+		open.SentLevel = entities.MaxLevel(open.SentLevel, ev.ComputedLevel)
 		for _, r := range ev.Reasons {
 			if !containsCode(open.Reasons, r.Code) {
 				open.Reasons = append(open.Reasons, r.Code)
