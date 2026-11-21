@@ -224,6 +224,37 @@ export interface AlertDetail extends AlertItem {
     trigger_variables?: TriggerVariable[];
 }
 
+/**
+ * Alerta de `GET /api/alerts/devices/{id}/alerts`: lo justo para agrupar las alertas de un punto y dibujar su
+ * franja. No trae gestión, observaciones ni `current_level`; los tramos (`levels`) sí, con sus mensajes.
+ */
+export interface DeviceAlert {
+    id: AlertId;
+    code: string;
+    event: AlertEvent;
+    state: AlertState;
+    started_at: string;
+    ended_at: string | null;
+    max_level: AlertLevel;
+    reactivation_count: number;
+    classification: Classification | null;
+    label: AlertLabel | null;
+    levels: LevelSegment[];
+}
+
+/** `GET /api/alerts/devices/{id}/alerts`: las alertas del punto que se CRUZAN con el rango, recientes primero. */
+export interface DeviceAlertsResponse {
+    measuring_point_id: number;
+    pk: string;
+    alerts: DeviceAlert[];
+}
+
+/** Rango de días de Colombia (aaaa-mm-dd), los dos incluidos. */
+export interface DayRange {
+    from: string;
+    to: string;
+}
+
 /** Campos comunes a toda escritura. Desde la web: `origin: "WEB"` y sin `device_identifier`. */
 interface ManagementOriginFields {
     origin: ManagementOrigin;

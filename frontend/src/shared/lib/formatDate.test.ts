@@ -5,6 +5,11 @@ import {
     formatColombiaDate,
     formatColombiaFileStamp,
     formatColombiaDateTime,
+    formatColombiaIsoDay,
+    formatColombiaClock,
+    formatColombiaDayMonth,
+    formatColombiaDayMonthTime,
+    formatColombiaWeekday,
     formatColombiaShort,
     formatDayMonth,
     formatRelative,
@@ -70,6 +75,20 @@ describe("hora de Colombia", () => {
         expect(formatColombiaDateTime("2026-08-24T03:30:00Z")).toBe("23/08/2026 22:30");
         expect(formatColombiaDate("2026-08-24T03:30:00Z")).toBe("23/08/2026");
         expect(formatColombiaShort("2026-08-24T03:30:00Z")).toBe("23/08 22:30");
+        expect(formatColombiaIsoDay("2026-08-24T03:30:00Z")).toBe("2026-08-23");
+        expect(formatColombiaIsoDay("2026-08-24T11:00:00-05:00")).toBe("2026-08-24");
+        expect(formatColombiaIsoDay("no-es-fecha")).toBeNull();
+    });
+
+    it("formatos cortos de la franja de tiempo, en hora de Colombia", () => {
+        // 05:00 UTC del 19 = medianoche del 19 en Colombia (jueves).
+        expect(formatColombiaWeekday("2026-11-19T05:00:00Z", true)).toBe("jue 19");
+        expect(formatColombiaWeekday("2026-11-19T05:00:00Z", false)).toBe("19");
+        expect(formatColombiaWeekday("2026-11-19T04:59:00Z", false)).toBe("18");
+        expect(formatColombiaDayMonth("2026-11-16T12:00:00-05:00")).toBe("16 nov");
+        expect(formatColombiaDayMonthTime("2026-11-18T16:00:00-05:00")).toBe("18 nov 16:00");
+        expect(formatColombiaClock("2026-11-18T21:30:00Z")).toBe("16:30");
+        expect(formatColombiaDayMonthTime("no-es-fecha")).toBe("—");
     });
 
     it("muestra un guion si la fecha es inválida", () => {

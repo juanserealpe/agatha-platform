@@ -2,11 +2,13 @@ import { useId, useMemo, useState } from "react";
 import type { AlertDetail, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import { ALERT_DURATION_LABEL } from "../../config/alertExplanations";
+import { useAlertGroup, useOpenGroupMember } from "../../hooks/useAlertGroup";
 import { useTimelineNavigation } from "../../hooks/useTimelineNavigation";
 import { allowedClassifications } from "../../lib/classificationForm";
 import type { ManagementMode } from "../../lib/managementMode";
 import { describeExisting } from "../../lib/managementOutcome";
-import { compactStripHeightPx } from "../../lib/timeStrip";
+import { compactStripHeightPx, type StripIndicatorInput } from "../../lib/timeStrip";
 import { AlertExplanation } from "./AlertExplanation";
 import { ClassificationStep } from "./ClassificationStep";
 import { EventTimeline } from "./EventTimeline";
@@ -51,10 +53,21 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
     const [justClassified, setJustClassified] = useState(false);
     const observationsTitleId = useId();
     const endedAt = detail.in_progress ? null : detail.ended_at;
-    // Una sola barra mientras no exista la vista combinada (etapa 4): la alerta abierta.
-    const stripIndicators = useMemo(
-        () => [{ id: detail.id, event: detail.event, levels: detail.levels, endedAt }],
-        [detail.id, detail.event, detail.levels, endedAt]
+    // Vista combinada: una barra por alerta del punto que se cruza con la abierta (con una sola, como antes).
+    const group = useAlertGroup(detail);
+    const { openMember, prefetchMember } = useOpenGroupMember(group);
+    const combined = group.length > 1;
+    const stripIndicators = useMemo<StripIndicatorInput[]>(
+        () =>
+            group.map((member) => ({
+                id: member.id,
+                event: member.event,
+                levels: member.levels,
+                endedAt: member.state === "ACTIVA" ? null : member.ended_at,
+                code: combined ? member.code : undefined,
+                current: member.id === detail.id,
+            })),
+        [group, combined, detail.id]
     );
     const navigation = useTimelineNavigation();
 
@@ -126,13 +139,15 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
 
     return (
         <>
-            <ManagementHeader alert={detail} />
+            <ManagementHeader alert={detail} group={group} />
             {/* -mx-5/px-5 y -top-5: al quedar fija se pega al borde del modal y cubre su relleno (p-5). Sin -top-5
                 Chrome la pega a 20 px del borde, el marcador de useIsStuck nunca sale de la vista y no se compacta. */}
             <TimeStrip
                 indicators={stripIndicators}
                 selected={navigation.selected}
                 onSelectPhase={navigation.navigateToPhase}
+                onOpenAlert={openMember}
+                onPrefetchAlert={prefetchMember}
                 hoverRange={navigation.hoverRange}
                 className="-top-5 -mx-5 px-5"
             />
@@ -146,6 +161,7 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
                 pendingClassification={detail.management_status === "SIN_CLASIFICAR"}
                 controls={navigation}
                 scrollMarginTopPx={compactStripHeightPx(stripIndicators.length) + PHASE_SCROLL_GAP_PX}
+                durationLabel={combined ? ALERT_DURATION_LABEL : undefined}
             />
             {body}
         </>

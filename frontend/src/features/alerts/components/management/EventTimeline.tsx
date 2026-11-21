@@ -145,10 +145,19 @@ interface EventTimelineProps {
     controls: TimelinePhaseControls;
     /** Alto de la franja fija: la fase a la que se navega queda debajo de ella. */
     scrollMarginTopPx: number;
+    /** Rótulo de la duración: "Duración general" con una alerta sola; con varias, la general va en la cabecera. */
+    durationLabel?: string;
 }
 
 /** Colores por los que pasó la alerta hasta volver a lo normal, con fechas, duración y mensajes (RN-20). */
-export function EventTimeline({ levels, endedAt, pendingClassification, controls, scrollMarginTopPx }: EventTimelineProps) {
+export function EventTimeline({
+    levels,
+    endedAt,
+    pendingClassification,
+    controls,
+    scrollMarginTopPx,
+    durationLabel = GENERAL_DURATION_LABEL,
+}: EventTimelineProps) {
     const titleId = useId();
     const now = useNow();
 
@@ -160,7 +169,7 @@ export function EventTimeline({ levels, endedAt, pendingClassification, controls
                 aside={
                     levels.length > 0 && (
                         <>
-                            {GENERAL_DURATION_LABEL}: <strong className="font-data-mono text-gray-900">{formatDuration(totalDurationMs(levels, now))}</strong>
+                            {durationLabel}: <strong className="font-data-mono text-gray-900">{formatDuration(totalDurationMs(levels, now))}</strong>
                         </>
                     )
                 }

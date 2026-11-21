@@ -54,8 +54,12 @@ export const SCORE_LEVEL_CAPTION = {
 /** Meta de los mensajes `TEMP_*`: contexto del sensor común a fuga y movimiento (spec multiindicador §7.1). */
 export const SENSOR_EVENT_LABEL = "Evento del sensor";
 
-/** Rótulo de la duración de la cabecera (D6): con varias alertas del punto será la del grupo. */
+/** Duración del grupo (D6). Con una alerta sola es la de esa alerta y va en su línea de tiempo. */
 export const GENERAL_DURATION_LABEL = "Duración general";
+/** Con varias alertas en la vista, la línea de tiempo muestra la duración de la abierta con este rótulo. */
+export const ALERT_DURATION_LABEL = "Duración de esta alerta";
+/** Nivel del grupo (D4): el actual más alto mientras alguna siga en curso; el máximo alcanzado al finalizar. */
+export const GENERAL_LEVEL_LABEL = "Nivel general";
 
 export const ANOMALY_SCORE_NOTE =
     "El nivel de anomalía compara la medición con el comportamiento habitual de este punto: entre más alto, más se aleja de lo normal. No es una probabilidad de fuga.";
@@ -77,7 +81,9 @@ export const MESSAGE_KIND_LABEL: Record<MessageKind, string> = {
 
 /** Al pasar el cursor: distingue un cambio que se avisó de una actualización que solo queda registrada. */
 export const MESSAGE_KIND_DESCRIPTION: Record<MessageKind, string> = {
-    NOTIFICACION: "Cambio en la alerta que se avisó al operador: la alerta abrió o subió de nivel.",
+    // También son NOTIFICACION los TEMP_STABILIZED / TEMP_VARIES_AGAIN, que no abren ni suben (MOVIMIENTO_ALERTAS §5.3).
+    NOTIFICACION:
+        "Cambio importante que se avisó al operador, por ejemplo: la alerta abrió, subió de nivel o la temperatura de la tubería cambió de comportamiento.",
     ACTUALIZACION: "Actualización del estado de la alerta. Queda registrada, sin aviso.",
     RESUMEN: "Resumen de la alerta.",
     FIN: "La medición volvió a lo normal y la alerta terminó.",

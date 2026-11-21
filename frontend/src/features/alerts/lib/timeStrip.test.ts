@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+    barAccessibleLabel,
+    barRangeLabel,
     buildStripCursor,
-    buildTimeStrip,
+    buildTimeStrip as buildWithPadding,
     compactStripHeightPx,
     markerTooltip,
     pieceAccessibleLabel,
     pieceTooltip,
-    placeAxisLabels,
-    tickLabel,
-    tickLabelLines,
     type StripIndicatorInput,
 } from "./timeStrip";
 
@@ -16,6 +15,9 @@ const at = (hhmm: string, day = 24) => `2026-08-${day}T${hhmm}:00-05:00`;
 const ms = (hhmm: string, day = 24) => new Date(at(hhmm, day)).getTime();
 
 const NOW = ms("15:00");
+
+// Sin el margen del eje, para que las posiciones sean números redondos; el margen tiene su propia prueba.
+const buildTimeStrip = (indicators: readonly StripIndicatorInput[], now: number) => buildWithPadding(indicators, now, 0);
 
 // Amarillo 05:00–08:00, Naranja 08:00–10:00, Rojo 10:00–en curso: 10 h de eje.
 const activeLeak: StripIndicatorInput = {
@@ -32,6 +34,30 @@ const activeLeak: StripIndicatorInput = {
 describe("buildTimeStrip", () => {
     it("sin tramos no hay franja", () => {
         expect(buildTimeStrip([{ ...activeLeak, levels: [] }], NOW)).toBeNull();
+    });
+
+    it("cada barra conserva su código y si es la alerta abierta; por defecto lo es", () => {
+        const other: StripIndicatorInput = { ...activeLeak, id: 2, event: "MOVIMIENTO", code: "ALR-000002", current: false };
+        const bars = buildTimeStrip([activeLeak, other], NOW)!.bars;
+        expect(bars.map((bar) => [bar.id, bar.code, bar.current])).toEqual([
+            [1, null, true],
+            [2, "ALR-000002", false],
+        ]);
+    });
+
+    it("el eje deja un margen del 3 % a cada lado y marca Ahora", () => {
+        const strip = buildWithPadding([activeLeak], NOW)!;
+        const paddingMs = 0.03 * (NOW - ms("05:00"));
+        expect(strip.startMs).toBe(ms("05:00") - paddingMs);
+        expect(strip.endMs).toBe(NOW + paddingMs);
+        // 10 h de datos + 2 × 0,3 h de margen: la barra empieza en 0,3 / 10,6 del ancho.
+        expect(strip.bars[0].pieces[0].offsetPct).toBeCloseTo((0.3 / 10.6) * 100);
+        expect(strip.nowOffsetPct).toBeCloseTo((10.3 / 10.6) * 100);
+    });
+
+    it("cada barra trae su inicio, su fin y su nivel actual para su fila", () => {
+        const bar = buildTimeStrip([activeLeak], NOW)!.bars[0];
+        expect(bar).toMatchObject({ startMs: ms("05:00"), endMs: null, currentLevel: "ROJO" });
     });
 
     it("los tramos son proporcionales a la duración y llegan hasta ahora (CA4)", () => {
@@ -72,7 +98,7 @@ describe("buildTimeStrip", () => {
         expect(strip!.bars[0].markers.filter((m) => m.kind === "change")).toHaveLength(1);
     });
 
-    it("finalizada: sin círculo hueco; cierra con un círculo del color de la última fase y su fecha en el eje", () => {
+    it("finalizada: sin círculo hueco; cierra con un círculo del color de la última fase", () => {
         const ended: StripIndicatorInput = {
             id: 2,
             event: "FUGA",
@@ -85,7 +111,8 @@ describe("buildTimeStrip", () => {
         expect(strip.bars[0].markers.some((m) => m.kind === "now")).toBe(false);
         expect(strip.bars[0].markers.at(-1)).toMatchObject({ kind: "end", level: "AMARILLO", offsetPct: 100 });
         expect(markerTooltip(strip.bars[0].markers.at(-1)!)).toBe("24/08 09:00 · Finalizada · Amarillo");
-        expect(strip.ticks.map(tickLabel)).toEqual(["24/08 05:00", "24/08 09:00"]);
+        expect(strip.nowOffsetPct).toBeNull();
+        expect(strip.bars[0]).toMatchObject({ endMs: ms("09:00"), currentLevel: null });
     });
 
     it("el hueco de una reactivación es gris y el regreso lleva círculo", () => {
@@ -126,24 +153,6 @@ describe("buildTimeStrip", () => {
         ]);
     });
 
-    it("el eje solo marca los cambios de nivel y Ahora", () => {
-        const ticks = buildTimeStrip([activeLeak], NOW)!.ticks;
-        expect(ticks.map((t) => t.offsetPct)).toEqual([0, 30, 50, 100]);
-        expect(ticks.map(tickLabel)).toEqual(["24/08 05:00", "24/08 08:00", "24/08 10:00", "Ahora"]);
-        expect(ticks.map(tickLabelLines)).toEqual([["24/08", "05:00"], ["24/08", "08:00"], ["24/08", "10:00"], ["Ahora"]]);
-    });
-
-    it("barras que cambian a la misma hora comparten la marca", () => {
-        const motion: StripIndicatorInput = {
-            id: 4,
-            event: "MOVIMIENTO",
-            endedAt: null,
-            levels: [{ seq: 1, level: "AMARILLO", opened_by: "OPEN", started_at: at("10:00"), ended_at: null }],
-        };
-        const ticks = buildTimeStrip([activeLeak, motion], NOW)!.ticks;
-        expect(ticks.map(tickLabel)).toEqual(["24/08 05:00", "24/08 08:00", "24/08 10:00", "Ahora"]);
-    });
-
     it("la duración de cada barra no cuenta los huecos, como la Duración general", () => {
         const reactivated: StripIndicatorInput = {
             id: 3,
@@ -159,48 +168,6 @@ describe("buildTimeStrip", () => {
     });
 });
 
-describe("placeAxisLabels", () => {
-    const tick = (offsetPct: number, isNow = false) => ({ atMs: offsetPct, offsetPct, isNow });
-    const width = (t: { isNow: boolean }) => (t.isNow ? 40 : 80);
-
-    it("centra la etiqueta sobre su círculo sin salirse de la pista", () => {
-        const placed = placeAxisLabels([tick(0), tick(50), tick(100, true)], 400, width, 8);
-        expect(placed.map((p) => [p.leftPx, p.centerPx])).toEqual([
-            [0, 0],
-            [160, 200],
-            [360, 400],
-        ]);
-    });
-
-    it("si chocan, corre la etiqueta a la derecha en vez de ocultarla", () => {
-        const placed = placeAxisLabels([tick(0), tick(10), tick(60)], 400, width, 8);
-        expect(placed.map((p) => [p.leftPx, p.centerPx])).toEqual([
-            [0, 0],
-            [88, 40],
-            [200, 240],
-        ]);
-    });
-
-    it("cerca del final retrocede y empuja a las anteriores", () => {
-        const placed = placeAxisLabels([tick(0), tick(95), tick(100, true)], 400, width, 8);
-        expect(placed.map((p) => p.leftPx)).toEqual([0, 272, 360]);
-    });
-
-    it("tres cambios seguidos al inicio caben todos en dos renglones (caso ALR-000052)", () => {
-        const placed = placeAxisLabels([tick(0), tick(10), tick(17)], 500, () => 42, 8);
-        expect(placed.map((p) => p.leftPx)).toEqual([0, 50, 100]);
-    });
-
-    it("si no caben todas, quita las intermedias más apretadas y conserva la primera y Ahora", () => {
-        const placed = placeAxisLabels([tick(0), tick(10), tick(20), tick(100, true)], 200, width, 8);
-        expect(placed.map((p) => p.tick.offsetPct)).toEqual([0, 100]);
-    });
-
-    it("sin ancho medido no coloca nada", () => {
-        expect(placeAxisLabels([tick(0)], 0, width, 8)).toEqual([]);
-    });
-});
-
 describe("textos de la franja", () => {
     const bar = buildTimeStrip([activeLeak], NOW)!.bars[0];
 
@@ -209,6 +176,16 @@ describe("textos de la franja", () => {
         expect(pieceAccessibleLabel(bar.pieces[2], "Anomalía acústica")).toBe(
             "Anomalía acústica, Rojo, 24/08 10:00 a ahora, 5 h"
         );
+    });
+
+    it("fechas exactas y resumen accesible de cada fila", () => {
+        expect(barRangeLabel(bar)).toBe("24 ago 05:00 → en curso");
+        expect(barAccessibleLabel(bar, "Anomalía acústica ALR-000001")).toBe(
+            "Anomalía acústica ALR-000001, de 24 ago 05:00 a en curso, nivel actual Rojo"
+        );
+        const ended = { startMs: ms("05:00"), endMs: ms("09:00", 25), currentLevel: null };
+        expect(barRangeLabel(ended)).toBe("24 ago 05:00 → 25 ago 09:00");
+        expect(barAccessibleLabel(ended, "Movimiento")).toBe("Movimiento, de 24 ago 05:00 a 25 ago 09:00, finalizada");
     });
 
     it("tooltip de los círculos (§5.2)", () => {

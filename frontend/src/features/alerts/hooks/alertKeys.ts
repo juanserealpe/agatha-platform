@@ -13,4 +13,6 @@ export const alertKeys = {
     history: (filters: AlertSearchFilters, page: number) => [...alertKeys.histories(), filters, page] as const,
     /** Detalle de gestión (GET /api/alerts/{id}). */
     management: (id: AlertId) => [...alertKeys.all, "management", id] as const,
+    /** Alertas del mismo punto que se cruzan con la alerta abierta (vista combinada). */
+    group: (id: AlertId) => [...alertKeys.all, "group", id] as const,
 };
