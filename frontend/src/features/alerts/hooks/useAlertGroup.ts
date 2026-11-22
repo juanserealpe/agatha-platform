@@ -1,21 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { alertManagementService, toAlertId } from "@/services/alertManagement";
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { alertManagementService, toAlertId, type AlertId } from "@/services/alertManagement";
 import { findAlertGroup, type AlertGroupResult, type GroupCandidate } from "../lib/alertGroup";
 import { tabSignature, tabsWithNovelty } from "../lib/alertTabs";
 import { alertKeys } from "./alertKeys";
 import { useAlertDetailParam } from "./useAlertDetailParam";
-import { usePrefetchAlertDetail } from "./useAlertManagementDetail";
+import { alertDetailQuery, usePrefetchAlertDetail } from "./useAlertManagementDetail";
 
 const GROUP_STALE_MS = 30_000;
 // Precarga de los detalles de las otras pestañas: sin competir con la carga del modal.
 const IDLE_PREFETCH_TIMEOUT_MS = 2000;
+
+// El grupo es un extra: si la consulta falla, la vista sigue con la alerta sola. Un reintento, no los 3 por defecto,
+// para no dejar la franja en "buscando" varios segundos.
+const GROUP_RETRIES = 1;
+
+function groupQuery(seed: GroupCandidate, deviceId: number) {
+    return queryOptions({
+        queryKey: alertKeys.group(deviceId, toAlertId(seed.id)),
+        queryFn: ({ signal }) =>
+            findAlertGroup<GroupCandidate>(
+                seed,
+                async (days) => (await alertManagementService.getDeviceAlerts(deviceId, days, signal)).alerts,
+                Date.now()
+            ),
+        staleTime: GROUP_STALE_MS,
+        retry: GROUP_RETRIES,
+    });
+}
 
 export interface AlertGroupView {
     /** En orden de inicio. Siempre incluye `seed`. */
     members: readonly GroupCandidate[];
     /** Ya llegó la consulta del grupo (antes de eso, `members` es solo `seed`). */
     ready: boolean;
+    /** La primera consulta del grupo sigue en curso (si falla, deja de cargar y queda la alerta sola). */
+    loading: boolean;
 }
 
 /**
@@ -27,22 +47,30 @@ export interface AlertGroupView {
  * una alerta nueva aparece sola como barra y pestaña.
  */
 export function useAlertGroup(seed: GroupCandidate, deviceId: number): AlertGroupView {
-    const { data } = useQuery({
-        queryKey: alertKeys.group(deviceId, toAlertId(seed.id)),
-        queryFn: ({ signal }) =>
-            findAlertGroup<GroupCandidate>(
-                seed,
-                async (days) => (await alertManagementService.getDeviceAlerts(deviceId, days, signal)).alerts,
-                Date.now()
-            ),
-        staleTime: GROUP_STALE_MS,
-    });
+    const { data, isPending } = useQuery(groupQuery(seed, deviceId));
 
     const members = useMemo(
         () => (data ? data.members.map((member) => (member.id === seed.id ? seed : member)) : [seed]),
         [seed, data]
     );
-    return { members, ready: data !== undefined };
+    return { members, ready: data !== undefined, loading: isPending };
+}
+
+/**
+ * Al acercarse a abrir una alerta (fila del historial): precarga su detalle y, con él, su grupo. Así el modal abre
+ * ya con sus pestañas, sin pasar primero por la vista de una sola alerta.
+ */
+export function usePrefetchAlertView() {
+    const queryClient = useQueryClient();
+    return useCallback(
+        (id: AlertId) => {
+            void queryClient
+                .fetchQuery(alertDetailQuery(id))
+                .then((detail) => queryClient.prefetchQuery(groupQuery(detail, detail.device.id)))
+                .catch(() => undefined);
+        },
+        [queryClient]
+    );
 }
 
 /**

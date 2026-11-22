@@ -25,6 +25,14 @@ interface SpanMs {
  */
 export const MAX_GROUP_ROUNDS = 5;
 
+/**
+ * La primera consulta pide estos días de más a cada lado de la alerta: así, en el caso normal, las alertas que se
+ * cruzan con ella (y las encadenadas con esas) llegan en una sola consulta y no hace falta una segunda vuelta.
+ */
+export const FIRST_ROUND_PADDING_DAYS = 3;
+
+const DAY_MS = 86_400_000;
+
 function toMs(value: string): number {
     return new Date(value).getTime();
 }
@@ -94,9 +102,13 @@ export async function findAlertGroup<T extends GroupCandidate>(
     seed: T,
     fetchDays: (days: DayRange) => Promise<readonly T[]>,
     now: number,
-    maxRounds: number = MAX_GROUP_ROUNDS
+    maxRounds: number = MAX_GROUP_ROUNDS,
+    paddingDays: number = FIRST_ROUND_PADDING_DAYS
 ): Promise<AlertGroupResult<T>> {
-    let days = spanToDays(alertSpanMs(seed, now));
+    const seedSpan = alertSpanMs(seed, now);
+    const padMs = paddingDays * DAY_MS;
+    // El futuro no tiene alertas: el margen de la derecha no pasa de ahora.
+    let days = spanToDays({ startMs: seedSpan.startMs - padMs, endMs: Math.min(seedSpan.endMs + padMs, now) });
     let members: T[] = [seed];
     for (let round = 0; round < maxRounds; round++) {
         members = connectedGroup(seed, await fetchDays(days), now);

@@ -4,6 +4,7 @@ import {
     alertSpanMs,
     connectedGroup,
     findAlertGroup,
+    MAX_GROUP_ROUNDS,
     memberCurrentLevel,
     spanToDays,
     summarizeGroup,
@@ -101,15 +102,16 @@ describe("spanToDays", () => {
 });
 
 describe("findAlertGroup", () => {
-    it("con una alerta sola hace una consulta con sus días", async () => {
+    it("con una alerta sola hace una consulta con sus días y 3 de margen (sin pasar de hoy)", async () => {
         const only = alert(1, "2026-11-20T08:00:00-05:00", "2026-11-20T20:00:00-05:00");
         const fetchDays = vi.fn(async () => [only]);
         await expect(findAlertGroup(only, fetchDays, NOW)).resolves.toEqual({ members: [only], complete: true });
         expect(fetchDays).toHaveBeenCalledTimes(1);
-        expect(fetchDays).toHaveBeenCalledWith({ from: "2026-11-20", to: "2026-11-20" });
+        expect(fetchDays).toHaveBeenCalledWith({ from: "2026-11-17", to: "2026-11-21" });
     });
 
-    it("amplía el rango cuando un miembro empezó antes y vuelve a consultar", async () => {
+    // Cadena: ALR-125 se cruza con ALR-120, y ALR-120 con ALR-110 (que no toca a ALR-125).
+    const chain = () => {
         const leak = alert(120, "2026-11-18T08:00:00-05:00", "2026-11-21T10:00:00-05:00");
         const motion = alert(125, "2026-11-19T14:00:00-05:00", "2026-11-20T16:00:00-05:00");
         const earlier = alert(110, "2026-11-17T08:00:00-05:00", "2026-11-18T09:00:00-05:00");
@@ -118,8 +120,19 @@ describe("findAlertGroup", () => {
         const fetchDays = vi.fn(async ({ from, to }: DayRange) =>
             all.filter((a) => spanToDays(alertSpanMs(a, NOW)).from <= to && spanToDays(alertSpanMs(a, NOW)).to >= from)
         );
+        return { motion, fetchDays };
+    };
 
+    it("con el margen, una cadena normal llega en una sola consulta", async () => {
+        const { motion, fetchDays } = chain();
         const result = await findAlertGroup(motion, fetchDays, NOW);
+        expect(ids(result.members)).toEqual([110, 120, 125]);
+        expect(fetchDays).toHaveBeenCalledTimes(1);
+    });
+
+    it("amplía el rango cuando un miembro empezó antes y vuelve a consultar", async () => {
+        const { motion, fetchDays } = chain();
+        const result = await findAlertGroup(motion, fetchDays, NOW, MAX_GROUP_ROUNDS, 0);
         expect(ids(result.members)).toEqual([110, 120, 125]);
         expect(result.complete).toBe(true);
         expect(fetchDays.mock.calls.map(([days]) => days)).toEqual([
@@ -145,7 +158,7 @@ describe("findAlertGroup", () => {
             const start = new Date(new Date(seed.started_at).getTime() - round * 24 * HOUR_MS).toISOString();
             return [seed, alert(100 + round, start, seed.started_at)];
         });
-        const result = await findAlertGroup(seed, fetchDays, NOW, 3);
+        const result = await findAlertGroup(seed, fetchDays, NOW, 3, 0);
         expect(fetchDays).toHaveBeenCalledTimes(3);
         expect(result.complete).toBe(false);
     });

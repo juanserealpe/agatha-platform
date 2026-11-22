@@ -1,4 +1,5 @@
 import { useId, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { toAlertId, type AlertDetail } from "@/services/alertManagement";
 import { cn } from "@/lib/utils";
 import { useAlertGroup, usePrefetchGroupDetails, useSelectGroupTab, useTabNovelty } from "../../hooks/useAlertGroup";
@@ -85,30 +86,36 @@ export function AlertGroupView({ anchor, activeId, initialMode, onClose }: Alert
             {/* -mx-5/px-5 y stickyTopPx: al quedar fija se pega al borde del modal y cubre su relleno (p-5).
                 Las pestañas van dentro del mismo bloque fijo (§5.3: "fija junto con las pestañas"). Con varias alertas,
                 -mt-5 anula el espacio de la grilla para que el fondo gris de la zona del punto sea continuo. */}
-            <TimeStrip
-                indicators={stripIndicators}
-                selected={navigation.selected}
-                onSelectPhase={navigation.navigateToPhase}
-                onSelectAlert={selectTab}
-                onPrefetchAlert={prefetchTab}
-                hoverRange={navigation.hoverRange}
-                className={cn("-mx-5 px-5", combined && cn(POINT_ZONE_CLASS, "-mt-5"))}
-                stickyTopPx={-MODAL_PADDING_PX}
-                below={
-                    combined && (
-                        <AlertTabs
-                            members={members}
-                            activeId={activeId}
-                            novelty={novelty}
-                            onSelect={selectTab}
-                            onPrefetch={prefetchTab}
-                            tabId={tabId}
-                            panelId={panelId}
-                        />
-                    )
-                }
-                belowHeightPx={tabsHeightPx}
-            />
+            {group.loading ? (
+                // Mientras se buscan las demás alertas del punto no se dibuja la franja de una sola alerta: al llegar el
+                // grupo cambiaría a varias barras y pestañas y parecería que se abrió otra alerta.
+                <GroupLoading />
+            ) : (
+                <TimeStrip
+                    indicators={stripIndicators}
+                    selected={navigation.selected}
+                    onSelectPhase={navigation.navigateToPhase}
+                    onSelectAlert={selectTab}
+                    onPrefetchAlert={prefetchTab}
+                    hoverRange={navigation.hoverRange}
+                    className={cn("-mx-5 px-5", combined && cn(POINT_ZONE_CLASS, "-mt-5"))}
+                    stickyTopPx={-MODAL_PADDING_PX}
+                    below={
+                        combined && (
+                            <AlertTabs
+                                members={members}
+                                activeId={activeId}
+                                novelty={novelty}
+                                onSelect={selectTab}
+                                onPrefetch={prefetchTab}
+                                tabId={tabId}
+                                panelId={panelId}
+                            />
+                        )
+                    }
+                    belowHeightPx={tabsHeightPx}
+                />
+            )}
             {visited.map((alertId) => (
                 <div
                     key={alertId}
@@ -129,6 +136,18 @@ export function AlertGroupView({ anchor, activeId, initialMode, onClose }: Alert
                 </div>
             ))}
         </>
+    );
+}
+
+const GROUP_LOADING_TEXT = "Buscando otras alertas del punto…";
+
+/** Lugar de la franja mientras llega el grupo: mismo marco que la franja, con un aviso de carga. */
+function GroupLoading() {
+    return (
+        <div role="status" className="flex min-h-20 items-center justify-center gap-2 rounded-lg border border-border text-sm text-gray-600">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            {GROUP_LOADING_TEXT}
+        </div>
     );
 }
 
