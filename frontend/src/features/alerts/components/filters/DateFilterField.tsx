@@ -1,16 +1,18 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePreloadWhenIdle } from "@/shared/hooks/usePreloadWhenIdle";
+import { lazyWithPreload } from "@/shared/lib/lazyWithPreload";
 import { DATE_PLACEHOLDER, dateToIsoDay, isoDayToDate, isoDayToDisplay, parseDisplayDay } from "../../lib/historyFilterForm";
 
 // El calendario se descarga aparte y se precarga en tiempo ocioso o al acercarse al botón, para que al
-// abrirlo ya esté listo.
-const loadFilterCalendar = () => import("./FilterCalendar");
-const FilterCalendar = lazy(() => loadFilterCalendar().then((module) => ({ default: module.FilterCalendar })));
+// abrirlo ya esté listo (y, ya precargado, sin pasar por el fallback de Suspense: ver lazyWithPreload).
+const { Component: FilterCalendar, preload: loadFilterCalendar } = lazyWithPreload(() =>
+    import("./FilterCalendar").then((module) => module.FilterCalendar)
+);
 const preloadCalendar = () => void loadFilterCalendar();
 
 // "dd/mm/aaaa" tiene 10 caracteres.

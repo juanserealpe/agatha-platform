@@ -1,13 +1,16 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { usePreloadWhenIdle } from "@/shared/hooks/usePreloadWhenIdle";
+import { lazyWithPreload } from "@/shared/lib/lazyWithPreload";
 import { SectionHeader } from "./SectionHeader";
 import { SECTION_ORDER } from "../config/sectionStyles";
 
 // Las gráficas (Recharts + calendario) son lo más pesado de la app y solo se usan al abrir una sección:
-// se cargan aparte para que el mapa y los paneles aparezcan antes, y se precargan en tiempo ocioso.
-const loadSeriesSection = () => import("../sections/SeriesSection");
-const SeriesSection = lazy(() => loadSeriesSection().then((module) => ({ default: module.SeriesSection })));
+// se cargan aparte para que el mapa y los paneles aparezcan antes, y se precargan en tiempo ocioso. Ya
+// precargadas, se pintan sin pasar por el fallback de Suspense (ver lazyWithPreload).
+const { Component: SeriesSection, preload: loadSeriesSection } = lazyWithPreload(() =>
+    import("../sections/SeriesSection").then((module) => module.SeriesSection)
+);
 
 export function TelemetryPanel({ deviceId }: { deviceId: number }) {
     const [openSections, setOpenSections] = useState<string[]>([]);
