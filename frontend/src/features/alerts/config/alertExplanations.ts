@@ -28,14 +28,17 @@ export const EVENT_EXPLANATION: Record<AlertEvent, EventExplanation> = {
         },
         hasAnomalyScore: true,
     },
-    // Como el catálogo del backend (REQ_ALERTAS_MOVIMIENTO §8): describe lo que midió el sensor, sin atribuirlo al
-    // terreno ni a una maniobra del gasoducto. Movimiento solo emite Amarillo (§5.7).
+    // Describe lo que midió el sensor, sin afirmar la causa ni hablar de maniobras del gasoducto. El terreno se nombra
+    // solo como posibilidad a verificar en campo, como DETECCION_ANOMALIAS §1 del backend. Desde motion-v2 (catálogo v8) el nivel sale de la tabla de lo normal
+    // de cada sensor y puede llegar a Naranja o Rojo; también alerta el cambio lento acumulado (MOV_OPEN/ACUMULADO).
     MOVIMIENTO: {
-        title: "Movimiento brusco del sensor",
+        title: "Cambio de inclinación del sensor",
         description:
-            "El sensor de este punto cambió de inclinación (pitch y roll) de forma brusca o quedó en otra posición. Un movimiento lento, repartido en horas o días, no genera alerta.",
+            "El sensor de este punto cambió de inclinación (pitch y roll) más de lo normal para este sensor: de golpe, en pocas horas o poco a poco durante varios días, o quedó en otra posición. Puede deberse a un movimiento del terreno, como un deslizamiento, o del propio sensor; solo una verificación en campo lo confirma.",
         levelPhrase: {
-            AMARILLO: "Las alertas de movimiento son siempre de nivel amarillo: el movimiento del sensor por sí solo no indica una fuga.",
+            AMARILLO: "La inclinación del sensor cambió algo más de lo normal en este punto.",
+            NARANJA: "La inclinación del sensor cambió claramente más de lo normal en este punto.",
+            ROJO: "La inclinación del sensor cambió mucho más de lo normal en este punto.",
         },
         hasAnomalyScore: false,
     },

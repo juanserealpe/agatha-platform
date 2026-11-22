@@ -60,14 +60,22 @@ describe("textos en lenguaje claro", () => {
         expect(EVENT_EXPLANATION.FUGA.hasAnomalyScore).toBe(true);
     });
 
-    it("movimiento habla del sensor, solo tiene Amarillo y no muestra puntaje (A7)", () => {
+    it("movimiento habla del sensor, tiene los tres niveles (motion-v2) y no muestra puntaje (A7)", () => {
         const motion = EVENT_EXPLANATION.MOVIMIENTO;
-        expect(motion.title).toBe("Movimiento brusco del sensor");
-        expect(Object.keys(motion.levelPhrase)).toEqual(["AMARILLO"]);
+        expect(motion.title).toBe("Cambio de inclinación del sensor");
+        expect(Object.keys(motion.levelPhrase)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
         expect(motion.hasAnomalyScore).toBe(false);
         [motion.title, motion.description, ...Object.values(motion.levelPhrase)].forEach((text) =>
-            expect(text).not.toMatch(/terreno|cierre|cerr|reapertura|flujo de gas/i),
+            expect(text).not.toMatch(/cierre|cerr|reapertura|flujo de gas/i),
         );
+        [motion.title, ...Object.values(motion.levelPhrase)].forEach((text) => expect(text).not.toMatch(/terreno/i));
+    });
+
+    it("movimiento nombra el terreno solo como posibilidad a verificar en campo", () => {
+        const { description } = EVENT_EXPLANATION.MOVIMIENTO;
+        expect(description).toMatch(/deslizamiento/);
+        expect(description).toMatch(/puede deberse a un movimiento del terreno/i);
+        expect(description).toMatch(/verificación en campo/);
     });
 
     it("ningún texto presenta el indicador como probabilidad o porcentaje", () => {
