@@ -120,12 +120,68 @@ export function formatColombiaDateTime(value: DateInput): string {
     return `${day}/${month}/${year} ${hour}:${minute}`;
 }
 
+/** Día, mes y hora en hora de Colombia, sin año, p. ej. "24/08 11:00". Pensada para ejes y tooltips. */
+export function formatColombiaShort(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { day, month, hour, minute } = colombiaParts(date);
+    return `${day}/${month} ${hour}:${minute}`;
+}
+
 /** Solo la fecha en hora de Colombia, p. ej. "24/08/2026". */
 export function formatColombiaDate(value: DateInput): string {
     const date = toDate(value);
     if (!date) return EMPTY_VALUE;
     const { day, month, year } = colombiaParts(date);
     return `${day}/${month}/${year}`;
+}
+
+/** Día de Colombia en el formato de los filtros del backend, p. ej. "2026-08-24". null si la fecha es inválida. */
+export function formatColombiaIsoDay(value: DateInput): string | null {
+    const date = toDate(value);
+    if (!date) return null;
+    const { day, month, year } = colombiaParts(date);
+    return `${year}-${month}-${day}`;
+}
+
+// Nombres cortos de día y mes en Colombia ("jue", "nov"), sin el punto que agregan algunos navegadores.
+const colombiaNamesFormatter = new Intl.DateTimeFormat(LOCALE, { timeZone: COLOMBIA_TIME_ZONE, weekday: "short", day: "numeric", month: "short" });
+
+function colombiaNames(date: Date): { weekday: string; day: string; month: string } {
+    const parts = colombiaNamesFormatter.formatToParts(date);
+    const part = (type: "weekday" | "day" | "month") => (parts.find((p) => p.type === type)?.value ?? "").replace(/\.$/, "");
+    return { weekday: part("weekday"), day: part("day"), month: part("month") };
+}
+
+/** Solo la hora en hora de Colombia, 24 h, p. ej. "16:00". */
+export function formatColombiaClock(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { hour, minute } = colombiaParts(date);
+    return `${hour}:${minute}`;
+}
+
+/** Día y mes corto en hora de Colombia, p. ej. "16 nov". */
+export function formatColombiaDayMonth(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { day, month } = colombiaNames(date);
+    return `${day} ${month}`;
+}
+
+/** Día, mes corto y hora en hora de Colombia, p. ej. "18 nov 16:00". */
+export function formatColombiaDayMonthTime(value: DateInput): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    return `${formatColombiaDayMonth(date)} ${formatColombiaClock(date)}`;
+}
+
+/** Día del mes en hora de Colombia, con el día de la semana si cabe: "jue 19" o "19". */
+export function formatColombiaWeekday(value: DateInput, withWeekday: boolean): string {
+    const date = toDate(value);
+    if (!date) return EMPTY_VALUE;
+    const { weekday, day } = colombiaNames(date);
+    return withWeekday ? `${weekday} ${day}` : day;
 }
 
 /** Marca de tiempo para nombres de archivo en hora de Colombia, p. ej. "20261026_1504". */

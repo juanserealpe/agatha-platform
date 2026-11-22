@@ -15,6 +15,8 @@ import {
     type AlertSearchResponse,
     type Classification,
     type ClassificationRequest,
+    type DayRange,
+    type DeviceAlertsResponse,
     type ExistingManagement,
     type LabelRequest,
     type LevelOpenedBy,
@@ -96,6 +98,8 @@ export interface DemoAlertStore {
     getDetail(id: AlertId): AlertDetail;
     getPending(limit?: number): PendingResponse;
     getActive(): ActiveResponse;
+    /** Como el backend: alertas del punto que se cruzan con los días (no solo las que empezaron en ellos). */
+    getDeviceAlerts(measuringPointId: number, days: DayRange): DeviceAlertsResponse;
     classify(id: AlertId, request: ClassificationRequest): ManagementResult;
     label(id: AlertId, request: LabelRequest): ManagementResult;
     addObservation(id: AlertId, request: ObservationRequest): ManagementResult;
@@ -671,6 +675,32 @@ export function createDemoAlertStore({ now = () => new Date() }: DemoAlertStoreO
                     alerts: pointList.map(toItem),
                 }));
             return { devices };
+        },
+
+        getDeviceAlerts(measuringPointId, days) {
+            const overlapping = pointAlerts(measuringPointId)
+                .filter((alert) => colombiaDay(alert.startedAt) <= days.to && (alert.endedAt === null || colombiaDay(alert.endedAt) >= days.from))
+                .sort(byNewest);
+            return {
+                measuring_point_id: measuringPointId,
+                pk: overlapping[0]?.point.name ?? `MP-${measuringPointId}`,
+                alerts: overlapping.map((alert) => {
+                    const detail = toDetail(alert);
+                    return {
+                        id: detail.id,
+                        code: detail.code,
+                        event: detail.event,
+                        state: detail.state,
+                        started_at: detail.started_at,
+                        ended_at: detail.ended_at,
+                        max_level: detail.max_level,
+                        reactivation_count: detail.reactivation_count,
+                        classification: detail.classification,
+                        label: detail.label,
+                        levels: detail.levels,
+                    };
+                }),
+            };
         },
 
         classify(id, request) {

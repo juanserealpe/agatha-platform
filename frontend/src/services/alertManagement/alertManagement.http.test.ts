@@ -70,6 +70,16 @@ describe("getActive", () => {
     });
 });
 
+describe("getDeviceAlerts", () => {
+    it("consulta las alertas del DISPOSITIVO con el rango de días", async () => {
+        const body = { measuring_point_id: 11556, pk: "Sensor PK34-470", alerts: [] };
+        const fetchMock = mockFetch(jsonResponse(200, body));
+
+        await expect(service.getDeviceAlerts(11556, { from: "2026-11-18", to: "2026-11-21" })).resolves.toEqual(body);
+        expect(requestedUrl(fetchMock)).toBe("/api/alerts/devices/11556/alerts?from=2026-11-18&to=2026-11-21");
+    });
+});
+
 describe("exportXlsx", () => {
     it("usa los mismos filtros, sin página", async () => {
         const fetchMock = mockFetch(new Response("xlsx", { status: 200 }));

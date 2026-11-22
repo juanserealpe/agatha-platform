@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { AlertItem } from "@/services/alertManagement";
+import type { AlertId, AlertItem } from "@/services/alertManagement";
 import { RelativeTime } from "@/shared/components/RelativeTime";
 import { cn } from "@/lib/utils";
 import {
@@ -22,9 +22,11 @@ interface AlertListItemProps {
     detail?: "state" | "management";
     /** Se abre directo en la gestión pendiente (p. ej. clasificar), no en lectura. */
     onSelect: (alertId: string, mode: ManagementMode) => void;
+    /** El usuario se acerca a la alerta: se precarga para que el modal abra sin espera. */
+    onIntent: (alertId: AlertId) => void;
 }
 
-export function AlertListItem({ alert, detail = "state", onSelect }: AlertListItemProps) {
+export function AlertListItem({ alert, detail = "state", onSelect, onIntent }: AlertListItemProps) {
     const severity = levelStyle(displayLevel(alert));
     const stateLabel = alert.in_progress ? IN_PROGRESS_LABEL : "Finalizada";
     // En Activas importa qué se decidió ("Confirmada", "Falsa alerta"), más que si ya tiene etiqueta.
@@ -42,6 +44,8 @@ export function AlertListItem({ alert, detail = "state", onSelect }: AlertListIt
         <button
             type="button"
             onClick={() => onSelect(String(alert.id), primaryManagementMode(alert.available_actions))}
+            onPointerEnter={() => onIntent(alert.id)}
+            onFocus={() => onIntent(alert.id)}
             style={{ "--glow-color": severity.hex } as CSSProperties}
             aria-label={`Alerta ${alert.code}, ${severity.label}, ${EVENT_LABEL[alert.event]}, ${stateLabel}, ${managementLabel}`}
             className={cn(

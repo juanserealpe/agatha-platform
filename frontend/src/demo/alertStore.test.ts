@@ -156,6 +156,23 @@ describe("createDemoAlertStore", () => {
     });
 
     describe("consultas", () => {
+        it("las alertas del punto incluyen las que empezaron antes del rango y siguen cruzándolo", () => {
+            const { store, advance } = setup("2026-10-30T15:00:00Z");
+            const first = store.openAlert()!.id;
+            advance(2 * 24 * 60);
+            store.finishAlert(first);
+            advance(60);
+            const second = store.openAlert()!.id;
+
+            const inside = store.getDeviceAlerts(SCENARIO_POINT_ID, { from: "2026-10-31", to: "2026-10-31" });
+            expect(inside.alerts.map((alert) => alert.id)).toEqual([first]);
+            expect(inside.alerts[0].levels).toHaveLength(1);
+
+            const all = store.getDeviceAlerts(SCENARIO_POINT_ID, { from: "2026-11-01", to: "2026-11-01" });
+            expect(all.alerts.map((alert) => alert.id)).toEqual([second, first]);
+            expect(store.getDeviceAlerts(DEMO_POINTS.punto2.id, { from: "2026-11-01", to: "2026-11-01" }).alerts).toEqual([]);
+        });
+
         it("agrupa las activas por punto con el nivel más alto", () => {
             const { store } = setup();
             store.openAlert("ROJO", DEMO_POINTS.punto3.id);

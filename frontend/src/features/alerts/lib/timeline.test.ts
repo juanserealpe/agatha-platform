@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANOMALY_PHRASE, EVENT_EXPLANATION, formatAnomalyScore, leakSignatureText } from "../config/alertExplanations";
+import { EVENT_EXPLANATION, formatAnomalyScore, leakSignatureText } from "../config/alertExplanations";
 import { formatDuration, segmentDurationMs, totalDurationMs } from "./timeline";
 
 const HOUR = 3_600_000;
@@ -54,16 +54,32 @@ describe("formatDuration", () => {
 });
 
 describe("textos en lenguaje claro", () => {
-    it("cada evento tiene título y una frase por nivel", () => {
+    it("fuga tiene frase para los tres niveles y puntaje de anomalía", () => {
         expect(EVENT_EXPLANATION.FUGA.title).toBe("Anomalía acústica");
-        expect(EVENT_EXPLANATION.MOVIMIENTO.title).toBe("Posible movimiento del terreno");
-        for (const phrases of Object.values(ANOMALY_PHRASE)) {
-            expect(Object.keys(phrases)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
-        }
+        expect(Object.keys(EVENT_EXPLANATION.FUGA.levelPhrase)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
+        expect(EVENT_EXPLANATION.FUGA.hasAnomalyScore).toBe(true);
+    });
+
+    it("movimiento habla del sensor, tiene los tres niveles (motion-v2) y no muestra puntaje (A7)", () => {
+        const motion = EVENT_EXPLANATION.MOVIMIENTO;
+        expect(motion.title).toBe("Cambio de inclinación del sensor");
+        expect(Object.keys(motion.levelPhrase)).toEqual(["AMARILLO", "NARANJA", "ROJO"]);
+        expect(motion.hasAnomalyScore).toBe(false);
+        [motion.title, motion.description, ...Object.values(motion.levelPhrase)].forEach((text) =>
+            expect(text).not.toMatch(/cierre|cerr|reapertura|flujo de gas/i),
+        );
+        [motion.title, ...Object.values(motion.levelPhrase)].forEach((text) => expect(text).not.toMatch(/terreno/i));
+    });
+
+    it("movimiento nombra el terreno solo como posibilidad a verificar en campo", () => {
+        const { description } = EVENT_EXPLANATION.MOVIMIENTO;
+        expect(description).toMatch(/deslizamiento/);
+        expect(description).toMatch(/puede deberse a un movimiento del terreno/i);
+        expect(description).toMatch(/verificación en campo/);
     });
 
     it("ningún texto presenta el indicador como probabilidad o porcentaje", () => {
-        const texts = [...Object.values(EVENT_EXPLANATION).map((e) => e.description), ...Object.values(ANOMALY_PHRASE).flatMap(Object.values)];
+        const texts = Object.values(EVENT_EXPLANATION).flatMap((e) => [e.description, ...Object.values(e.levelPhrase)]);
         texts.forEach((text) => expect(text).not.toMatch(/%|probabilidad/i));
     });
 

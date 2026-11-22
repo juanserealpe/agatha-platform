@@ -7,6 +7,7 @@ import { useDevices } from "../hooks/useDevices";
 import { filterDevices } from "../lib/sensorSearch";
 import { getDeviceStatus, type SensorAlertIndicator } from "../lib/sensorStatus";
 import { SensorListItem } from "./SensorListItem";
+import { SensorListSkeleton } from "./SensorListSkeleton";
 import { SensorSearch } from "./SensorSearch";
 
 interface SensorsPanelProps {
@@ -41,7 +42,7 @@ export function SensorsPanel({ selectedDeviceId, alerts, onSelect, className }: 
             className={className}
         >
             {isLoading ? (
-                <EmptyState title="Cargando sensores…" />
+                <SensorListSkeleton />
             ) : error ? (
                 <EmptyState Icon={AlertCircle} title="No se pudieron cargar los sensores" description="Reintentando automáticamente." />
             ) : devices.length === 0 ? (

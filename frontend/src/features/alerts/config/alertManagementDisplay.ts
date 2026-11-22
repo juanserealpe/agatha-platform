@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { CircleCheck, CircleDashed, CircleDot } from "lucide-react";
+import { AudioWaveform, CircleCheck, CircleDashed, CircleDot, ClipboardCheck, Move, Thermometer } from "lucide-react";
 import type {
     AlertEvent,
     AlertItem,
@@ -12,7 +12,9 @@ import type {
 import { OTHER_LABEL } from "@/services/alertManagement";
 import type { NotificationCode } from "@/services/realtime";
 import type { RowAction } from "../lib/rowActions";
+import type { MessageVariant } from "../lib/timelineMessage";
 import { SEVERITY_STYLES, type SeverityStyle } from "./alertDisplay";
+import { SENSOR_EVENT_LABEL } from "./alertExplanations";
 
 // Único lugar donde los enums de Alert Management se traducen a textos y estilos. Los componentes no
 // comparan strings del backend: consultan estos catálogos.
@@ -21,6 +23,19 @@ import { SEVERITY_STYLES, type SeverityStyle } from "./alertDisplay";
 export function levelStyle(level: AlertLevel): SeverityStyle {
     return SEVERITY_STYLES[level];
 }
+
+export interface MessageVariantMeta {
+    /** Se agrega a la meta del mensaje (fecha · tipo · etiqueta); null = solo fecha y tipo. */
+    label: string | null;
+    /** Ícono pequeño junto a la meta; el fondo lo pone la fase, nunca la variante (D8). */
+    Icon: LucideIcon | null;
+}
+
+export const MESSAGE_VARIANT_META: Record<MessageVariant, MessageVariantMeta> = {
+    default: { label: null, Icon: null },
+    management: { label: null, Icon: ClipboardCheck },
+    sensor: { label: SENSOR_EVENT_LABEL, Icon: Thermometer },
+};
 
 /** Orden de los niveles en filtros y leyendas: de menor a mayor criticidad. */
 export const LEVEL_ORDER: readonly AlertLevel[] = ["AMARILLO", "NARANJA", "ROJO"];
@@ -44,6 +59,15 @@ export const EVENT_LABEL: Record<AlertEvent, string> = {
 };
 
 export const EVENT_ORDER: readonly AlertEvent[] = ["FUGA", "MOVIMIENTO"];
+
+/**
+ * Ícono del tipo de alerta en la franja y las pestañas (spec multiindicador D2): el tipo se distingue por
+ * ícono y etiqueta, nunca por color, que queda para la severidad.
+ */
+export const EVENT_ICON: Record<AlertEvent, LucideIcon> = {
+    FUGA: AudioWaveform,
+    MOVIMIENTO: Move,
+};
 
 export const CLASSIFICATION_LABEL: Record<Classification, string> = {
     CONFIRMADA: "Confirmada",
