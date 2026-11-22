@@ -2,12 +2,13 @@ import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AlertCircle, ArrowRight, BellOff } from "lucide-react";
 import { Link } from "react-router";
 import { ROUTES } from "@/app/routes";
-import type { AlertItem } from "@/services/alertManagement";
+import type { AlertId, AlertItem } from "@/services/alertManagement";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
 import { cn } from "@/lib/utils";
 import { useActiveAlerts, usePendingAlerts } from "../hooks/useAlerts";
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
+import { usePrefetchAlertView } from "../hooks/useAlertGroup";
 import { activeAlertsByPriority } from "../lib/alertPriority";
 import { EMPTY_FILTERS, withHistorySearch } from "../lib/historySearchParams";
 import { AlertListItem } from "./AlertListItem";
@@ -96,9 +97,10 @@ interface AlertListProps {
     emptyTitle: string;
     detail: "state" | "management";
     onSelect: ReturnType<typeof useAlertDetailParam>["open"];
+    onIntent: (alertId: AlertId) => void;
 }
 
-function AlertList({ alerts, isLoading, error, emptyTitle, detail, onSelect }: AlertListProps) {
+function AlertList({ alerts, isLoading, error, emptyTitle, detail, onSelect, onIntent }: AlertListProps) {
     if (isLoading) return <EmptyState title="Cargando alertas…" />;
     if (error) {
         return <EmptyState Icon={AlertCircle} title="No se pudieron cargar las alertas" description="Reintentando automáticamente." />;
@@ -109,7 +111,7 @@ function AlertList({ alerts, isLoading, error, emptyTitle, detail, onSelect }: A
         <ul className="flex flex-col gap-2">
             {alerts.map((alert) => (
                 <li key={alert.id}>
-                    <AlertListItem alert={alert} detail={detail} onSelect={onSelect} />
+                    <AlertListItem alert={alert} detail={detail} onSelect={onSelect} onIntent={onIntent} />
                 </li>
             ))}
         </ul>
@@ -134,6 +136,7 @@ export function RecentAlertsPanel({ className }: RecentAlertsPanelProps) {
     const activeAlerts = useMemo(() => activeAlertsByPriority(active.data), [active.data]);
     const pendingCount = pending.data?.total ?? 0;
     const { open: openAlertDetail } = useAlertDetailParam();
+    const prefetchAlertView = usePrefetchAlertView();
 
     return (
         <Panel
@@ -170,6 +173,7 @@ export function RecentAlertsPanel({ className }: RecentAlertsPanelProps) {
                         emptyTitle="Sin alertas por clasificar"
                         detail="state"
                         onSelect={openAlertDetail}
+                        onIntent={prefetchAlertView}
                     />
                 ) : (
                     <AlertList
@@ -179,6 +183,7 @@ export function RecentAlertsPanel({ className }: RecentAlertsPanelProps) {
                         emptyTitle="Sin alertas activas"
                         detail="management"
                         onSelect={openAlertDetail}
+                        onIntent={prefetchAlertView}
                     />
                 )}
             </div>

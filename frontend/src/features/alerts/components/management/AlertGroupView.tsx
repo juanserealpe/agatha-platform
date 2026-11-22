@@ -1,13 +1,20 @@
 import { useId, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
 import { toAlertId, type AlertDetail } from "@/services/alertManagement";
+import { DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { useAlertGroup, usePrefetchGroupDetails, useSelectGroupTab, useTabNovelty } from "../../hooks/useAlertGroup";
+import {
+    useAlertGroup,
+    usePrefetchGroupDetails,
+    useSelectGroupTab,
+    useTabNovelty,
+    useWaitForGroup,
+} from "../../hooks/useAlertGroup";
 import { useAlertManagementDetail } from "../../hooks/useAlertManagementDetail";
 import { useTimelineNavigation, type TimelineNavigation } from "../../hooks/useTimelineNavigation";
 import { memberCurrentLevel, type GroupCandidate } from "../../lib/alertGroup";
 import { DEFAULT_MANAGEMENT_MODE, type ManagementMode } from "../../lib/managementMode";
 import { compactStripHeightPx, type StripIndicatorInput } from "../../lib/timeStrip";
+import { AlertContentSkeleton, AlertDetailSkeleton, TimeStripSkeleton } from "./AlertDetailSkeleton";
 import { AlertTabs, TAB_LIST_HEIGHT_PX } from "./AlertTabs";
 import { DetailLoadState } from "./DetailLoadState";
 import { ManagementContent } from "./ManagementContent";
@@ -51,6 +58,7 @@ export function AlertGroupView({ anchor, activeId, initialMode, onClose }: Alert
     const navigation = useTimelineNavigation(activeId, selectTab);
     const novelty = useTabNovelty(group, activeId);
     usePrefetchGroupDetails(members, activeId);
+    const waitingForGroup = useWaitForGroup(group.loading);
 
     // Pestañas visitadas, en el orden en que se abrieron (patrón de React para derivar estado de props).
     const [visited, setVisited] = useState<readonly number[]>([activeId]);
@@ -76,6 +84,15 @@ export function AlertGroupView({ anchor, activeId, initialMode, onClose }: Alert
     const tabId = (alertId: number) => `${idPrefix}-tab-${alertId}`;
     const panelId = (alertId: number) => `${idPrefix}-panel-${alertId}`;
 
+    if (waitingForGroup) {
+        return (
+            <>
+                <DialogTitle className="sr-only">Gestión de alerta {anchor.code}</DialogTitle>
+                <AlertDetailSkeleton />
+            </>
+        );
+    }
+
     return (
         <>
             {/* Con varias alertas el modal tiene dos zonas: la del PUNTO (cabecera, franja y pestañas) sobre fondo gris
@@ -87,9 +104,9 @@ export function AlertGroupView({ anchor, activeId, initialMode, onClose }: Alert
                 Las pestañas van dentro del mismo bloque fijo (§5.3: "fija junto con las pestañas"). Con varias alertas,
                 -mt-5 anula el espacio de la grilla para que el fondo gris de la zona del punto sea continuo. */}
             {group.loading ? (
-                // Mientras se buscan las demás alertas del punto no se dibuja la franja de una sola alerta: al llegar el
-                // grupo cambiaría a varias barras y pestañas y parecería que se abrió otra alerta.
-                <GroupLoading />
+                // El grupo tardó más que la espera: no se dibuja la franja de una sola alerta, porque al llegar el grupo
+                // cambiaría a varias barras y pestañas y parecería que se abrió otra alerta.
+                <TimeStripSkeleton />
             ) : (
                 <TimeStrip
                     indicators={stripIndicators}
@@ -139,18 +156,6 @@ export function AlertGroupView({ anchor, activeId, initialMode, onClose }: Alert
     );
 }
 
-const GROUP_LOADING_TEXT = "Buscando otras alertas del punto…";
-
-/** Lugar de la franja mientras llega el grupo: mismo marco que la franja, con un aviso de carga. */
-function GroupLoading() {
-    return (
-        <div role="status" className="flex min-h-20 items-center justify-center gap-2 rounded-lg border border-border text-sm text-gray-600">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            {GROUP_LOADING_TEXT}
-        </div>
-    );
-}
-
 /** La cabecera muestra la alerta de la pestaña abierta; mientras su detalle carga, con el resumen del punto. */
 function headerAlert(member: GroupCandidate, anchor: AlertDetail) {
     return {
@@ -174,7 +179,7 @@ interface AlertTabPanelProps {
 /** Contenido de una pestaña: el detalle de SU alerta (spec §6), con su propia carga y su propio error. */
 function AlertTabPanel({ alertId, initialMode, onClose, navigation, scrollMarginTopPx, combined }: AlertTabPanelProps) {
     const query = useAlertManagementDetail(toAlertId(alertId));
-    if (!query.data) return <DetailLoadState query={query} />;
+    if (!query.data) return <DetailLoadState query={query} skeleton={<AlertContentSkeleton />} />;
     return (
         <ManagementContent
             detail={query.data}

@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
-import { alertManagementService, toAlertId, type AlertId } from "@/services/alertManagement";
+import {
+    alertManagementService,
+    toAlertId,
+    type ActiveResponse,
+    type AlertId,
+    type AlertSearchResponse,
+    type PendingResponse,
+} from "@/services/alertManagement";
 import { findAlertGroup, type AlertGroupResult, type GroupCandidate } from "../lib/alertGroup";
 import { tabSignature, tabsWithNovelty } from "../lib/alertTabs";
+import { findListedAlert, groupSeedFromItem } from "../lib/groupSeed";
 import { alertKeys } from "./alertKeys";
 import { useAlertDetailParam } from "./useAlertDetailParam";
 import { alertDetailQuery, usePrefetchAlertDetail } from "./useAlertManagementDetail";
 
 const GROUP_STALE_MS = 30_000;
+// Cuánto se espera al grupo con el esqueleto completo después de llegar el detalle. Llegan casi juntos (se piden a
+// la vez); si el grupo se demora más, se muestra el detalle y solo la franja sigue cargando.
+const GROUP_WAIT_MS = 1500;
 // Precarga de los detalles de las otras pestañas: sin competir con la carga del modal.
 const IDLE_PREFETCH_TIMEOUT_MS = 2000;
 
@@ -57,20 +68,57 @@ export function useAlertGroup(seed: GroupCandidate, deviceId: number): AlertGrou
 }
 
 /**
- * Al acercarse a abrir una alerta (fila del historial): precarga su detalle y, con él, su grupo. Así el modal abre
- * ya con sus pestañas, sin pasar primero por la vista de una sola alerta.
+ * true mientras conviene seguir esperando al grupo antes de pintar la vista: así el modal aparece una sola vez con su
+ * forma final (franja y pestañas), sin pasar por la vista de una sola alerta. Deja de esperar a los GROUP_WAIT_MS.
+ */
+export function useWaitForGroup(loading: boolean): boolean {
+    const [expired, setExpired] = useState(false);
+    useEffect(() => {
+        if (!loading) return;
+        const timer = setTimeout(() => setExpired(true), GROUP_WAIT_MS);
+        return () => clearTimeout(timer);
+    }, [loading]);
+    return loading && !expired;
+}
+
+/**
+ * Precarga el detalle de una alerta y su grupo, para que el modal abra ya con sus pestañas, sin pasar primero por
+ * "Cargando alerta…" ni por "Buscando otras alertas del punto…". Si la alerta está en alguna lista ya consultada
+ * (panel, mapa, historial), el grupo se pide A LA VEZ que el detalle; si no (enlace directo), en cuanto llega.
+ * Lo que ya está en caché y fresco no se vuelve a pedir.
  */
 export function usePrefetchAlertView() {
     const queryClient = useQueryClient();
     return useCallback(
         (id: AlertId) => {
-            void queryClient
-                .fetchQuery(alertDetailQuery(id))
-                .then((detail) => queryClient.prefetchQuery(groupQuery(detail, detail.device.id)))
-                .catch(() => undefined);
+            const listed = findListedAlert(
+                {
+                    histories: queryClient.getQueriesData<AlertSearchResponse>({ queryKey: alertKeys.histories() }).map(([, page]) => page),
+                    pending: queryClient.getQueryData<PendingResponse>(alertKeys.pending()),
+                    active: queryClient.getQueryData<ActiveResponse>(alertKeys.active()),
+                },
+                id
+            );
+            const detail = queryClient.fetchQuery(alertDetailQuery(id));
+            const group = listed
+                ? queryClient.prefetchQuery(groupQuery(groupSeedFromItem(listed), listed.device.id))
+                : detail.then((loaded) => queryClient.prefetchQuery(groupQuery(loaded, loaded.device.id)));
+            // Es solo una precarga: si falla, el modal muestra su propio error al consultar.
+            void Promise.allSettled([detail, group]);
         },
         [queryClient]
     );
+}
+
+/**
+ * Al abrirse el modal (desde cualquier lugar, también por enlace): la precarga arranca con el cambio de URL, en
+ * paralelo con la descarga del código del modal, y no recién cuando el modal se monta.
+ */
+export function usePrefetchOpenedAlert(id: AlertId | null) {
+    const prefetchAlertView = usePrefetchAlertView();
+    useEffect(() => {
+        if (id !== null) prefetchAlertView(id);
+    }, [id, prefetchAlertView]);
 }
 
 /**

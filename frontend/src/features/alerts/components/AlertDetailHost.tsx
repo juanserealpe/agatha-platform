@@ -1,27 +1,31 @@
-import { lazy, Suspense, useState } from "react";
-import { Loader2, SearchX } from "lucide-react";
+import { Suspense, useState } from "react";
+import { SearchX } from "lucide-react";
 import { parseAlertId } from "@/services/alertManagement";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { usePreloadWhenIdle } from "@/shared/hooks/usePreloadWhenIdle";
+import { lazyWithPreload } from "@/shared/lib/lazyWithPreload";
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
+import { usePrefetchOpenedAlert } from "../hooks/useAlertGroup";
+import { AlertDetailSkeleton, MANAGEMENT_DIALOG_CLASS } from "./management/AlertDetailSkeleton";
 
-// El modal de gestión solo se usa al abrir una alerta: se descarga aparte y se precarga en tiempo ocioso.
-const loadManagementDialog = () => import("./management/AlertManagementDialog");
-const AlertManagementDialog = lazy(() =>
-    loadManagementDialog().then((module) => ({ default: module.AlertManagementDialog }))
+// El modal de gestión solo se usa al abrir una alerta: se descarga aparte y se precarga en tiempo ocioso. Ya
+// precargado, abre sin pasar por el fallback de Suspense (ver lazyWithPreload).
+const { Component: AlertManagementDialog, preload: loadManagementDialog } = lazyWithPreload(() =>
+    import("./management/AlertManagementDialog").then((module) => module.AlertManagementDialog)
 );
 
-function PlaceholderDialog({ title, loading, onClose }: { title: string; loading: boolean; onClose: () => void }) {
+function PlaceholderDialog({ loading, onClose }: { loading: boolean; onClose: () => void }) {
     return (
         <Dialog open onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className="sm:max-w-md">
+            {/* Cargando: el mismo ancho y esqueleto que el modal, para que no salte al llegar su código. */}
+            <DialogContent className={loading ? MANAGEMENT_DIALOG_CLASS : "sm:max-w-md"}>
                 <DialogTitle className="sr-only">Gestión de alerta</DialogTitle>
-                <EmptyState
-                    Icon={loading ? Loader2 : SearchX}
-                    title={title}
-                    className={loading ? "border-none py-8 [&>svg]:animate-spin" : "border-none py-8"}
-                />
+                {loading ? (
+                    <AlertDetailSkeleton />
+                ) : (
+                    <EmptyState Icon={SearchX} title="No se encontró la alerta" className="border-none py-8" />
+                )}
             </DialogContent>
         </Dialog>
     );
@@ -48,16 +52,16 @@ export function AlertDetailHost() {
     const { alertId: rawId, mode, close, tabSwitch } = useAlertDetailParam();
     const dialogKey = useDialogKey(rawId, mode, tabSwitch);
     usePreloadWhenIdle(loadManagementDialog);
+    const alertId = rawId === null ? null : parseAlertId(rawId);
+    usePrefetchOpenedAlert(alertId);
 
     if (rawId === null) return null;
-
-    const alertId = parseAlertId(rawId);
     if (alertId === null) {
-        return <PlaceholderDialog title="No se encontró la alerta" loading={false} onClose={close} />;
+        return <PlaceholderDialog loading={false} onClose={close} />;
     }
 
     return (
-        <Suspense fallback={<PlaceholderDialog title="Cargando alerta…" loading onClose={close} />}>
+        <Suspense fallback={<PlaceholderDialog loading onClose={close} />}>
             <AlertManagementDialog key={dialogKey} alertId={alertId} initialMode={mode} onClose={close} />
         </Suspense>
     );

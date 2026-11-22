@@ -3,10 +3,9 @@ import type { AlertId } from "@/services/alertManagement";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useAlertManagementDetail } from "../../hooks/useAlertManagementDetail";
 import type { ManagementMode } from "../../lib/managementMode";
+import { AlertDetailSkeleton, MANAGEMENT_DIALOG_CLASS } from "./AlertDetailSkeleton";
 import { AlertGroupView } from "./AlertGroupView";
 import { DetailLoadState } from "./DetailLoadState";
-
-const MANAGEMENT_DIALOG_CLASS = "max-h-[90vh] gap-5 overflow-y-auto p-5 sm:max-w-2xl";
 
 interface AlertManagementDialogProps {
     /** ID de la ALERTA (items[].id), nunca el del dispositivo. En la vista combinada, la pestaña abierta. */
@@ -38,7 +37,7 @@ export function AlertManagementDialog({ alertId, initialMode, onClose }: AlertMa
                 ) : (
                     <>
                         <DialogTitle className="sr-only">Gestión de alerta</DialogTitle>
-                        <DetailLoadState query={anchorQuery} />
+                        <DetailLoadState query={anchorQuery} skeleton={<AlertDetailSkeleton />} />
                     </>
                 )}
             </DialogContent>
