@@ -29,13 +29,12 @@ function StateBadge({ inProgress }: { inProgress: boolean }) {
 
 /**
  * ID de la alerta, dispositivo, PK, estado y nivel. Con una alerta sola: su estado y su nivel actual. Con varias
- * alertas del punto a la vez (vista combinada): estado, nivel y duración GENERALES (D4, D6); el estado de la abierta
- * se aclara solo si difiere del grupo.
+ * alertas del punto a la vez (vista combinada): estado, nivel y duración GENERALES (D4, D6); el estado y el nivel de
+ * cada alerta van en su pestaña.
  */
 export function ManagementHeader({ alert, group }: ManagementHeaderProps) {
     const now = useNow();
     const summary = useMemo(() => (group.length > 1 ? summarizeGroup(group, now) : null), [group, now]);
-    const ownStateDiffers = summary !== null && summary.inProgress !== alert.in_progress;
 
     return (
         <DialogHeader className="gap-1.5 pr-8">
@@ -56,7 +55,6 @@ export function ManagementHeader({ alert, group }: ManagementHeaderProps) {
             </div>
             <DialogDescription className="font-data-mono text-xs text-gray-500">
                 {deviceDisplayName(alert.device.pk)} · Dispositivo {alert.device.id} · {EVENT_LABEL[alert.event]}
-                {ownStateDiffers && ` (esta alerta: ${alert.in_progress ? IN_PROGRESS_LABEL.toLowerCase() : FINISHED_LABEL.toLowerCase()})`}
             </DialogDescription>
             {summary && (
                 <p className="text-xs text-gray-600">

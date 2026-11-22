@@ -1,27 +1,20 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 import type { AlertDetail, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { ALERT_DURATION_LABEL } from "../../config/alertExplanations";
-import { useAlertGroup, useOpenGroupMember } from "../../hooks/useAlertGroup";
-import { useTimelineNavigation } from "../../hooks/useTimelineNavigation";
+import type { TimelineNavigation } from "../../hooks/useTimelineNavigation";
 import { allowedClassifications } from "../../lib/classificationForm";
 import type { ManagementMode } from "../../lib/managementMode";
 import { describeExisting } from "../../lib/managementOutcome";
-import { compactStripHeightPx, type StripIndicatorInput } from "../../lib/timeStrip";
 import { AlertExplanation } from "./AlertExplanation";
 import { ClassificationStep } from "./ClassificationStep";
 import { EventTimeline } from "./EventTimeline";
 import { LabelStep } from "./LabelStep";
-import { ManagementHeader } from "./ManagementHeader";
 import { ManagementNotice, type NoticeTone } from "./ManagementNotice";
 import { ManagementSummary } from "./ManagementSummary";
 import { ObservationList } from "./ObservationList";
 import { StepHeading } from "./StepHeading";
-import { TimeStrip } from "./TimeStrip";
-
-// Aire entre la franja compacta y el título de la fase a la que se navega, para que se lea dónde se está.
-const PHASE_SCROLL_GAP_PX = 12;
 
 interface Notice {
     tone: NoticeTone;
@@ -32,6 +25,12 @@ interface ManagementContentProps {
     detail: AlertDetail;
     initialMode: ManagementMode;
     onClose: () => void;
+    /** Estado de la línea de tiempo de ESTA alerta (compartido con la franja). */
+    navigation: TimelineNavigation;
+    /** Alto del bloque fijo (franja compacta y pestañas) más aire: la fase de destino queda debajo. */
+    scrollMarginTopPx: number;
+    /** Hay varias alertas en la vista: la duración de la línea de tiempo es la de esta alerta. */
+    combined: boolean;
 }
 
 function resultNotice(result: ManagementResult, savedText: string): Notice {
@@ -43,33 +42,17 @@ function resultNotice(result: ManagementResult, savedText: string): Notice {
 }
 
 /**
- * Coordina los pasos del modal sobre el detalle ya cargado: 1) clasificación (obligatoria) y 2) etiqueta
- * (opcional). Qué paso se puede mostrar lo decide `available_actions`, nunca el estado de la alerta.
+ * Contenido de una alerta (una pestaña de la vista combinada) sobre su detalle ya cargado: explicación, línea de
+ * tiempo y los pasos de gestión: 1) clasificación (obligatoria) y 2) etiqueta (opcional). Qué paso se puede mostrar
+ * lo decide `available_actions`, nunca el estado de la alerta.
  */
-export function ManagementContent({ detail, initialMode, onClose }: ManagementContentProps) {
+export function ManagementContent({ detail, initialMode, onClose, navigation, scrollMarginTopPx, combined }: ManagementContentProps) {
     const [mode, setMode] = useState<ManagementMode>(initialMode);
     const [notice, setNotice] = useState<Notice | null>(null);
     // Recién clasificada en este modal: se ofrece "Agregar etiqueta" / "Ahora no" (CA-2.2.3).
     const [justClassified, setJustClassified] = useState(false);
     const observationsTitleId = useId();
     const endedAt = detail.in_progress ? null : detail.ended_at;
-    // Vista combinada: una barra por alerta del punto que se cruza con la abierta (con una sola, como antes).
-    const group = useAlertGroup(detail);
-    const { openMember, prefetchMember } = useOpenGroupMember(group);
-    const combined = group.length > 1;
-    const stripIndicators = useMemo<StripIndicatorInput[]>(
-        () =>
-            group.map((member) => ({
-                id: member.id,
-                event: member.event,
-                levels: member.levels,
-                endedAt: member.state === "ACTIVA" ? null : member.ended_at,
-                code: combined ? member.code : undefined,
-                current: member.id === detail.id,
-            })),
-        [group, combined, detail.id]
-    );
-    const navigation = useTimelineNavigation();
 
     const canClassify = allowedClassifications(detail.available_actions).length > 0;
     const canLabel = detail.available_actions.includes("ADD_LABEL") && detail.classification !== null;
@@ -139,18 +122,6 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
 
     return (
         <>
-            <ManagementHeader alert={detail} group={group} />
-            {/* -mx-5/px-5 y -top-5: al quedar fija se pega al borde del modal y cubre su relleno (p-5). Sin -top-5
-                Chrome la pega a 20 px del borde, el marcador de useIsStuck nunca sale de la vista y no se compacta. */}
-            <TimeStrip
-                indicators={stripIndicators}
-                selected={navigation.selected}
-                onSelectPhase={navigation.navigateToPhase}
-                onOpenAlert={openMember}
-                onPrefetchAlert={prefetchMember}
-                hoverRange={navigation.hoverRange}
-                className="-top-5 -mx-5 px-5"
-            />
             {notice && <ManagementNotice tone={notice.tone}>{notice.text}</ManagementNotice>}
             {/* Contexto del evento en todos los modos: para clasificar hay que entender qué pasó. En los pasos
                 la explicación va plegada para que el formulario quede a la vista. */}
@@ -160,7 +131,7 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
                 endedAt={endedAt}
                 pendingClassification={detail.management_status === "SIN_CLASIFICAR"}
                 controls={navigation}
-                scrollMarginTopPx={compactStripHeightPx(stripIndicators.length) + PHASE_SCROLL_GAP_PX}
+                scrollMarginTopPx={scrollMarginTopPx}
                 durationLabel={combined ? ALERT_DURATION_LABEL : undefined}
             />
             {body}

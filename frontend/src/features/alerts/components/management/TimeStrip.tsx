@@ -29,6 +29,8 @@ import {
 
 // Tailwind `sm`: desde aquí el eje muestra "jue 19"; más angosto, solo "19" y marcas más juntas.
 const WIDE_SCREEN_QUERY = "(min-width: 640px)";
+// `py-2` de la franja pegada; con pestañas debajo se omite el de abajo (lo cuenta compactStripHeightPx).
+const STUCK_BOTTOM_PAD_PX = 8;
 
 /** Capa sobre la columna de las barras (mismo ancho que sus pistas). No recibe clics. */
 function Overlay({ className, children }: { className: string; children: React.ReactNode }) {
@@ -106,15 +108,24 @@ interface TimeStripProps {
     /** Una entrada por alerta del grupo (vista combinada); una sola si ninguna otra se cruza con la abierta. */
     indicators: readonly StripIndicatorInput[];
     selected: PhaseRef | null;
-    /** Clic en un tramo de la alerta abierta: navegar a su fase (§5.3). Nunca cambia datos. */
+    /** Clic en un tramo: navegar a su fase, en la pestaña de su alerta (§5.3). Nunca cambia datos. */
     onSelectPhase: (target: PhaseRef) => void;
-    /** Clic en otra alerta del grupo: abrirla en el modal. */
-    onOpenAlert: (alertId: number) => void;
+    /** Clic en el nombre de otra alerta del grupo: abrir su pestaña. */
+    onSelectAlert: (alertId: number) => void;
     onPrefetchAlert: (alertId: number) => void;
     /** Rango bajo el cursor en la línea de tiempo, para la banda del cursor de tiempo. */
     hoverRange: HoverRange | null;
     /** Clases del contenedor fijo, p. ej. para cubrir el relleno lateral del modal al quedar pegado. */
     className?: string;
+    /**
+     * `top` del sticky. Dentro del modal es -20 (su relleno p-5): Chrome pega el sticky al borde del relleno y, sin
+     * esto, la franja quedaría a 20 px del borde y el marcador de useIsStuck nunca saldría de la vista.
+     */
+    stickyTopPx?: number;
+    /** Lo que queda fijo junto con la franja, debajo de ella (las pestañas de la vista combinada). */
+    below?: React.ReactNode;
+    /** Alto fijo de `below` (incluida su separación), para el alto de la franja compacta. */
+    belowHeightPx?: number;
 }
 
 /**
@@ -122,13 +133,24 @@ interface TimeStripProps {
  * exactas (ajuste de la etapa 4). Queda fija arriba al hacer scroll y se compacta: sin fechas, las barras siguen
  * navegando.
  */
-export function TimeStrip({ indicators, selected, onSelectPhase, onOpenAlert, onPrefetchAlert, hoverRange, className }: TimeStripProps) {
+export function TimeStrip({
+    indicators,
+    selected,
+    onSelectPhase,
+    onSelectAlert,
+    onPrefetchAlert,
+    hoverRange,
+    className,
+    stickyTopPx = 0,
+    below,
+    belowHeightPx = 0,
+}: TimeStripProps) {
     const now = useNow();
     const strip = useMemo(() => buildTimeStrip(indicators, now), [indicators, now]);
     const cursor = useMemo(() => (strip && hoverRange ? buildStripCursor(strip, hoverRange) : null), [strip, hoverRange]);
     const actions = useMemo<BarActions>(
-        () => ({ selected, onSelect: onSelectPhase, onOpenAlert, onPrefetchAlert }),
-        [selected, onSelectPhase, onOpenAlert, onPrefetchAlert]
+        () => ({ selected, onSelect: onSelectPhase, onSelectAlert, onPrefetchAlert }),
+        [selected, onSelectPhase, onSelectAlert, onPrefetchAlert]
     );
     const [sentinelRef, stuck] = useIsStuck<HTMLSpanElement>();
     const [measureRef, { height }] = useElementSize<HTMLDivElement>();
@@ -137,19 +159,36 @@ export function TimeStrip({ indicators, selected, onSelectPhase, onOpenAlert, on
     if (!stuck && height !== fullHeight) setFullHeight(height);
     if (!strip) return null;
 
-    const compactHeight = compactStripHeightPx(strip.bars.length);
+    const compactHeight = compactStripHeightPx(strip.bars.length) + (below ? belowHeightPx - STUCK_BOTTOM_PAD_PX : 0);
+    // La franja conserva siempre su alto completo y se pega `hiddenPx` más arriba del borde: al pegarse solo queda a
+    // la vista su parte de abajo, donde va la versión compacta. Así el contenido no salta ni queda un hueco en blanco
+    // (antes se encogía y un margen guardaba el alto, y ese margen se veía vacío bajo la franja).
+    const hiddenPx = Math.max(0, fullHeight - compactHeight);
 
     return (
         <TooltipProvider>
             <div
                 ref={measureRef}
-                className={cn("sticky top-0 z-10 bg-background", stuck && "py-2", className)}
-                // Compacta: ocupa poco arriba, pero el margen conserva el alto completo en el flujo para que el
-                // contenido no salte al compactarse.
-                style={stuck ? { height: compactHeight, marginBottom: Math.max(0, fullHeight - compactHeight) } : undefined}
+                // min-w-0: el modal es una grilla y su columna crecería hasta el ancho de las pestañas juntas.
+                className={cn("sticky z-10 flex min-w-0 flex-col justify-end bg-background", className)}
+                style={{ top: stickyTopPx - hiddenPx, height: stuck ? fullHeight : undefined }}
             >
-                <span ref={sentinelRef} aria-hidden className="pointer-events-none absolute inset-x-0 -top-0.5 h-px" />
-                <StripPanel strip={strip} cursor={cursor} actions={actions} compact={stuck} />
+                {/* Marcador a la altura del borde visible de la franja pegada: sale de la vista justo al pegarse. */}
+                <span ref={sentinelRef} aria-hidden className="pointer-events-none absolute inset-x-0 h-px" style={{ top: hiddenPx - 2 }} />
+                {/* Con `below` (pestañas) no hay relleno abajo: la pestaña abierta se une al contenido de su alerta. */}
+                <div
+                    className={cn("flex min-w-0 flex-col", stuck && (below ? "pt-2" : "py-2"))}
+                    style={stuck ? { height: compactHeight } : undefined}
+                >
+                    <div className="min-h-0 min-w-0 flex-1">
+                        <StripPanel strip={strip} cursor={cursor} actions={actions} compact={stuck} />
+                    </div>
+                    {below && (
+                        <div className="flex min-w-0 shrink-0 flex-col justify-end" style={{ height: belowHeightPx }}>
+                            {below}
+                        </div>
+                    )}
+                </div>
             </div>
         </TooltipProvider>
     );

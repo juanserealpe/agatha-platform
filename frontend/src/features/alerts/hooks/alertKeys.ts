@@ -13,6 +13,8 @@ export const alertKeys = {
     history: (filters: AlertSearchFilters, page: number) => [...alertKeys.histories(), filters, page] as const,
     /** Detalle de gestión (GET /api/alerts/{id}). */
     management: (id: AlertId) => [...alertKeys.all, "management", id] as const,
-    /** Alertas del mismo punto que se cruzan con la alerta abierta (vista combinada). */
-    group: (id: AlertId) => [...alertKeys.all, "group", id] as const,
+    /** Todos los grupos de un punto: el stream los invalida con cada cambio de una alerta del punto. */
+    groups: (deviceId: number) => [...alertKeys.all, "group", deviceId] as const,
+    /** Alertas del mismo punto que se cruzan con la alerta de la pestaña abierta (vista combinada). */
+    group: (deviceId: number, id: AlertId) => [...alertKeys.groups(deviceId), id] as const,
 };

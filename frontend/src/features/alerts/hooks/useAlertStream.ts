@@ -61,6 +61,8 @@ function applyAlertChanged(queryClient: QueryClient, event: AlertChangedEvent) {
     // detalle se vuelve a pedir solo si el modal de esa alerta está abierto.
     void queryClient.invalidateQueries({ queryKey: alertKeys.histories(), refetchType: "none" });
     void queryClient.invalidateQueries({ queryKey: alertKeys.management(event.alert_id) });
+    // Vista combinada abierta en ese punto: el grupo se recalcula (una alerta nueva aparece como barra y pestaña).
+    void queryClient.invalidateQueries({ queryKey: alertKeys.groups(event.measuring_point_id) });
 }
 
 /**

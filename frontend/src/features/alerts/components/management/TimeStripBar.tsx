@@ -44,11 +44,11 @@ function Hint({ text, children }: { text: string; children: React.ReactElement }
     );
 }
 
-/** Lo que pasa al hacer clic en una barra: navegar a la fase (alerta abierta) o abrir otra alerta del grupo. */
+/** Lo que pasa al hacer clic en una barra: navegar a la fase (en la pestaña de su alerta) o abrir otra pestaña. */
 export interface BarActions {
     selected: PhaseRef | null;
     onSelect: (target: PhaseRef) => void;
-    onOpenAlert: (alertId: number) => void;
+    onSelectAlert: (alertId: number) => void;
     /** Al acercarse a otra alerta del grupo: precargar su detalle para que abra sin espera. */
     onPrefetchAlert: (alertId: number) => void;
 }
@@ -72,26 +72,15 @@ function Piece({ piece, bar, className, actions }: PieceProps) {
             </Hint>
         );
     }
-    // Otra alerta del grupo: sus fases no están en pantalla; el clic abre esa alerta.
-    if (!bar.current) {
-        return (
-            <Hint text={`${pieceTooltip(piece)} · Clic para abrir ${bar.code ?? "esta alerta"}`}>
-                <button
-                    type="button"
-                    aria-label={`${label}. Abrir esta alerta`}
-                    onClick={() => actions.onOpenAlert(bar.id)}
-                    className={cn(base, "cursor-pointer hover:brightness-95")}
-                    style={piecePosition(piece)}
-                />
-            </Hint>
-        );
-    }
+    // Un tramo de otra alerta del grupo lleva a su pestaña y a esa fase (CA6).
     const selected = actions.selected?.alertId === bar.id && actions.selected.seq === seq;
+    // La acción solo va en la etiqueta accesible: en el tooltip ocupaba espacio y el clic ya es evidente.
+    const action = bar.current ? "Ir a esta fase" : `Ir a esta fase en la pestaña de ${bar.code ?? "esta alerta"}`;
     return (
         <Hint text={pieceTooltip(piece)}>
             <button
                 type="button"
-                aria-label={`${label}. Ir a esta fase`}
+                aria-label={`${label}. ${action}`}
                 aria-pressed={selected}
                 onClick={() => actions.onSelect({ alertId: bar.id, seq })}
                 className={cn(base, "cursor-pointer hover:brightness-95", selected && SELECTED_PIECE_CLASS)}
@@ -181,7 +170,7 @@ export function Bar({ bar, combined, compact, grid, actions }: BarProps) {
     const dimmed = combined && !bar.current;
     const duration = formatDuration(bar.durationMs);
     const range = barRangeLabel(bar);
-    const open = () => actions.onOpenAlert(bar.id);
+    const open = () => actions.onSelectAlert(bar.id);
     const rowProps = {
         role: "group",
         "aria-label": barAccessibleLabel(bar, barName(bar)),
@@ -226,7 +215,7 @@ export function Bar({ bar, combined, compact, grid, actions }: BarProps) {
                 <button
                     type="button"
                     onClick={open}
-                    aria-label={`Abrir alerta ${bar.code ?? ""}`.trim()}
+                    aria-label={`Ver la pestaña de ${bar.code ?? "esta alerta"}`}
                     className={cn("flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-sm text-left hover:[&>span:first-child]:underline", FOCUS_CLASS)}
                 >
                     {name}
