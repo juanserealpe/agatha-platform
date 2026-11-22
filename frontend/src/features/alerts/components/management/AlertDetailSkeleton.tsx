@@ -1,21 +1,14 @@
-import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { Skeleton, SkeletonBlock as Bone } from "@/shared/components/Skeleton";
 
 /** Clases del modal de gestión: las comparten el modal y su esqueleto, para que el ancho no salte al cargar. */
 export const MANAGEMENT_DIALOG_CLASS = "max-h-[90vh] gap-5 overflow-y-auto p-5 sm:max-w-2xl";
 
 const LOADING_TEXT = "Cargando alerta…";
+const STACK_CLASS = "flex flex-col gap-5";
 
 // max-h-[90vh] del modal menos su relleno p-5 (arriba y abajo).
 const SKELETON_FULL_HEIGHT_CLASS = "min-h-[calc(90vh-2.5rem)]";
-
-// Un solo pulso de opacity en el contenedor (no uno por bloque): una capa compuesta, sin repintar en cada frame.
-// Con movimiento reducido queda estático.
-const PULSE_CLASS = "motion-safe:animate-pulse";
-
-function Bone({ className }: { className?: string }) {
-    return <div className={cn("rounded bg-gray-200", className)} />;
-}
 
 function SectionHeading({ className }: { className?: string }) {
     return <Bone className={cn("h-3", className)} />;
@@ -99,19 +92,6 @@ function ContentBones() {
     );
 }
 
-function Loading({ children, className }: { children: ReactNode; className?: string }) {
-    return (
-        // min-w-0: en la grilla del modal, sin esto el ancho mínimo sale de los anchos fijos de los bloques y en un
-        // celular el esqueleto se desborda en vez de encoger los bloques.
-        <div role="status" className="min-w-0">
-            <span className="sr-only">{LOADING_TEXT}</span>
-            <div aria-hidden className={cn("flex flex-col gap-5", PULSE_CLASS, className)}>
-                {children}
-            </div>
-        </div>
-    );
-}
-
 /**
  * Esqueleto del modal completo (cabecera, franja y contenido) mientras llegan el detalle y el grupo. Tiene la forma
  * de una alerta sola, el caso más común, y el alto máximo del modal: el detalle casi siempre lo llena, así que al
@@ -119,28 +99,28 @@ function Loading({ children, className }: { children: ReactNode; className?: str
  */
 export function AlertDetailSkeleton() {
     return (
-        <Loading className={SKELETON_FULL_HEIGHT_CLASS}>
+        <Skeleton label={LOADING_TEXT} className={cn(STACK_CLASS, SKELETON_FULL_HEIGHT_CLASS)}>
             <HeaderSkeleton />
             <StripRows rows={1} />
             <ContentBones />
-        </Loading>
+        </Skeleton>
     );
 }
 
 /** Contenido de una pestaña cuyo detalle todavía no llega (la cabecera y la franja ya están). */
 export function AlertContentSkeleton() {
     return (
-        <Loading>
+        <Skeleton label={LOADING_TEXT} className={STACK_CLASS}>
             <ContentBones />
-        </Loading>
+        </Skeleton>
     );
 }
 
 /** Lugar de la franja si el grupo tarda más de lo esperado y el detalle ya se muestra. */
 export function TimeStripSkeleton() {
     return (
-        <Loading>
+        <Skeleton label="Buscando otras alertas del punto…" className={STACK_CLASS}>
             <StripRows rows={1} />
-        </Loading>
+        </Skeleton>
     );
 }

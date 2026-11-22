@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePreloadWhenIdle } from "@/shared/hooks/usePreloadWhenIdle";
 import { lazyWithPreload } from "@/shared/lib/lazyWithPreload";
+import { CalendarSkeleton } from "./CalendarSkeleton";
 import { DATE_PLACEHOLDER, dateToIsoDay, isoDayToDate, isoDayToDisplay, parseDisplayDay } from "../../lib/historyFilterForm";
 
 // El calendario se descarga aparte y se precarga en tiempo ocioso o al acercarse al botón, para que al
@@ -73,7 +74,7 @@ export function DateFilterField({ id, label, value, onChange, invalid, errorId }
                         <CalendarDays aria-hidden />
                     </PopoverTrigger>
                     <PopoverContent align="end" className="w-auto">
-                        <Suspense fallback={<p className="p-4 text-xs text-gray-500">Cargando calendario…</p>}>
+                        <Suspense fallback={<CalendarSkeleton />}>
                             <FilterCalendar selected={isoDay ? isoDayToDate(isoDay) : undefined} onSelect={handleSelect} />
                         </Suspense>
                     </PopoverContent>

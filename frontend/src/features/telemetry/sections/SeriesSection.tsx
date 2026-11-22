@@ -3,6 +3,7 @@ import type { Series } from "@/services/dashboard/series.types";
 import { useSeries } from "../hooks/useSeries";
 import { useDateRangeState } from "../hooks/useDateRangeState";
 import { DateRangeControls } from "../components/DateRangeControls";
+import { ChartGridSkeleton } from "../components/SeriesSkeleton";
 import { SeriesChart } from "../charts/SeriesChart";
 import { SERIES_SECTIONS, type SeriesSectionConfig } from "../config/seriesSections";
 import { DEFAULT_LEAK_THRESHOLDS } from "../config/leakThresholds";
@@ -57,7 +58,7 @@ function AvailableSeriesSection({ sectionKey, config, deviceId }: SeriesSectionP
                 onCustomRangeApply={selectCustomRange}
             />
             {isLoading ? (
-                <p className="py-4 text-center text-xs text-slate-500">Cargando…</p>
+                <ChartGridSkeleton slots={config.charts} />
             ) : isError ? (
                 <p className="py-4 text-center text-xs text-red-600">{error?.message}</p>
             ) : (

@@ -12,6 +12,7 @@ import { usePrefetchAlertView } from "../hooks/useAlertGroup";
 import { activeAlertsByPriority } from "../lib/alertPriority";
 import { EMPTY_FILTERS, withHistorySearch } from "../lib/historySearchParams";
 import { AlertListItem } from "./AlertListItem";
+import { AlertListSkeleton } from "./AlertListSkeleton";
 
 // El enlace abre el historial ya filtrado por Sin clasificar.
 const PENDING_HISTORY_URL = `${ROUTES.history}?${withHistorySearch(new URLSearchParams(), {
@@ -101,7 +102,7 @@ interface AlertListProps {
 }
 
 function AlertList({ alerts, isLoading, error, emptyTitle, detail, onSelect, onIntent }: AlertListProps) {
-    if (isLoading) return <EmptyState title="Cargando alertas…" />;
+    if (isLoading) return <AlertListSkeleton />;
     if (error) {
         return <EmptyState Icon={AlertCircle} title="No se pudieron cargar las alertas" description="Reintentando automáticamente." />;
     }

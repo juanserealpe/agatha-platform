@@ -1,5 +1,6 @@
 import { useDevices } from "@/features/sensors";
 import { Label } from "@/components/ui/label";
+import { Skeleton, SkeletonBlock } from "@/shared/components/Skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { deviceOptionLabel } from "../../lib/deviceLabel";
 
@@ -32,23 +33,29 @@ export function DeviceFilterSelect({ id, value, onChange }: DeviceFilterSelectPr
             <Label htmlFor={id} className="text-xs font-medium text-gray-600">
                 Dispositivo
             </Label>
-            <Select
-                items={options}
-                value={value === null ? ALL_DEVICES : String(value)}
-                onValueChange={(next) => onChange(next === null || next === ALL_DEVICES ? null : Number(next))}
-            >
-                <SelectTrigger id={id} className="w-full" aria-describedby={isError ? hintId : undefined}>
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    {options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-            {isPending && <p className="text-xs text-gray-500">Cargando dispositivos…</p>}
+            {isPending ? (
+                // Mismo alto que el selector (h-8): al llegar la lista, el formulario no se mueve.
+                <Skeleton label="Cargando dispositivos…">
+                    <SkeletonBlock className="h-8 w-full rounded-lg" />
+                </Skeleton>
+            ) : (
+                <Select
+                    items={options}
+                    value={value === null ? ALL_DEVICES : String(value)}
+                    onValueChange={(next) => onChange(next === null || next === ALL_DEVICES ? null : Number(next))}
+                >
+                    <SelectTrigger id={id} className="w-full" aria-describedby={isError ? hintId : undefined}>
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {options.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            )}
             {isError && (
                 <p id={hintId} className="text-xs text-gray-500">
                     No se pudo cargar la lista de dispositivos.

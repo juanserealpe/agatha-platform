@@ -3,6 +3,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/
 import { usePreloadWhenIdle } from "@/shared/hooks/usePreloadWhenIdle";
 import { lazyWithPreload } from "@/shared/lib/lazyWithPreload";
 import { SectionHeader } from "./SectionHeader";
+import { SeriesSectionSkeleton } from "./SeriesSkeleton";
 import { SECTION_ORDER } from "../config/sectionStyles";
 
 // Las gráficas (Recharts + calendario) son lo más pesado de la app y solo se usan al abrir una sección:
@@ -32,7 +33,7 @@ export function TelemetryPanel({ deviceId }: { deviceId: number }) {
                     </AccordionTrigger>
                     <AccordionContent className="border-t border-slate-200 bg-slate-50/50 p-4">
                         {openSections.includes(key) && (
-                            <Suspense fallback={<p className="py-4 text-center text-xs text-gray-500">Cargando gráficas…</p>}>
+                            <Suspense fallback={<SeriesSectionSkeleton />}>
                                 <SeriesSection key={deviceId} sectionKey={key} deviceId={deviceId} />
                             </Suspense>
                         )}
