@@ -12,6 +12,13 @@
 //	processing -point 11556 -backfill [-from 2026-07-09T00:00:00Z] [-asof ...] [-dry-run] [-json]
 //
 // Con -dry-run evalúa e imprime el resumen SIN persistir.
+//
+// Con -rebuild (solo junto con -backfill) reemplaza en UNA TX las evaluaciones
+// del punto en [-from, última hora] (sin -from: todas) por las recalculadas
+// con las versiones de línea base actuales. Bloqueado con AGATHA_ENV=production.
+// Después hay que reconstruir rule_engine y alert_management:
+//
+//	processing -point 11556 -backfill -rebuild
 package main
 
 import (
@@ -40,6 +47,7 @@ func main() {
 	asOfRaw := flag.String("asof", "", "con -backfill: fin RFC3339 en UTC (default: última hora lista)")
 	dryRun := flag.Bool("dry-run", false, "con -backfill: evalúa sin persistir")
 	asJSON := flag.Bool("json", false, "con -backfill: imprime todas las filas en JSON")
+	rebuild := flag.Bool("rebuild", false, "con -backfill: reemplaza las evaluaciones del rango (no en production)")
 	flag.Parse()
 
 	if *pointID <= 0 {
@@ -47,8 +55,8 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if !*backfill && (*fromRaw != "" || *asOfRaw != "" || *dryRun || *asJSON) {
-		log.Error("-from, -asof, -dry-run y -json solo aplican con -backfill")
+	if !*backfill && (*fromRaw != "" || *asOfRaw != "" || *dryRun || *asJSON || *rebuild) {
+		log.Error("-from, -asof, -dry-run, -json y -rebuild solo aplican con -backfill")
 		os.Exit(2)
 	}
 
@@ -87,6 +95,7 @@ func main() {
 		From:    from,
 		To:      to,
 		DryRun:  *dryRun,
+		Rebuild: *rebuild,
 	})
 	if err != nil {
 		log.Error("la carga del histórico falló", "error", err)
@@ -130,6 +139,9 @@ func printBackfillReport(r processingServices.BackfillResult, dryRun bool) {
 		return
 	case dryRun:
 		fmt.Printf("Resultado: DRY-RUN (%d horas, %d filas, no se persistió)\n", r.Hours, len(r.Evaluations))
+	case r.Deleted > 0:
+		fmt.Printf("Resultado: REBUILD — %d filas borradas, %d horas, %d filas insertadas\n",
+			r.Deleted, r.Hours, r.Inserted)
 	default:
 		fmt.Printf("Resultado: %d horas, %d filas, %d nuevas (%d ya existían)\n",
 			r.Hours, len(r.Evaluations), r.Inserted, len(r.Evaluations)-r.Inserted)

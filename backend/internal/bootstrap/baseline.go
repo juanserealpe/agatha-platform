@@ -11,6 +11,7 @@ import (
 	baselineModels "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/models"
 	baselineRepositories "github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/repositories"
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/scheduling"
+	"github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
@@ -27,15 +28,29 @@ type BaselineModule struct {
 	// Recalculator lo usa cmd/baseline para recalcular (o dry-run) a demanda.
 	Recalculator *baselineServices.RecalculationService
 	// Backfiller lo usa cmd/baseline -backfill para cargar el histórico de
-	// versiones de un punto que aún no tiene ninguna.
+	// versiones de un punto que aún no tiene ninguna (o reemplazarlo con -rebuild).
 	Backfiller *baselineServices.BackfillService
+	// Exclusions mantiene baseline_exclusion_periods: lo usan la suscripción a
+	// alert_management.alert_changed y cmd/baseline -seed-exclusions.
+	Exclusions *baselineServices.ExclusionService
 	// NewScheduler crea el scheduler de recálculo (tick horario + una ejecución al arrancar).
 	NewScheduler func() *scheduling.RecalcScheduler
+
+	bus eventbus.Bus
+	log *logger.Logger
+}
+
+// SubscribeAlertChanged suscribe Baseline a alert_management.alert_changed
+// para mantener baseline_exclusion_periods. Debe llamarse antes de arrancar
+// los schedulers (si Alert Management está habilitado).
+func (m *BaselineModule) SubscribeAlertChanged() (unsubscribe func()) {
+	return subscribeBaselineExclusions(m.bus, m.Exclusions, m.log)
 }
 
 // NewBaselineModule migra el esquema de Baseline y cablea sus servicios.
-// Solo lee raw_measurements y devices (de Ingestion) y, para los eventos
-// conocidos, alerts (de Alert Management) con su propio modelo; no usa el bus.
+// Solo lee raw_measurements y devices (de Ingestion). Los eventos conocidos
+// salen de baseline_exclusion_periods (propia), que alimenta la suscripción a
+// alert_changed (SubscribeAlertChanged) y, una vez, el seed desde alerts.
 func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 	logDB := logger.New("DataBaseInit", "Info")
 	logBaseline := logger.New("Baseline", "Info")
@@ -45,6 +60,7 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 	if err := platform.DB.AutoMigrate(
 		&baselineModels.BaselineVersionModel{},
 		&baselineModels.BaselineComponentStatModel{},
+		&baselineModels.ExclusionPeriodModel{},
 	); err != nil {
 		logDB.Error("falló la migración de Baseline", "error", err)
 		return nil, err
@@ -56,16 +72,24 @@ func NewBaselineModule(platform *Platform) (*BaselineModule, error) {
 
 	historyReader := baselineRepositories.NewHistoryReader(platform.DB, metricIDs)
 	baselineRepository := baselineRepositories.NewBaselineRepository(platform.DB)
-	// Todas las alertas del punto (si la tabla alerts existe).
-	knownEvents := knownEventsProvider(platform.DB, logBaseline)
+	// Eventos conocidos = baseline_exclusion_periods (dato de entrada que
+	// ningún rebuild borra), no alerts: así el rebuild no es circular.
+	exclusionRepository := baselineRepositories.NewExclusionPeriodRepository(platform.DB)
+	knownEvents := exclusionRepository
+	exclusions := baselineServices.NewExclusionService(exclusionRepository,
+		baselineRepositories.NewAlertIntervalReader(platform.DB), logBaseline)
 
 	recalculator := baselineServices.NewRecalculationService(historyReader, baselineRepository, knownEvents, cfg, logBaseline, time.Now)
 	replayService := baselineServices.NewReplayService(historyReader, knownEvents, cfg, logBaseline)
-	backfiller := baselineServices.NewBackfillService(historyReader, baselineRepository, replayService, logBaseline)
+	backfiller := baselineServices.NewBackfillService(historyReader, baselineRepository, exclusionRepository, replayService,
+		os.Getenv(EnvironmentEnv), logBaseline)
 
 	return &BaselineModule{
 		Recalculator: recalculator,
 		Backfiller:   backfiller,
+		Exclusions:   exclusions,
+		bus:          platform.EventBus,
+		log:          logBaseline,
 		NewScheduler: func() *scheduling.RecalcScheduler {
 			return scheduling.NewRecalcScheduler(recalculator, logBaseline, tickMinute)
 		},

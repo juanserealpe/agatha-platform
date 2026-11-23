@@ -164,3 +164,61 @@ func TestMeasurementReader(t *testing.T) {
 		t.Fatalf("latest = %v, err = %v", latest, err)
 	}
 }
+
+func countEvaluations(t *testing.T, db *gorm.DB) int64 {
+	t.Helper()
+	var n int64
+	db.Model(&models.FeatureEvaluationModel{}).Where("measuring_point_id = ?", testPoint).Count(&n)
+	return n
+}
+
+func TestReplaceRange_DeletesTheRangeAndInsertsInOneTX(t *testing.T) {
+	db := openDB(t)
+	repo := NewEvaluationRepository(db)
+	ctx := context.Background()
+	hour := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Hour) }
+
+	var old []entities.FeatureEvaluation
+	for i := 0; i < 4; i++ {
+		old = append(old, evaluation(hour(i), 24), evaluation(hour(i), 6))
+	}
+	if _, err := repo.SaveAll(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+
+	// Desde la hora 2: borra horas 2 y 3 (4 filas), conserva 0 y 1.
+	from := hour(2)
+	fresh := []entities.FeatureEvaluation{evaluation(hour(2), 24), evaluation(hour(2), 6)}
+	deleted, inserted, err := repo.ReplaceRange(ctx, testPoint, &from, hour(3), fresh)
+	if err != nil || deleted != 4 || inserted != 2 {
+		t.Fatalf("deleted=%d inserted=%d err=%v", deleted, inserted, err)
+	}
+	if n := countEvaluations(t, db); n != 6 {
+		t.Fatalf("quedaron %d filas, se esperaban 6", n)
+	}
+
+	// Sin from: borra todo hasta to.
+	deleted, inserted, err = repo.ReplaceRange(ctx, testPoint, nil, hour(3), []entities.FeatureEvaluation{evaluation(hour(0), 24)})
+	if err != nil || deleted != 6 || inserted != 1 {
+		t.Fatalf("sin from: deleted=%d inserted=%d err=%v", deleted, inserted, err)
+	}
+}
+
+func TestReplaceRange_InsertFailureKeepsTheOldRows(t *testing.T) {
+	db := openDB(t)
+	repo := NewEvaluationRepository(db)
+	ctx := context.Background()
+
+	if _, err := repo.SaveAll(ctx, []entities.FeatureEvaluation{evaluation(t0, 24)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dos filas iguales chocan con el índice único dentro de la TX.
+	dup := []entities.FeatureEvaluation{evaluation(t0, 24), evaluation(t0, 24)}
+	if _, _, err := repo.ReplaceRange(ctx, testPoint, nil, t0, dup); err == nil {
+		t.Fatal("se esperaba error por fila duplicada")
+	}
+	if n := countEvaluations(t, db); n != 1 {
+		t.Fatalf("la TX debía revertirse: quedaron %d filas", n)
+	}
+}

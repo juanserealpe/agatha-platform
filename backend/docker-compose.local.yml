@@ -1,0 +1,32 @@
+# Postgres LOCAL para trabajar desde la PC sin tocar la BD del piloto.
+#
+#   docker compose -f docker-compose.local.yml up -d --wait
+#   ./scripts/db-clone-prod.sh          # la deja igual a producción
+#   AGATHA_DB=local go run ./cmd/...     # usa .env.local
+#
+# Misma versión mayor que Supabase (17). Solo escucha en 127.0.0.1; los datos
+# viven en el volumen agatha-pgdata (sobreviven a down; `down -v` los borra).
+name: agatha-local
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: agatha-postgres-local
+    environment:
+      POSTGRES_USER: agatha
+      POSTGRES_PASSWORD: agatha
+      POSTGRES_DB: agatha
+      TZ: UTC
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - agatha-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agatha -d agatha"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+
+volumes:
+  agatha-pgdata:

@@ -11,6 +11,20 @@
 // política real de recálculo. Solo en un punto sin versiones:
 //
 //	baseline -point 11556 -backfill [-from 2026-06-07T05:00:00Z] [-asof ...] [-dry-run] [-json]
+//
+// Con -rebuild (solo junto con -backfill) reemplaza en UNA TX el histórico
+// existente del punto por el simulado. Bloqueado con AGATHA_ENV=production.
+// Después hay que reconstruir processing, rule_engine y alert_management:
+//
+//	baseline -point 11556 -backfill -rebuild
+//
+// Con -seed-exclusions copia (upsert por código) el intervalo de TODAS las
+// alertas actuales a baseline_exclusion_periods, los eventos que la línea base
+// excluye. Se corre una vez al adoptar la tabla (después la mantiene la
+// suscripción a alert_changed) y SIEMPRE antes de un rebuild de alertas: la
+// tabla es la entrada del cálculo y ningún rebuild la borra. No usa -point:
+//
+//	baseline -seed-exclusions
 package main
 
 import (
@@ -38,7 +52,19 @@ func main() {
 	asJSON := flag.Bool("json", false, "imprime el resultado en JSON")
 	backfill := flag.Bool("backfill", false, "carga el histórico de versiones (solo en un punto sin versiones)")
 	fromRaw := flag.String("from", "", "con -backfill: inicio RFC3339 en UTC (default: primer registro de B2)")
+	rebuild := flag.Bool("rebuild", false, "con -backfill: reemplaza el histórico existente del punto (no en production)")
+	seedExclusions := flag.Bool("seed-exclusions", false, "copia los intervalos de todas las alertas a baseline_exclusion_periods")
 	flag.Parse()
+
+	if *seedExclusions {
+		runSeedExclusions(log)
+		return
+	}
+
+	if *rebuild && !*backfill {
+		log.Error("-rebuild solo aplica con -backfill")
+		os.Exit(2)
+	}
 
 	if *pointID <= 0 {
 		log.Error("-point es obligatorio y debe ser > 0")
@@ -89,6 +115,7 @@ func main() {
 			From:    from,
 			To:      asOf,
 			DryRun:  *dryRun,
+			Rebuild: *rebuild,
 		}, *asJSON)
 		return
 	}
@@ -144,10 +171,35 @@ func runBackfill(
 	printBackfillReport(result)
 }
 
+// runSeedExclusions copia los intervalos de las alertas actuales.
+func runSeedExclusions(log *logger.Logger) {
+	platform, err := bootstrap.NewPlatform()
+	if err != nil {
+		os.Exit(1)
+	}
+	module, err := bootstrap.NewBaselineModule(platform)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+	defer cancel()
+
+	result, err := module.Exclusions.SeedFromAlerts(ctx)
+	if err != nil {
+		log.Error("la copia de exclusiones falló", "error", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Exclusiones: %d alertas leídas, %d períodos guardados, %d omitidas\n",
+		result.Read, result.Upserted, result.Skipped)
+}
+
 func printBackfillReport(r baselineServices.BackfillResult) {
 	fmt.Printf("Punto %d — histórico [%s, %s)\n", r.PointID, formatTime(r.From), formatTime(r.To))
 
 	switch {
+	case r.Created && r.Deleted > 0:
+		fmt.Printf("Resultado: REBUILD — %d versiones borradas, %d creadas\n", r.Deleted, len(r.Versions))
 	case r.Created:
 		fmt.Printf("Resultado: %d versiones creadas\n", len(r.Versions))
 	case r.SkippedReason == baselineServices.SkippedDryRun:

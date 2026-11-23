@@ -118,6 +118,84 @@ func (r *BaselineRepository) SaveNewVersion(ctx context.Context, v entities.Base
 // última queda vigente) con sus component stats. Todo o nada.
 func (r *BaselineRepository) SaveHistory(ctx context.Context, pointID int64, versions []entities.BaselineVersion,
 ) ([]entities.BaselineVersion, error) {
+	saved, err := historyModels(pointID, versions)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing int64
+		if err := tx.Model(&models.BaselineVersionModel{}).
+			Where("measuring_point_id = ?", pointID).
+			Limit(1).
+			Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return domain.ErrBaselineHistoryExists
+		}
+		return insertHistory(tx, saved)
+	})
+
+	if err != nil {
+		// Dos cargas concurrentes: la segunda choca con UNIQUE (punto, versión).
+		if isUniqueViolation(err) {
+			return nil, domain.ErrBaselineHistoryExists
+		}
+		return nil, err
+	}
+
+	return toVersions(saved)
+}
+
+// ReplaceHistory, en una TX: bloquea las versiones del punto → DELETE de sus
+// component stats y de sus versiones → INSERT del histórico nuevo como en
+// SaveHistory. Todo o nada: si el INSERT falla, el histórico anterior queda.
+func (r *BaselineRepository) ReplaceHistory(ctx context.Context, pointID int64, versions []entities.BaselineVersion,
+) ([]entities.BaselineVersion, int, error) {
+	saved, err := historyModels(pointID, versions)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var deleted int64
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ids []int64
+		if err := tx.Model(&models.BaselineVersionModel{}).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("measuring_point_id = ?", pointID).
+			Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+
+		if len(ids) > 0 {
+			if err := tx.Where("baseline_version_id IN ?", ids).
+				Delete(&models.BaselineComponentStatModel{}).Error; err != nil {
+				return err
+			}
+			result := tx.Where("id IN ?", ids).Delete(&models.BaselineVersionModel{})
+			if result.Error != nil {
+				return result.Error
+			}
+			deleted = result.RowsAffected
+		}
+
+		return insertHistory(tx, saved)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	out, err := toVersions(saved)
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, int(deleted), nil
+}
+
+// historyModels valida el histórico (mismo punto, valid_from creciente) y lo
+// convierte a modelos: número = posición, valid_to = valid_from de la siguiente.
+func historyModels(pointID int64, versions []entities.BaselineVersion) ([]models.BaselineVersionModel, error) {
 	saved := make([]models.BaselineVersionModel, len(versions))
 
 	for i, v := range versions {
@@ -140,36 +218,21 @@ func (r *BaselineRepository) SaveHistory(ctx context.Context, pointID int64, ver
 		saved[i] = model
 	}
 
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing int64
-		if err := tx.Model(&models.BaselineVersionModel{}).
-			Where("measuring_point_id = ?", pointID).
-			Limit(1).
-			Count(&existing).Error; err != nil {
+	return saved, nil
+}
+
+// insertHistory inserta una por una y en orden: el índice parcial "una
+// vigente por punto" solo admite valid_to NULL en la última.
+func insertHistory(tx *gorm.DB, saved []models.BaselineVersionModel) error {
+	for i := range saved {
+		if err := tx.Create(&saved[i]).Error; err != nil {
 			return err
 		}
-		if existing > 0 {
-			return domain.ErrBaselineHistoryExists
-		}
-
-		// Una por una y en orden: el índice parcial "una vigente por punto"
-		// solo admite valid_to NULL en la última.
-		for i := range saved {
-			if err := tx.Create(&saved[i]).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		// Dos cargas concurrentes: la segunda choca con UNIQUE (punto, versión).
-		if isUniqueViolation(err) {
-			return nil, domain.ErrBaselineHistoryExists
-		}
-		return nil, err
 	}
+	return nil
+}
 
+func toVersions(saved []models.BaselineVersionModel) ([]entities.BaselineVersion, error) {
 	out := make([]entities.BaselineVersion, len(saved))
 	for i, model := range saved {
 		version, err := mappers.ToBaselineVersion(model)
@@ -178,7 +241,6 @@ func (r *BaselineRepository) SaveHistory(ctx context.Context, pointID int64, ver
 		}
 		out[i] = version
 	}
-
 	return out, nil
 }
 

@@ -16,11 +16,12 @@ baseline/
 │   ├── entities/                     # BaselineVersion, SignalBaseline, ComponentStat, ExcludedPeriod,
 │   │                                 # ExclusionSet, EstimationSummary, PassReport, enums
 │   ├── services/                     # Servicios puros (sin IO)
-│   └── repositories/                 # Ports: HistoryReader, BaselineRepository, KnownEventsProvider
+│   └── repositories/                 # Ports: HistoryReader, BaselineRepository, KnownEventsProvider,
+│                                     #   ExclusionPeriodRepository, AlertIntervalReader
 ├── application/services/             # UC-B1/UC-B2 RecalculationService, UC-B4 BackfillService,
 │                                     # ReplayService (simulación)
 └── infrastructure/
-    ├── persistence/                  # models (GORM), mappers, repositories (incl. AlertEventsReader)
+    ├── persistence/                  # models (GORM), mappers, repositories (incl. ExclusionPeriodRepository, AlertIntervalReader)
     └── scheduling/recalc_scheduler.go
 ```
 
@@ -30,7 +31,8 @@ baseline/
 |---|---|---|
 | UC-B1 | `RecalculationService.Recalculate(RecalculateCommand{PointID, AsOf, Trigger, DryRun})` | UC-B2, `cmd/baseline` |
 | UC-B2 | `RecalculationService.RecalculateDue(now)` — secuencial; un punto que falla no detiene al resto | `RecalcScheduler` |
-| UC-B4 | `BackfillService.Backfill(BackfillCommand{PointID, From, To, DryRun})` — histórico retroactivo de versiones | `cmd/baseline -backfill` |
+| UC-B4 | `BackfillService.Backfill(BackfillCommand{PointID, From, To, DryRun, Rebuild})` — histórico retroactivo de versiones (o reemplazo con Rebuild) | `cmd/baseline -backfill [-rebuild]` |
+| UC-B5 | `ExclusionService.RecordAlert(AlertSnapshot)` / `SeedFromAlerts()` — mantiene `baseline_exclusion_periods` | suscripción a `alert_changed`, `cmd/baseline -seed-exclusions` |
 
 UC-B1: valida punto → `GetSamples([asOf − 90 d, asOf))` → `GetKnownEvents` del mismo rango (si falla ⇒ `ErrConsultingKnownEvents`, no se calcula) → `features.Normalize` → `RobustBaselineEstimator.EstimateExcluding` → `INSUFFICIENT_HISTORY` no persiste (log `Info` solo si cambia el motivo) → `DryRun` no persiste → `SaveNewVersion` (conflicto concurrente = no-op).
 
@@ -51,13 +53,17 @@ UC-B4: valida punto → (salvo `DryRun`) `GetLatest` y, si el punto **ya tiene v
 - Piso de Ex con señal degenerada ⇒ `Δmin`.
 - Una nueva versión con `valid_from <=` al de la vigente se rechaza (`PERSISTING_BASELINE`): el versionado no es retroactivo.
 
-## Eventos conocidos: las alertas (exclusión forzada)
+## Eventos conocidos: `baseline_exclusion_periods` (exclusión forzada)
 
-Además de lo que marca el barrido de I, **las alertas del punto nunca entran a la línea base**. Las entrega el port `KnownEventsProvider.GetKnownEvents(point, from, to)`. Ya no hay fechas estáticas en código.
+Además de lo que marca el barrido de I, **los períodos de exclusión del punto nunca entran a la línea base**. Los entrega el port `KnownEventsProvider.GetKnownEvents(point, from, to)`, implementado por `ExclusionPeriodRepository` sobre la tabla propia `baseline_exclusion_periods`.
 
-- **Fuente única**: `infrastructure/persistence/repositories.AlertEventsReader` lee `alerts` (tabla de Alert Management) con su propio modelo, solo lectura. Solo importan `started_at` y `ended_at`. Excluye **todas** las alertas del punto, cualquiera sea su clasificación (Confirmada, Falsa alerta o Sin clasificar); una alerta ACTIVA (`ended_at` NULL) se excluye desde su inicio hasta el fin del rango consultado. En cada recálculo se consulta de nuevo, así que las alertas nuevas entran solas.
-- **Margen**: cada alerta se excluye en `[started_at − 2 h, ended_at + 2 h)` (`Config.KnownEventMargin`, `BASELINE_KNOWN_EVENT_MARGIN`), para que la transición antes del disparo y después del cierre no sesgue la línea base. Lo aplica el dominio (`ExclusionPolicy`); los servicios consultan el rango ampliado con `Config.KnownEventsRange` para no perder una alerta cuyo margen cae dentro del histórico.
-- **Bootstrap**: `internal/bootstrap/baseline_alert_events.go`. Si la tabla `alerts` no existe al arrancar, no hay alertas que excluir (Warn). Alert Management no sabe que Baseline existe.
+- **Por qué una tabla propia**: antes Baseline leía `alerts`, que es una SALIDA del mismo pipeline (baseline → processing → rule_engine → alert_management). Reconstruir todo desde raw era circular: con las alertas viejas la base dependía de la cadena vieja; sin ellas, las fugas contaminaban la referencia. Ahora las exclusiones son un **dato de entrada**: ningún `-rebuild` las borra y el rebuild es función de `raw + exclusiones`.
+- **Contenido**: un período por alerta (`source = ALERT`, `source_alert_code` único, sin FK) con `started_at` y `ended_at` (NULL = en curso ⇒ se excluye hasta el fin del rango consultado), más los cargados a mano (`source = MANUAL`, sin código, con `note`). Se copian **todas** las alertas, FUGA y MOVIMIENTO, cualquiera sea su clasificación (falsas alarmas incluidas: el tubo igual estuvo fuera de lo normal).
+- **Mantenimiento en vivo**: `ExclusionService.RecordAlert`, llamado por la suscripción a `alert_management.alert_changed` que arma `internal/bootstrap/baseline_exclusions.go` (solo con Alert Management habilitado). Cada foto hace upsert por código: OPENED inserta en curso, FINISHED cierra con `ended_at`, REACTIVATED vuelve a NULL; el resto de cambios es idempotente. Ignora `alert_id <= 0` (alertas de prueba de Notifications). Baseline no conoce el bus: bootstrap traduce a su tipo `AlertSnapshot`.
+- **Seed**: `cmd/baseline -seed-exclusions` (`ExclusionService.SeedFromAlerts` + `AlertIntervalReader`, modelo propio de `alerts`, solo lectura) copia las alertas actuales. Se corre una vez al adoptar la tabla y antes de cualquier rebuild de alertas.
+- **Guarda de alerta vigente**: `-rebuild` (sin `-dry-run`) se rechaza con `ErrActiveAlertPresent` si el punto tiene un período ALERT sin `ended_at` (`ExclusionPeriodRepository.CountOpenAlerts`; los MANUAL abiertos no cuentan). El rebuild de Alert Management recrearía esa alerta con otro código y su período quedaría abierto para siempre (exclusión hasta el infinito). Alert Management tiene la misma guarda; la de Baseline existe para fallar en el PRIMER paso del runbook y no dejar la base a medias. No hay flag que la saltee: se espera a que la alerta finalice.
+- **Tradeoff aceptado**: una alerta histórica NUEVA que aparezca en un rebuild no se excluye, y una vieja que el rebuild ya no produce sigue excluida. Las exclusiones son lo que se observó en vivo más lo cargado a mano. El backfill de Alert Management no publica, así que un rebuild no las cambia. Editar la tabla solo afecta al histórico tras un rebuild.
+- **Margen**: cada período se excluye en `[started_at − 2 h, ended_at + 2 h)` (`Config.KnownEventMargin`, `BASELINE_KNOWN_EVENT_MARGIN`). Lo aplica el dominio (`ExclusionPolicy`); los servicios consultan el rango ampliado con `Config.KnownEventsRange`.
 
 Reglas del cálculo (`RobustBaselineEstimator.EstimateExcluding`, `ExclusionPolicy.ApplyWithKnown`):
 
@@ -107,7 +113,12 @@ Lecturas: `raw_measurements` (métricas 12/13/18, una consulta por punto, pivote
 | `ErrPersistingBaseline` | `PERSISTING_BASELINE` | Falla `SaveNewVersion` / `SaveHistory` |
 | `ErrBaselineConcurrentUpdate` | `CONSULTING_BASELINE` | Otro proceso creó la vigente (no-op) |
 | `ErrConsultingKnownEvents` | `CONSULTING_BASELINE` | Falla `GetKnownEvents`: no se calcula (una línea base contaminada es peor que ninguna) |
-| `ErrBaselineHistoryExists` | `INVALID_INPUT` | `Backfill` sobre un punto que ya tiene versiones |
+| `ErrBaselineHistoryExists` | `INVALID_INPUT` | `Backfill` sobre un punto que ya tiene versiones (sin `-rebuild`) |
+| `ErrRebuildForbidden` | `INVALID_INPUT` | `-rebuild` con `AGATHA_ENV=production` |
+| `ErrActiveAlertPresent` | `INVALID_INPUT` | `-rebuild` con una alerta vigente en el punto (período ALERT sin `ended_at`) |
+| `ErrInvalidAlertSnapshot` | `INVALID_INPUT` | Foto de alerta sin código, punto inválido, sin inicio o con fin antes del inicio |
+| `ErrConsultingAlerts` | `CONSULTING_BASELINE` | El seed no pudo leer `alerts` |
+| `ErrPersistingExclusions` | `PERSISTING_BASELINE` | Falló el upsert del período |
 
 No son errores: `INSUFFICIENT_HISTORY`, `Status = NONE`, flags. El error crudo de GORM se loguea en el servicio y nunca sale del módulo.
 
@@ -128,7 +139,7 @@ Un valor inválido se ignora con `Warn` y se usa el default.
 
 ## Aislamiento
 
-`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing`, `modules/alert_management` ni `shared/eventbus`. Lee `raw_measurements`, `devices` y `alerts` con modelos propios. Solo `shared/{logger, errors, features}`. Hoy **no expone contrato público** a otros módulos: la fachada y el replayer se retiraron.
+`depguard` (`baseline-isolation`): no importa `modules/ingestion`, `modules/processing`, `modules/alert_management` ni `shared/eventbus`. Lee `raw_measurements`, `devices` y (solo para el seed) `alerts` con modelos propios. Solo `shared/{logger, errors, features}`. Hoy **no expone contrato público** a otros módulos: la fachada y el replayer se retiraron.
 
 ## Simulación de versiones (`ReplayService`)
 
@@ -144,22 +155,22 @@ El versionado no es retroactivo: una versión creada hoy no aplica a horas pasad
 - **Cadencia**: la de `RecalculationPolicy` real. Primera versión (`BOOTSTRAP`) en la primera hora con ≥ 96 registros de B2; mientras sea `LOW` / `NO_EXCLUSION_HISTORY`, una cada 24 h (`LOW_CONFIDENCE`); luego una cada 168 h (`SCHEDULED`).
 - **Datos**: cada versión usa solo `[valid_from − 90 d, valid_from)`; nunca datos posteriores a su recálculo.
 - **`created_at = valid_from`** (no la hora real de escritura): la política mide la edad con `created_at`, así el scheduler continúa el calendario desde la última versión retroactiva sin saltos. Una versión retroactiva **no se distingue** de una creada en su momento.
-- **Precondición**: el punto no tiene versiones. Si tiene, hay que borrarlas antes (`baseline_component_stats` y luego `baseline_versions` del punto). `-dry-run` no exige la precondición: sirve para previsualizar.
+- **Precondición**: el punto no tiene versiones (`ErrBaselineHistoryExists`). Con **`-rebuild`** se reemplaza el histórico existente en UNA TX (`BaselineRepository.ReplaceHistory`: bloquea las versiones del punto, borra sus stats y versiones e inserta las nuevas); si la simulación no produce versiones no se borra nada. `-rebuild` está bloqueado con `AGATHA_ENV=production` (`ErrRebuildForbidden`). `-dry-run` no exige la precondición: sirve para previsualizar.
 - **Atomicidad**: una sola TX; o quedan todas las versiones o ninguna.
 
 Flujo completo (primera ejecución y recálculos): `FLUJO_BASELINE.md`.
 
 ## Cableado y entrypoints
 
-`bootstrap.NewBaselineModule(platform)` → `BaselineModule{Recalculator, Backfiller, NewScheduler}`.
+`bootstrap.NewBaselineModule(platform)` → `BaselineModule{Recalculator, Backfiller, Exclusions, NewScheduler}` + `SubscribeAlertChanged()` (lo llama `NewApplication` si Alert Management está habilitado, antes de los runners). Migra `baseline_versions`, `baseline_component_stats` y `baseline_exclusion_periods`.
 
 | Entrypoint | Baseline |
 |---|---|
 | `cmd/platform` | Se compone después de `NewPlatform` y antes de Ingestion; su scheduler arranca primero y se espera antes de `Platform.Close` |
 | `cmd/scheduler` | Vía `NewIngestionApplication()`; arranca su scheduler |
 | `cmd/ingestion` | Se compone (migra) pero no arranca el scheduler |
-| `cmd/baseline` | `baseline -point 11556 -asof 2026-07-01T00:00:00Z [-dry-run] [-json]` — validación con el analista (pasadas, θ_D, % excluido, ventanas, periodos excluidos). `baseline -point 11556 -backfill [-from …] [-asof …] [-dry-run] [-json]` — histórico retroactivo (UC-B4), una fila por versión |
+| `cmd/baseline` | `baseline -point 11556 -asof 2026-07-01T00:00:00Z [-dry-run] [-json]` — validación con el analista (pasadas, θ_D, % excluido, ventanas, periodos excluidos). `baseline -point 11556 -backfill [-from …] [-asof …] [-dry-run] [-json] [-rebuild]` — histórico retroactivo (UC-B4), una fila por versión; `-rebuild` reemplaza el existente. `baseline -seed-exclusions` — copia las alertas a `baseline_exclusion_periods` |
 
 ## Tests
 
-El módulo no tiene tests por ahora: se retiraron en el refactor de octubre de 2026.
+Unitarios en `application/services` (incluye `backfill_rebuild_test.go` y `exclusion_service_test.go`) y `domain/...`. Integración (`-tags integration`, `DATABASE_URL`): `infrastructure/persistence/repositories/baseline_repository_integration_test.go` (`ReplaceHistory`, exclusiones, CHECKs, seed).

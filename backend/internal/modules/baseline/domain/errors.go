@@ -42,4 +42,37 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "el punto ya tiene versiones de línea base; no se puede cargar el histórico",
 	}
+
+	// ErrRebuildForbidden: -rebuild reemplaza el histórico y no se permite con
+	// AGATHA_ENV=production.
+	ErrRebuildForbidden = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-rebuild no está permitido con AGATHA_ENV=production",
+	}
+
+	// ErrInvalidAlertSnapshot: la foto de la alerta no sirve como período de
+	// exclusión (sin código, punto inválido, sin inicio o fin antes del inicio).
+	// ErrActiveAlertPresent: -rebuild no se permite con una alerta vigente en
+	// el punto (período ALERT sin ended_at). Se espera a que finalice; no hay
+	// flag que lo saltee. Es la misma guarda que aplica Alert Management, pero
+	// al principio del runbook, antes de reescribir nada.
+	ErrActiveAlertPresent = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el punto tiene una alerta vigente (sin fecha de fin): -rebuild no se permite hasta que finalice",
+	}
+
+	ErrInvalidAlertSnapshot = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "la alerta no tiene un intervalo válido para excluir de la línea base",
+	}
+
+	ErrConsultingAlerts = &errors.AppError{
+		Code:    errors.CodeConsultingBaseline,
+		Message: "no fue posible consultar las alertas para copiar sus períodos",
+	}
+
+	ErrPersistingExclusions = &errors.AppError{
+		Code:    errors.CodePersistingBaseline,
+		Message: "no fue posible guardar el período de exclusión de la línea base",
+	}
 )

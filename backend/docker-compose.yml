@@ -6,8 +6,10 @@ services:
   #   processing  evaluación horaria del índice I (requiere baseline; cargar antes los históricos)
   #   rule_engine interpreta processing.indicator_evaluated con umbrales versionados y publica
   #               leak_threshold_exceeded/cleared (requiere processing; antes: rule_engine -backfill)
-  #   dataos      ingesta de contingencia: consulta programada a DataOS
-  #   callback    ingesta principal: POST :8080/ingestion/callback (excluyente con dataos)
+  #   dataos      catch-up desde DataOS: con callback rellena huecos de más de 1 h
+  #               (al arrancar, antes que processing, y cada hora). Requiere
+  #               DATAOS_USERNAME/DATAOS_PASSWORD en el .env o la plataforma no arranca.
+  #   callback    ingesta principal: POST :8080/ingestion/callback
   #   dashboard   API de solo lectura: GET :8080/api/dashboard/*
   #   alert_management alertas, /api/alerts y avisos al bus (requiere rule_engine)
   #   notifications    stream SSE (/api/notifications/stream), registro de tokens

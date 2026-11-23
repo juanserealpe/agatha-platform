@@ -72,6 +72,17 @@ func TestParseModules(t *testing.T) {
 		}
 	})
 
+	// En el VPS dataos es el catch-up de respaldo del callback.
+	t.Run("callback y dataos conviven", func(t *testing.T) {
+		set, err := ParseModules("callback,dataos,dashboard")
+		if err != nil {
+			t.Fatalf("error inesperado: %v", err)
+		}
+		if !set.Has(ModuleCallback) || !set.Has(ModuleDataOS) {
+			t.Fatalf("set = %q", set)
+		}
+	})
+
 	// En local se levanta solo, sin la cadena de schedulers de alert_management.
 	t.Run("notifications no exige alert_management", func(t *testing.T) {
 		set, err := ParseModules("notifications,dashboard")
@@ -88,7 +99,6 @@ func TestParseModules(t *testing.T) {
 		raw  string
 	}{
 		{"módulo desconocido", "callback,reports"},
-		{"callback y dataos a la vez", "callback,dataos,dashboard"},
 		{"rule_engine sin processing", "baseline,rule_engine"},
 		{"alert_management sin rule_engine", "baseline,processing,alert_management"},
 		{"solo separadores", ",,"},

@@ -7,9 +7,9 @@ Hay dos vías de entrada:
 | Vía | Rol | Entrypoint |
 |---|---|---|
 | Callback HTTP de Dataflow Labs (`POST /ingestion/callback`) | **Principal** (default de Docker) | `cmd/platform` con `AGATHA_MODULES` incluyendo `callback` |
-| Consulta programada a DataOS (`IngestionScheduler`, cada 15 min) | **Contingencia** | `cmd/platform` con `AGATHA_MODULES` incluyendo `dataos`, `cmd/scheduler`, `cmd/ingestion` |
+| Catch-up desde DataOS (`CatchUpService` + `IngestionScheduler`) | **Principal sin callback (PC) / respaldo con callback (VPS)** | `cmd/platform` con `AGATHA_MODULES` incluyendo `dataos`, `cmd/scheduler`; carga histórica: `cmd/ingestion` |
 
-Usá una sola vía a la vez (`modules.go` lo exige): el índice único de `raw_measurements` descarta las mediciones repetidas, pero cada vía crea sus propios lotes en `ingestion_state_models`.
+Las dos vías pueden convivir (desde 2026-11-22): el índice único de `raw_measurements` descarta las mediciones repetidas e `IngestDataOs` revierte el lote si no insertó ninguna fila nueva, así que no quedan lotes vacíos en `ingestion_state_models`.
 
 **Arquitectura**: hexagonal. `application/ports` define `DataProvider` e `IngestionUnitOfWork`; `domain/` tiene entidades, repositorios y errores; `infrastructure/` implementa la persistencia (GORM), el cliente DataOS y el handler HTTP del callback (`infrastructure/http`). No publica eventos.
 
@@ -109,9 +109,24 @@ Todo lo que está fuera de las 21 métricas se **omite** (no se guarda): `accel_
 
 Antes de persistir, ambos mappers pasan el valor por `entities.NormalizeMeasurementValue(metricID, value)` (`domain/entities/raw_measurement.go`). Regla vigente: **Voltaje (`metric_id = 3`) se divide entre 2** (la fuente lo entrega al doble). El resto de métricas se guarda tal cual. El payload crudo del callback no se toca; solo `raw_measurements.value`. Datos anteriores al cambio (2026-10-22) se corrigieron con un `UPDATE` manual sobre `raw_measurements`.
 
-## Flujo de ingesta DataOS (contingencia)
+## Catch-up desde DataOS
 
-`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `UnitOfWork.Execute` (en una TX: primero el estado, cuyo `id` es el `ingestion_batch_id` de cada medición, y después el lote; si falla el lote se revierte también el estado; `received_records` es el tamaño del lote pedido, no `Inserted`).
+`CatchUpService.Run(now)` recorre los `devices` activos y, por cada uno:
+
+1. Ventana `[min(now − INGESTION_CATCHUP_LOOKBACK, último dato), now − MinAge]` (lookback por defecto 168h). Si el último dato es más viejo que la ventana (PC apagada días), arranca en él.
+2. Lista los timestamps distintos de `raw_measurements` (`MeasurementCoverageRepository`, cualquier fuente) y marca como hueco cada separación > 20 min, incluidos los bordes. Detecta huecos INTERNOS: tras una caída del VPS, los reintentos del callback traen lo reciente y el `MAX(timestamp)` no muestra el hueco.
+3. Une huecos a menos de 6 h, parte en tramos de 5 días y llama a `IngestDataOs` con el rango en hora de Bogotá. "Sin datos en DataOS" no es falla; un punto que falla no frena a los demás.
+
+| Modo | Cuándo | Periodicidad | `MinAge` |
+|---|---|---|---|
+| Principal | `dataos` sin `callback` (PC, `cmd/scheduler`) | cada 15 min + 50 s | 0 |
+| Respaldo | `dataos` con `callback` (VPS) | cada hora + 50 s | 1 h (lo reciente lo entrega el callback) |
+
+En los dos modos corre **una vez al arrancar, bloqueando** (`Application.RunStartup`), antes de los schedulers y del HTTP: las evaluaciones de Processing son inmutables y una hora se da por lista apenas llega un dato posterior, así que un hueco evaluado antes de rellenarse quedaría `NO_CALCULABLE` para siempre.
+
+## Flujo de ingesta DataOS
+
+`Scheduler` → `IngestService.IngestDataOs` → validar rango → buscar el último estado → `DataProvider.GetMeasurements` → `UnitOfWork.Execute` (en una TX: primero el estado, cuyo `id` es el `ingestion_batch_id` de cada medición, y después el lote; si falla el lote se revierte también el estado; `received_records` es el tamaño del lote pedido, no `Inserted`). Si `Inserted == 0` la TX se revierte con `errNothingNew` y devuelve nil (sin lote vacío).
 
 ## DTOs clave
 
@@ -135,7 +150,7 @@ Logs cortos y en español; el prefijo `[Ingestion]`/`[IngestionCallback]` ya lo 
 
 ## Tablas sin lógica activa
 
-`metric_definitions` (`MetricDefinitionModel`) se sigue migrando porque el Dashboard la lee, pero el módulo no tiene entidad, repositorio ni mapper para ella (se eliminaron el 2026-10-29 por no tener uso). `ingestion_gap_models` (un reconciliador de huecos que nunca se implementó) se eliminó por completo el 2026-10-30: ni modelo ni migración. `IngestionUnitOfWork.Execute` entrega solo `MeasurementRepository` e `IngestionStateRepository`.
+`metric_definitions` (`MetricDefinitionModel`) se sigue migrando porque el Dashboard la lee, pero el módulo no tiene entidad, repositorio ni mapper para ella (se eliminaron el 2026-10-29 por no tener uso). `ingestion_gap_models` (un reconciliador de huecos que nunca se implementó) se eliminó por completo el 2026-10-30: ni modelo ni migración. El catch-up actual no persiste huecos: los recalcula en cada corrida. `IngestionUnitOfWork.Execute` entrega solo `MeasurementRepository` e `IngestionStateRepository`.
 
 ## Errores (`domain/errors.go`)
 

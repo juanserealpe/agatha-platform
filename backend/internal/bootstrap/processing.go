@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"os"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/application/ports"
@@ -75,6 +76,7 @@ func processingConfigFromEnv(log *logger.Logger) (processingServices.Config, pro
 	cfg.InitialLookbackHours = envInt(log, "PROCESSING_INITIAL_LOOKBACK_HOURS", cfg.InitialLookbackHours)
 	cfg.Grace = envDuration(log, "PROCESSING_GRACE", cfg.Grace)
 	cfg.ConfigVersion = ids.ConfigVersion()
+	cfg.Environment = os.Getenv(EnvironmentEnv)
 
 	return cfg, ids
 }

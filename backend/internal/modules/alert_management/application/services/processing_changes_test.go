@@ -22,7 +22,8 @@ func TestProcess_OpenPublishesTheSnapshot(t *testing.T) {
 	if c.AlertID != a.ID || c.AlertCode != a.Code || c.MeasuringPointID != pointA || c.EventType != "FUGA" ||
 		c.State != "ACTIVA" || c.CurrentLevel != "AMARILLO" || c.MaxLevel != "AMARILLO" || c.Blinking ||
 		c.ManagementStatus != "SIN_CLASIFICAR" || c.Classification != "" || !c.StartedAt.Equal(h(0)) ||
-		!c.EvaluatedAt.Equal(h(1)) || !c.OccurredAt.Equal(f.now) || c.SchemaVersion != contract.SchemaVersion {
+		!c.EvaluatedAt.Equal(h(1)) || !c.OccurredAt.Equal(f.now) || c.SchemaVersion != contract.SchemaVersion ||
+		c.EndedAt != nil {
 		t.Fatalf("foto = %+v", c)
 	}
 }
@@ -82,10 +83,10 @@ func TestProcess_FinishAndReactivationArePublished(t *testing.T) {
 	if got := f.changes.changes(); !slices.Equal(got, want) {
 		t.Fatalf("cambios = %v, se esperaban %v", got, want)
 	}
-	if c := f.changes.published[1]; c.State != "FINALIZADA" {
-		t.Fatalf("foto del fin = %+v", c)
+	if c := f.changes.published[1]; c.State != "FINALIZADA" || c.EndedAt == nil || !c.EndedAt.Equal(h(2)) {
+		t.Fatalf("foto del fin = %+v (ended_at %v)", c, c.EndedAt)
 	}
-	if c := f.changes.published[2]; c.State != "ACTIVA" || c.AlertID != f.changes.published[0].AlertID {
+	if c := f.changes.published[2]; c.State != "ACTIVA" || c.AlertID != f.changes.published[0].AlertID || c.EndedAt != nil {
 		t.Fatalf("foto de la reactivación = %+v", c)
 	}
 }

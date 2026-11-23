@@ -51,6 +51,9 @@ type AlertChanged struct {
 	// (la regla de planitud no está activa para el punto) o datos.
 	LeakSignature *LeakSignature `json:"leak_signature"`
 	StartedAt     time.Time      `json:"started_at"`
+	// EndedAt es el fin de la alerta (UTC); null mientras está en curso (una
+	// reactivación lo vuelve a null). Lo usa Baseline para excluir el intervalo.
+	EndedAt *time.Time `json:"ended_at"`
 	// EvaluatedAt es la hora (UTC) del procesamiento que produjo la foto; en
 	// los cambios de gestión, la última hora procesada de la alerta.
 	EvaluatedAt   time.Time `json:"evaluated_at"`

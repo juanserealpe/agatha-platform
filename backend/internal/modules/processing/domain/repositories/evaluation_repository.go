@@ -16,4 +16,10 @@ type EvaluationRepository interface {
 	// SaveAll inserta en una TX con ON CONFLICT (punto, ventana, hora) DO
 	// NOTHING. inserted < len(evals) significa que otro proceso ya las insertó.
 	SaveAll(ctx context.Context, evals []entities.FeatureEvaluation) (inserted int, err error)
+
+	// ReplaceRange, en UNA TX, borra las filas del punto (ambas ventanas) con
+	// evaluated_at en [from, to] (from = nil ⇒ sin límite inferior) e inserta
+	// evals. Devuelve cuántas filas borró e insertó. Solo para Rebuild.
+	ReplaceRange(ctx context.Context, pointID int64, from *time.Time, to time.Time,
+		evals []entities.FeatureEvaluation) (deleted, inserted int, err error)
 }

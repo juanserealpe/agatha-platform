@@ -34,7 +34,7 @@ processing/
 |---|---|---|
 | `HourlyScheduler` (al arrancar + minuto `PROCESSING_RECONCILE_MINUTE`, 35) | Para cada punto activo, evalúa las horas pendientes (máx. 72 por tick) | `EvaluationService.Reconcile` → `EvaluatePending` (`Trigger = RECONCILER`) |
 | `cmd/processing -point` | Evalúa a demanda las horas pendientes de un punto | `EvaluationService.EvaluatePending` (`Trigger = MANUAL`) |
-| `cmd/processing -point -backfill [-from] [-asof] [-dry-run] [-json]` | Histórico de evaluaciones | `EvaluationService.Backfill` (`Trigger = BACKFILL`) |
+| `cmd/processing -point -backfill [-from] [-asof] [-dry-run] [-json] [-rebuild]` | Histórico de evaluaciones (`-rebuild`: reemplaza el rango) | `EvaluationService.Backfill` (`Trigger = BACKFILL`) |
 
 El scheduler es el **único disparador automático**. No hay suscripción al bus: Ingestion no publica eventos.
 
@@ -77,6 +77,7 @@ Evalúa **todas** las horas de `[From, To]`, cada una con la versión de línea 
 - **Rango**: desde `-from` (default: primera hora con línea base) hasta `-asof` (default: última hora lista, la misma que usaría el scheduler). Nunca más allá de la última hora lista.
 - **Solo completa lo que falta**: inserta con `ON CONFLICT DO NOTHING`, así que las filas existentes no se tocan. Se puede repetir y correr con el scheduler activo. No exige que el punto esté vacío.
 - **Precondición práctica**: el histórico de Baseline (`cmd/baseline -backfill`) debe estar cargado **antes**. Sin él, el punto solo tiene la versión de hoy y no hay horas pasadas que evaluar.
+- **`-rebuild`**: reemplaza en UNA TX (`EvaluationRepository.ReplaceRange`) las filas del punto (ambas ventanas) con `evaluated_at` en `[-from, última hora]` (sin `-from`: todas las anteriores) por las recalculadas. Es para después de un `baseline -backfill -rebuild`: las evaluaciones son inmutables en vivo, así que sin él las filas viejas quedan. Bloqueado con `AGATHA_ENV=production` (`ErrRebuildForbidden`, `Config.Environment`). No publica. Después: `rule_engine -backfill -rebuild` y `alert_management -backfill -rebuild`.
 - `-dry-run` evalúa e imprime el resumen sin persistir; `-json` vuelca todas las filas.
 - El resumen imprime filas por ventana y estado, y por día las horas calculadas y el mínimo, promedio y máximo de I(24 h). No clasifica: Processing solo calcula el valor.
 

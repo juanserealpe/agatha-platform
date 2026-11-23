@@ -29,4 +29,11 @@ var (
 		Code:    errors.CodePersistingEvaluations,
 		Message: "no fue posible guardar las evaluaciones del punto de medición",
 	}
+
+	// ErrRebuildForbidden: -rebuild reemplaza evaluaciones (inmutables en
+	// vivo) y no se permite con AGATHA_ENV=production.
+	ErrRebuildForbidden = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "-rebuild no está permitido con AGATHA_ENV=production",
+	}
 )

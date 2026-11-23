@@ -124,9 +124,9 @@ linters:
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/processing
               desc: "baseline no importa processing; processing lee sus tablas por su cuenta"
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/shared/eventbus
-              desc: "baseline no publica ni consume eventos en el MVP"
+              desc: "baseline no conoce el bus: bootstrap traduce alert_changed a AlertSnapshot y llama a ExclusionService"
             - pkg: github.com/juanserealpe/agatha-platform/backend/internal/modules/alert_management
-              desc: "baseline no importa alert_management; lee alerts con su propio modelo (AlertEventsReader)"
+              desc: "baseline no importa alert_management; copia alerts con su propio modelo (AlertIntervalReader, seed)"
         # Kernel de cálculo (lo comparten Baseline y Processing): solo stdlib, sin IO ni estado.
         features-stdlib-only:
           list-mode: strict

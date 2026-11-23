@@ -185,8 +185,9 @@ func (s *ReplayService) Backfill(ctx context.Context, cmd BackfillCommand) (Back
 		}
 	}
 
-	// Guarda (§11.2): con -rebuild y sin -drop-management, ningún punto con
-	// gestión se toca. Se revisan todos antes de borrar el primero.
+	// Guardas (§11.2): con -rebuild, ningún punto con una alerta vigente se
+	// toca (ni con -drop-management), y sin -drop-management tampoco uno con
+	// gestión. Se revisan todos antes de borrar el primero.
 	counts := make(map[int64]ports.ResetCounts, len(points))
 	if cmd.Rebuild {
 		for _, pointID := range points {
@@ -196,6 +197,12 @@ func (s *ReplayService) Backfill(ctx context.Context, cmd BackfillCommand) (Back
 				return result, domain.ErrConsultingAlerts
 			}
 			counts[pointID] = c
+			if c.Active > 0 {
+				s.log.Error("[ReplayService] Rebuild abortado: el punto tiene una alerta vigente",
+					"measuring_point_id", pointID, "active", c.Active)
+				result.Points = append(result.Points, PointReplay{PointID: pointID, Reset: c})
+				return result, domain.ErrActiveAlertPresent
+			}
 			if c.HasManagement() && !cmd.DropManagement {
 				s.log.Error("[ReplayService] Rebuild abortado: el punto tiene gestión y no se pasó -drop-management",
 					"measuring_point_id", pointID, "classified", c.Classified, "labeled", c.Labeled, "observations", c.Observations)

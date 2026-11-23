@@ -21,4 +21,10 @@ type BaselineRepository interface {
 	// una cierra a la anterior y la última queda vigente. Si el punto ya tiene
 	// alguna versión devuelve domain.ErrBaselineHistoryExists y no escribe nada.
 	SaveHistory(ctx context.Context, pointID int64, versions []entities.BaselineVersion) ([]entities.BaselineVersion, error)
+
+	// ReplaceHistory reemplaza, en UNA sola TX, todo el histórico del punto:
+	// borra sus versiones (y sus estadísticas) e inserta versions con las
+	// mismas reglas que SaveHistory. Devuelve las versiones guardadas y cuántas
+	// versiones se borraron. Si algo falla no cambia nada.
+	ReplaceHistory(ctx context.Context, pointID int64, versions []entities.BaselineVersion) ([]entities.BaselineVersion, int, error)
 }

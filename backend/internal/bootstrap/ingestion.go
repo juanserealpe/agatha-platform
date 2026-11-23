@@ -27,34 +27,75 @@ const dataOSBaseURL = "https://app.dataos.dataflowlabs.io"
 // offset de DataOS y del callback, y con la que se alinea el scheduler.
 const ingestionTimezone = "America/Bogota"
 
-// Configuración de la ingesta programada.
+// Configuración del catch-up de DataOS (ver catchUpSettings).
 const (
-	scheduledMeasuringPointID int64 = 11556
-	schedulerInterval               = 15 * time.Minute
-	schedulerDelay                  = 50 * time.Second
+	// CatchUpLookbackEnv es la ventana en la que se buscan huecos internos
+	// (time.ParseDuration; por defecto 168h). Si el último dato es más viejo,
+	// la búsqueda arranca en él.
+	CatchUpLookbackEnv = "INGESTION_CATCHUP_LOOKBACK"
+
+	defaultCatchUpLookback = 7 * 24 * time.Hour
+	// Registros cada 15 min: más de 20 min sin datos es un hueco.
+	catchUpMaxStep    = 20 * time.Minute
+	catchUpJoinWithin = 6 * time.Hour
+	// DataOS (Supabase) falla con rangos mayores a 5 días.
+	catchUpPartition = 5 * 24 * time.Hour
+	schedulerDelay   = 50 * time.Second
 )
 
 // IngestionModule expone los servicios de Ingestion ya cableados.
 type IngestionModule struct {
-	IngestService *services.IngestService
-	Logger        *logger.Logger
+	IngestService  *services.IngestService
+	CatchUpService func(cfg services.CatchUpConfig) *services.CatchUpService
+	Logger         *logger.Logger
 }
 
-// NewScheduler crea el scheduler de ingesta periódica del módulo.
-func (m *IngestionModule) NewScheduler() (*scheduler.IngestionScheduler, error) {
+// catchUpPlan es la configuración efectiva del catch-up según la vía de ingesta.
+type catchUpPlan struct {
+	interval time.Duration
+	cfg      services.CatchUpConfig
+}
+
+// catchUpSettings decide cómo corre el catch-up:
+//   - sin callback (PC): DataOS es la única vía; cada 15 min y hasta ahora.
+//   - con callback (VPS): respaldo; cada hora y sin tocar la última hora, que
+//     la entrega el callback (envío ~4 min después y reintentos).
+//
+// En los dos casos corre una vez al arrancar, antes que los demás schedulers.
+func catchUpSettings(log *logger.Logger, withCallback bool) catchUpPlan {
+	plan := catchUpPlan{
+		interval: 15 * time.Minute,
+		cfg: services.CatchUpConfig{
+			Lookback:   envDuration(log, CatchUpLookbackEnv, defaultCatchUpLookback),
+			MaxStep:    catchUpMaxStep,
+			JoinWithin: catchUpJoinWithin,
+			Partition:  catchUpPartition,
+		},
+	}
+	if withCallback {
+		plan.interval = time.Hour
+		plan.cfg.MinAge = time.Hour
+	}
+	return plan
+}
+
+// NewScheduler crea el scheduler de catch-up. withCallback indica que el
+// callback también está habilitado (DataOS pasa a ser respaldo).
+func (m *IngestionModule) NewScheduler(withCallback bool) (*scheduler.IngestionScheduler, error) {
 	location, err := loadIngestionLocation()
 	if err != nil {
 		return nil, err
 	}
 
-	return scheduler.NewIngestionScheduler(
-		m.IngestService,
-		m.Logger,
-		scheduledMeasuringPointID,
-		schedulerInterval,
-		location,
-		schedulerDelay,
-	), nil
+	plan := catchUpSettings(m.Logger, withCallback)
+	mode := "principal"
+	if withCallback {
+		mode = "respaldo del callback"
+	}
+	m.Logger.Info("catch-up de DataOS configurado", "modo", mode, "cada", plan.interval,
+		"ventana", plan.cfg.Lookback, "sin_tocar_ultimos", plan.cfg.MinAge)
+
+	return scheduler.NewIngestionScheduler(m.CatchUpService(plan.cfg), m.Logger, plan.interval, location, schedulerDelay), nil
 }
 
 // IngestionApplication es el proceso de Ingestion aislado (cmd/ingestion,
@@ -150,18 +191,23 @@ func NewIngestionModule(platform *Platform) (*IngestionModule, error) {
 	// Servicio
 	// ---------------------------------------------------------
 
+	devices := repositories.NewDeviceRepository(db)
 	ingestService := services.NewIngestService(
 		dataOSClient,
 		repositories.NewIngestionStateRepository(db),
-		repositories.NewDeviceRepository(db),
+		devices,
 		repositories.NewUnitOfWork(db, logIngestion),
 		logIngestion,
 		services.NewIngestionValidator(logIngestion),
 	)
+	coverage := repositories.NewMeasurementCoverageRepository(db)
 
 	return &IngestionModule{
 		IngestService: ingestService,
-		Logger:        logIngestion,
+		CatchUpService: func(cfg services.CatchUpConfig) *services.CatchUpService {
+			return services.NewCatchUpService(devices, coverage, ingestService, cfg, location, logIngestion)
+		},
+		Logger: logIngestion,
 	}, nil
 }
 

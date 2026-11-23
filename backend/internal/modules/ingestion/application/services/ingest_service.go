@@ -14,6 +14,9 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
+// errNothingNew revierte la transacción de un lote cuyas mediciones ya existían.
+var errNothingNew = errors.New("sin mediciones nuevas")
+
 type IngestService struct {
 	dataProvider          ports.DataProvider
 	ingestStateRepository repositories.IngestionStateRepository
@@ -114,9 +117,18 @@ func (s *IngestService) IngestDataOs(ctx context.Context, measuringPointID int64
 			}
 
 			batchResult = savedBatch
+			if savedBatch.Inserted == 0 {
+				// Todo ya estaba (lo trajo el callback u otra corrida): se
+				// revierte para no dejar un lote vacío en ingestion_state_models.
+				return errNothingNew
+			}
 			return nil
 		},
 	)
+	if errors.Is(err, errNothingNew) {
+		s.logger.Info("DataOS no trajo mediciones nuevas; no se guarda lote", "mp_id", measuringPointID, "recibidas", state.ReceivedRecords)
+		return nil
+	}
 	if err != nil {
 		s.logger.Error("la ingesta falló y se revirtió", "mp_id", measuringPointID, "error", err)
 		return fmt.Errorf("persistir ingesta: %w", err)

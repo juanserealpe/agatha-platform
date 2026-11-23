@@ -94,6 +94,11 @@ type fakeBaselines struct {
 	saved     []entities.BaselineVersion
 	history   []entities.BaselineVersion
 	historyEr error
+
+	replaced        []entities.BaselineVersion
+	replacedPoint   int64
+	replacedDeleted int
+	replaceErr      error
 }
 
 func newFakeBaselines() *fakeBaselines {
@@ -125,4 +130,18 @@ func (f *fakeBaselines) SaveHistory(_ context.Context, _ int64, versions []entit
 	}
 	f.history = out
 	return out, nil
+}
+
+func (f *fakeBaselines) ReplaceHistory(_ context.Context, pointID int64, versions []entities.BaselineVersion) ([]entities.BaselineVersion, int, error) {
+	if f.replaceErr != nil {
+		return nil, 0, f.replaceErr
+	}
+	out := make([]entities.BaselineVersion, len(versions))
+	for i, v := range versions {
+		v.ID = int64(200 + i)
+		out[i] = v
+	}
+	f.replaced = out
+	f.replacedPoint = pointID
+	return out, f.replacedDeleted, nil
 }

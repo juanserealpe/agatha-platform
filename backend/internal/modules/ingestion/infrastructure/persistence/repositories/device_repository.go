@@ -33,3 +33,16 @@ func (r *DeviceRepository) FindByMeasuringPointID(ctx context.Context, measuring
 
 	return mappers.ToDeviceEntity(&model), nil
 }
+
+func (r *DeviceRepository) FindActive(ctx context.Context) ([]entities.Device, error) {
+	var rows []models.DeviceModel
+	if err := r.db.WithContext(ctx).Where("active = ?", true).Order("measuring_point_id").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	devices := make([]entities.Device, 0, len(rows))
+	for i := range rows {
+		devices = append(devices, *mappers.ToDeviceEntity(&rows[i]))
+	}
+	return devices, nil
+}

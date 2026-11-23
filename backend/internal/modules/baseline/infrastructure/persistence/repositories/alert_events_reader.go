@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -10,37 +9,37 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/infrastructure/persistence/models"
 )
 
-// AlertEventsReader implementa KnownEventsProvider leyendo alerts (tabla de
-// Alert Management), solo lectura. Solo importan started_at y ended_at: excluye
-// TODAS las alertas del punto, cualquiera sea su clasificación (también Falsa
-// alerta y Sin clasificar), porque mientras hubo una alerta el tubo no estuvo
-// en su condición normal de referencia. Una alerta ACTIVA se excluye desde su
-// inicio hasta el fin del rango consultado.
-type AlertEventsReader struct {
+// AlertIntervalReader implementa AlertIntervalReader leyendo alerts (tabla de
+// Alert Management, solo lectura, modelo propio) para el seed de
+// baseline_exclusion_periods. Lee TODAS las alertas, cualquiera sea su tipo o
+// clasificación. Baseline ya NO calcula con alerts: solo copia sus intervalos.
+type AlertIntervalReader struct {
 	db *gorm.DB
 }
 
-func NewAlertEventsReader(db *gorm.DB) *AlertEventsReader {
-	return &AlertEventsReader{db: db}
+func NewAlertIntervalReader(db *gorm.DB) *AlertIntervalReader {
+	return &AlertIntervalReader{db: db}
 }
 
-// GetKnownEvents devuelve las alertas del punto que se solapan con [from, to),
-// ordenadas por inicio (las activas, hasta to).
-func (r *AlertEventsReader) GetKnownEvents(ctx context.Context, pointID int64, from, to time.Time) ([]entities.KnownEvent, error) {
-	var rows []models.AlertIntervalRowModel
+func (r *AlertIntervalReader) ListAlertIntervals(ctx context.Context) ([]entities.ExclusionPeriod, error) {
+	var rows []models.AlertSeedRowModel
 	err := r.db.WithContext(ctx).Raw(`
-SELECT started_at, COALESCE(ended_at, @to) AS ended_at
+SELECT code, measuring_point_id, started_at, ended_at
   FROM alerts
- WHERE measuring_point_id = @point
-   AND started_at < @to AND COALESCE(ended_at, @to) > @from
- ORDER BY started_at`, map[string]any{"point": pointID, "from": from.UTC(), "to": to.UTC()}).Scan(&rows).Error
+ ORDER BY id`).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]entities.KnownEvent, 0, len(rows))
+	out := make([]entities.ExclusionPeriod, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, entities.KnownEvent{From: row.StartedAt.UTC(), To: row.EndedAt.UTC()})
+		out = append(out, entities.ExclusionPeriod{
+			MeasuringPointID: row.MeasuringPointID,
+			StartedAt:        row.StartedAt.UTC(),
+			EndedAt:          utcPtr(row.EndedAt),
+			Source:           entities.ExclusionSourceAlert,
+			SourceAlertCode:  row.Code,
+		})
 	}
 	return out, nil
 }

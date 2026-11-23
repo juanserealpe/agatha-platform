@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/processing/domain"
@@ -14,7 +15,14 @@ type BackfillCommand struct {
 	From    time.Time // cero ⇒ primera hora con línea base
 	To      time.Time // cero ⇒ última hora lista (la misma que usaría el reconciliador)
 	DryRun  bool      // evalúa sin persistir
+	// Rebuild borra (en la misma TX) las evaluaciones del punto en
+	// [From, última hora] (sin From: todas las anteriores) y las vuelve a
+	// insertar. Nunca con AGATHA_ENV=production.
+	Rebuild bool
 }
+
+// productionEnvironment es el valor de AGATHA_ENV que bloquea Rebuild.
+const productionEnvironment = "production"
 
 // BackfillResult es la salida de UC-P3. Evaluations trae las filas evaluadas
 // (dos por hora), se hayan persistido o no.
@@ -25,6 +33,7 @@ type BackfillResult struct {
 	FirstSlot, LastSlot *time.Time
 	Hours               int
 	Inserted            int // filas nuevas; el resto ya existía
+	Deleted             int // filas borradas por Rebuild
 	Evaluations         []entities.FeatureEvaluation
 }
 
@@ -43,6 +52,11 @@ func (s *EvaluationService) Backfill(ctx context.Context, cmd BackfillCommand) (
 	if cmd.PointID <= 0 {
 		s.log.Error("[EvaluationService] Punto de medición inválido", "measuring_point_id", cmd.PointID)
 		return result, domain.ErrInvalidMeasuringPointID
+	}
+
+	if cmd.Rebuild && strings.EqualFold(strings.TrimSpace(s.cfg.Environment), productionEnvironment) {
+		s.log.Error("[EvaluationService] -rebuild bloqueado con AGATHA_ENV=production", "measuring_point_id", cmd.PointID)
+		return result, domain.ErrRebuildForbidden
 	}
 
 	unlock := s.lock(cmd.PointID)
@@ -92,6 +106,24 @@ func (s *EvaluationService) Backfill(ctx context.Context, cmd BackfillCommand) (
 	result.Evaluations = evals
 
 	if cmd.DryRun {
+		return result, nil
+	}
+
+	if cmd.Rebuild {
+		var replaceFrom *time.Time
+		if !cmd.From.IsZero() {
+			replaceFrom = &first
+		}
+		deleted, inserted, err := s.evaluations.ReplaceRange(ctx, cmd.PointID, replaceFrom, end, evals)
+		if err != nil {
+			s.log.Error("[EvaluationService] Error reemplazando el histórico de evaluaciones",
+				"measuring_point_id", cmd.PointID, "first_slot", first, "last_slot", end, "error", err)
+			return result, domain.ErrPersistingEvaluations
+		}
+		result.Deleted, result.Inserted = deleted, inserted
+		s.log.Info("[EvaluationService] Histórico de evaluaciones reconstruido",
+			"measuring_point_id", cmd.PointID, "hours", len(slots), "deleted", deleted, "inserted", inserted,
+			"first_slot", first, "last_slot", end)
 		return result, nil
 	}
 

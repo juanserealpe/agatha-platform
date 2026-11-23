@@ -164,6 +164,9 @@ func (s *AlertStore) CountPoint(_ context.Context, pointID int64) (ports.ResetCo
 		}
 		ids[id] = true
 		c.Alerts++
+		if a.EndedAt == nil {
+			c.Active++
+		}
 		if a.Management.Classified() {
 			c.Classified++
 		}

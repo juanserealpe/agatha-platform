@@ -40,6 +40,21 @@ func TestIngestDataOs_SavesStateBeforeMeasurementsAndLinksThem(t *testing.T) {
 	}
 }
 
+func TestIngestDataOs_NothingNewRollsBackTheBatch(t *testing.T) {
+	// El catch-up vuelve a pedir rangos que el callback ya trajo: si no se
+	// insertó ninguna medición, no debe quedar un lote vacío.
+	uow := newFakeUnitOfWork(7)
+	uow.measurements.allDuplicates = true
+
+	err := newTestIngestService(uow).IngestDataOs(context.Background(), 11556, dataOSStart, dataOSStart.Add(15*time.Minute))
+	if err != nil {
+		t.Fatalf("sin mediciones nuevas no es un error: %v", err)
+	}
+	if uow.fnErr == nil {
+		t.Fatal("la transacción debía revertirse para no dejar el lote vacío")
+	}
+}
+
 func TestIngestDataOs_MeasurementFailureFailsTheIngestion(t *testing.T) {
 	uow := newFakeUnitOfWork(7)
 	uow.measurements.err = errors.New("db caída")

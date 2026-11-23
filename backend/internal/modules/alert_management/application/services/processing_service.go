@@ -434,6 +434,7 @@ func toAlertChanged(a entities.Alert, change string, evaluatedAt, now time.Time)
 		Classification:   string(a.Management.Classification),
 		LeakSignature:    toLeakSignature(a.LeakSignature),
 		StartedAt:        a.StartedAt.UTC(),
+		EndedAt:          utcTimePtr(a.EndedAt),
 		EvaluatedAt:      evaluatedAt.UTC(),
 		OccurredAt:       now,
 		SchemaVersion:    contract.SchemaVersion,
@@ -484,4 +485,13 @@ func (s *ProcessingService) lock(pointID int64) (unlock func()) {
 func isAppError(err error) bool {
 	var appErr *sharedErrors.AppError
 	return errors.As(err, &appErr)
+}
+
+// utcTimePtr copia t en UTC (nil ⇒ nil).
+func utcTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }

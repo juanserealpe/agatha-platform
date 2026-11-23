@@ -55,9 +55,32 @@ func (fakeBaseline) GetFirstValidFrom(context.Context, int64) (*time.Time, error
 }
 
 // fakeEvaluations simula SaveAll: inserted < 0 ⇒ inserta todas las filas.
+// replace (si no es nil) registra la llamada a ReplaceRange.
 type fakeEvaluations struct {
 	inserted int
 	err      error
+	replace  *replaceCall
+}
+
+type replaceCall struct {
+	called  bool
+	from    *time.Time
+	to      time.Time
+	rows    int
+	deleted int
+	err     error
+}
+
+func (f fakeEvaluations) ReplaceRange(_ context.Context, _ int64, from *time.Time, to time.Time,
+	evals []entities.FeatureEvaluation) (int, int, error) {
+	if f.replace == nil {
+		return 0, 0, errors.New("ReplaceRange inesperado")
+	}
+	f.replace.called, f.replace.from, f.replace.to, f.replace.rows = true, from, to, len(evals)
+	if f.replace.err != nil {
+		return 0, 0, f.replace.err
+	}
+	return f.replace.deleted, len(evals), nil
 }
 
 func (fakeEvaluations) GetLastEvaluatedAt(context.Context, int64) (*time.Time, error) {
@@ -84,12 +107,19 @@ func (p *fakePublisher) PublishIndicatorEvaluated(_ context.Context, e contract.
 }
 
 func newService(evaluations fakeEvaluations, publisher ports.EventPublisher) *services.EvaluationService {
+	return newServiceIn("", evaluations, publisher)
+}
+
+// newServiceIn arma el servicio con AGATHA_ENV = environment.
+func newServiceIn(environment string, evaluations fakeEvaluations, publisher ports.EventPublisher) *services.EvaluationService {
+	cfg := services.DefaultConfig()
+	cfg.Environment = environment
 	return services.NewEvaluationService(
 		fakeReader{},
 		evaluations,
 		fakeBaseline{},
 		ports.ClockFunc(func() time.Time { return now }),
-		services.DefaultConfig(),
+		cfg,
 		logger.New("ProcessingTest", "Error"),
 		publisher,
 	)

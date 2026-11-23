@@ -102,9 +102,10 @@ type LevelSource interface {
 	ListAfter(ctx context.Context, pointID int64, after, to time.Time, limit int) ([]entities.LevelNotice, error)
 }
 
-// ResetCounts es lo que el rebuild va a borrar de un punto (§11.2).
+// ResetCounts es lo que el rebuild va a borrar de un punto (§11.2). Active
+// cuenta las alertas vigentes (sin ended_at), que bloquean el rebuild.
 type ResetCounts struct {
-	Alerts, Messages, Classified, Labeled, Observations int64
+	Alerts, Active, Messages, Classified, Labeled, Observations int64
 }
 
 // HasManagement indica si alguna alerta del punto tiene gestión.

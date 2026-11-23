@@ -22,6 +22,8 @@ func TestMain(m *testing.M) {
 type fakeUnitOfWork struct {
 	measurements *fakeMeasurementRepository
 	states       *fakeIngestionStateRepository
+	// fnErr es lo que devolvió fn: distinto de nil = el UoW real revertiría.
+	fnErr error
 }
 
 func newFakeUnitOfWork(batchSeq int64) *fakeUnitOfWork {
@@ -37,7 +39,8 @@ func (u *fakeUnitOfWork) Execute(ctx context.Context, fn func(
 	measurementRepository repositories.MeasurementRepository,
 	ingestionStateRepository repositories.IngestionStateRepository,
 ) error) error {
-	return fn(ctx, u.measurements, u.states)
+	u.fnErr = fn(ctx, u.measurements, u.states)
+	return u.fnErr
 }
 
 func (u *fakeUnitOfWork) calls() []string { return *u.measurements.calls }
@@ -95,6 +98,10 @@ type fakeDeviceRepository struct{}
 
 func (fakeDeviceRepository) FindByMeasuringPointID(_ context.Context, measuringPointID int64) (*entities.Device, error) {
 	return &entities.Device{MeasuringPointID: measuringPointID}, nil
+}
+
+func (fakeDeviceRepository) FindActive(context.Context) ([]entities.Device, error) {
+	return nil, nil
 }
 
 type fakeDataProvider struct {

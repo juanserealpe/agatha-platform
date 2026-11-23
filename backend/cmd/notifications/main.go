@@ -22,8 +22,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/joho/godotenv"
-
 	"github.com/juanserealpe/agatha-platform/backend/internal/bootstrap"
 	notificationPorts "github.com/juanserealpe/agatha-platform/backend/internal/modules/notifications/application/ports"
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
@@ -70,8 +68,9 @@ func main() {
 			log.Error("no se puede enviar a ese celular", "error", err)
 			os.Exit(1)
 		}
-	} else if err := godotenv.Load(); err != nil {
-		log.Warn("no se encontró archivo .env; se utilizarán variables de entorno")
+	} else if _, err := bootstrap.LoadEnvironment("."); err != nil {
+		log.Error("no se pudo cargar el entorno", "error", err)
+		os.Exit(1)
 	}
 
 	sender, err := bootstrap.NewTestPushSender(ctx)

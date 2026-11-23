@@ -21,7 +21,7 @@ const (
 	// (/api/alerts, catch-up) y publica alert_management.alert_notification;
 	// requiere rule_engine.
 	ModuleAlertManagement Module = "alert_management"
-	ModuleDataOS          Module = "dataos"    // ingesta de contingencia: consulta programada a DataOS
+	ModuleDataOS          Module = "dataos"    // catch-up desde DataOS: principal sin callback, respaldo con él
 	ModuleCallback        Module = "callback"  // ingesta principal: POST /ingestion/callback
 	ModuleDashboard       Module = "dashboard" // API HTTP de solo lectura: GET /api/dashboard/*
 
@@ -49,9 +49,9 @@ type ModuleSet map[Module]bool
 //   - rule_engine requiere processing (sin él no le llega ningún evento);
 //   - alert_management requiere rule_engine (consume rule_engine.level_evaluated);
 //   - notifications no requiere nada (sin alert_management no recibe eventos);
-//   - callback y dataos son excluyentes (una sola vía de ingesta: el índice
-//     único descarta las mediciones repetidas, pero cada vía crea sus propios
-//     lotes en ingestion_state_models).
+//   - callback y dataos pueden convivir: dataos pasa a ser el catch-up de
+//     respaldo (huecos de más de una hora). El índice único descarta las
+//     mediciones repetidas y un lote sin filas nuevas se revierte.
 //
 // Una lista vacía equivale a DefaultModules.
 func ParseModules(raw string) (ModuleSet, error) {
@@ -82,10 +82,6 @@ func ParseModules(raw string) (ModuleSet, error) {
 	}
 	if set.Has(ModuleAlertManagement) && !set.Has(ModuleRuleEngine) {
 		return nil, fmt.Errorf("%w: %s requiere %s", ErrInvalidModules, ModuleAlertManagement, ModuleRuleEngine)
-	}
-	if set.Has(ModuleCallback) && set.Has(ModuleDataOS) {
-		return nil, fmt.Errorf("%w: %s y %s no pueden correr a la vez (se usa una sola vía de ingesta)",
-			ErrInvalidModules, ModuleCallback, ModuleDataOS)
 	}
 
 	return set, nil

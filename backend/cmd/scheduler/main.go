@@ -25,7 +25,7 @@ func main() {
 		}
 	}()
 
-	ingestionScheduler, err := app.NewScheduler()
+	ingestionScheduler, err := app.NewScheduler(false)
 	if err != nil {
 		app.Logger.Error("no fue posible crear el scheduler de ingesta", "error", err)
 		os.Exit(1)
@@ -34,6 +34,9 @@ func main() {
 	// SIGINT/SIGTERM detienen el scheduler para que el bus drene en el defer.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Catch-up inicial: completa los huecos antes de que arranque nada más.
+	ingestionScheduler.RunOnce(ctx)
 
 	// Baseline arranca antes que Ingestion: su primera ejecución crea las
 	// versiones faltantes. Se espera a que termine antes de drenar el bus.

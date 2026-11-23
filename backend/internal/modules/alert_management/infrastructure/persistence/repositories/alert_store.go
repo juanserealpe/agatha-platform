@@ -39,6 +39,7 @@ func (s *AlertStore) CountPoint(ctx context.Context, pointID int64) (ports.Reset
 	err := s.db.WithContext(ctx).Raw(`
 SELECT
 	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p) AS alerts,
+	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p AND ended_at IS NULL) AS active,
 	(SELECT count(*) FROM alert_messages m JOIN alerts a ON a.id = m.alert_id WHERE a.measuring_point_id = @p) AS messages,
 	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p AND classification IS NOT NULL) AS classified,
 	(SELECT count(*) FROM alerts WHERE measuring_point_id = @p AND label IS NOT NULL) AS labeled,

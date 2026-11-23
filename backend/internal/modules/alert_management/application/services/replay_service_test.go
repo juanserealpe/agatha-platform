@@ -2,6 +2,7 @@ package services_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -123,5 +124,40 @@ func TestBackfill_RebuildStartsOver(t *testing.T) {
 	result, err := replay.Backfill(context.Background(), services.BackfillCommand{PointID: pointA, Rebuild: true})
 	if err != nil || result.Deleted != 1 || result.Opened != 1 || len(f.store.Alerts()) != 1 {
 		t.Fatalf("rebuild = %+v, %v, alertas %d", result, err, len(f.store.Alerts()))
+	}
+}
+
+// Con una alerta vigente (sin ended_at) el rebuild aborta sin borrar nada, ni
+// con -drop-management: su período de exclusión en Baseline quedaría abierto
+// para siempre bajo un código que el rebuild ya no recrea.
+func TestBackfill_RebuildRefusesAPointWithAnActiveAlert(t *testing.T) {
+	f := newFixture()
+	f.now = h(500)
+	levels := fakeLevels{rows: map[int64][]entities.LevelNotice{pointA: opening()}}
+	replay := newReplay(f, levels, "development")
+	if _, err := replay.Backfill(context.Background(), services.BackfillCommand{}); err != nil {
+		t.Fatal(err)
+	}
+	alerts := f.store.Alerts()
+	if len(alerts) != 1 || alerts[0].EndedAt != nil {
+		t.Fatalf("se esperaba una alerta vigente: %+v", alerts)
+	}
+
+	for _, drop := range []bool{false, true} {
+		result, err := replay.Backfill(context.Background(), services.BackfillCommand{Rebuild: true, DropManagement: drop})
+		if !errors.Is(err, domain.ErrActiveAlertPresent) {
+			t.Fatalf("drop=%v: err = %v, se esperaba ErrActiveAlertPresent", drop, err)
+		}
+		if result.Deleted != 0 || len(result.Points) != 1 || result.Points[0].Reset.Active != 1 {
+			t.Fatalf("drop=%v: resultado %+v", drop, result)
+		}
+		if got := f.store.Alerts(); len(got) != 1 || got[0].ID != alerts[0].ID {
+			t.Fatalf("drop=%v: no debía borrar nada: %+v", drop, got)
+		}
+	}
+
+	// El backfill sin -rebuild sigue permitido.
+	if _, err := replay.Backfill(context.Background(), services.BackfillCommand{}); err != nil {
+		t.Fatalf("backfill sin -rebuild: %v", err)
 	}
 }

@@ -6,8 +6,9 @@
 //	rule_engine interpreta processing.indicator_evaluated con umbrales versionados (requiere processing)
 //	alert_management alertas desde rule_engine.level_evaluated: /api/alerts, catch-up y avisos al bus (requiere rule_engine)
 //	notifications entrega los avisos de alert_management por la web (GET /api/notifications/stream) y por push (sin alert_management no recibe nada)
-//	dataos      ingesta de contingencia: consulta programada a DataOS
-//	callback    ingesta principal: POST /ingestion/callback (excluyente con dataos)
+//	dataos      catch-up desde DataOS: rellena huecos al arrancar y periódicamente
+//	            (principal sin callback; respaldo de huecos de más de 1 h con él)
+//	callback    ingesta principal: POST /ingestion/callback
 //	dashboard   API HTTP de solo lectura: GET /api/dashboard/*
 //
 // Vacía equivale a bootstrap.DefaultModules. Todos comparten la misma Platform
@@ -60,6 +61,10 @@ func main() {
 	// SIGINT/SIGTERM detienen schedulers y servidor; luego se drena el bus.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Tareas de arranque (catch-up inicial de DataOS): terminan antes de que
+	// Processing evalúe, y antes del HTTP (los reintentos del callback esperan).
+	app.RunStartup(ctx)
 
 	var wg sync.WaitGroup
 

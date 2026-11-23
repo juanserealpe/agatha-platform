@@ -8,44 +8,66 @@ import (
 	"github.com/juanserealpe/agatha-platform/backend/internal/shared/logger"
 )
 
+// CatchUpRunner es CatchUpService.Run.
+type CatchUpRunner interface {
+	Run(ctx context.Context, now time.Time) ([]services.CatchUpResult, error)
+}
+
+// IngestionScheduler corre el catch-up de DataOS: una vez al arrancar
+// (RunOnce, que el bootstrap ejecuta ANTES de los demás schedulers) y después
+// en cada borde de interval + delay (Start).
 type IngestionScheduler struct {
-	service          *services.IngestService
-	logger           *logger.Logger
-	measuringPointID int64
-	interval         time.Duration
-	location         *time.Location
-	delay            time.Duration
+	service  CatchUpRunner
+	logger   *logger.Logger
+	interval time.Duration
+	location *time.Location
+	delay    time.Duration
+	now      func() time.Time
 }
 
 func NewIngestionScheduler(
-	service *services.IngestService,
+	service CatchUpRunner,
 	logger *logger.Logger,
-	measuringPointID int64,
 	interval time.Duration,
 	location *time.Location,
 	delay time.Duration,
 ) *IngestionScheduler {
 	return &IngestionScheduler{
-		service:          service,
-		logger:           logger,
-		measuringPointID: measuringPointID,
-		interval:         interval,
-		location:         location,
-		delay:            delay,
+		service:  service,
+		logger:   logger,
+		interval: interval,
+		location: location,
+		delay:    delay,
+		now:      time.Now,
 	}
 }
 
+// RunOnce ejecuta una corrida completa y bloquea hasta terminarla.
+func (s *IngestionScheduler) RunOnce(ctx context.Context) {
+	started := s.now()
+	results, err := s.service.Run(ctx, started)
+	if err != nil {
+		s.logger.Error("el catch-up de ingesta terminó con error", "error", err)
+		return
+	}
+
+	requests, failed := 0, 0
+	for _, r := range results {
+		requests += r.Requests
+		failed += r.Failed
+	}
+	s.logger.Info("catch-up de ingesta terminado", "puntos", len(results), "consultas", requests, "fallidas", failed,
+		"duracion", s.now().Sub(started).Round(time.Millisecond))
+}
+
+// Start bloquea hasta que ctx se cancela. No corre al arrancar: eso es RunOnce.
 func (s *IngestionScheduler) Start(ctx context.Context) {
 	for {
-		now := time.Now().In(s.location)
-		nextRun := s.getNextRun(now)
-
-		timer := time.NewTimer(time.Until(nextRun))
+		timer := time.NewTimer(time.Until(s.nextRun(s.now().In(s.location))))
 
 		select {
 		case <-timer.C:
-			s.run(ctx, nextRun)
-
+			s.RunOnce(ctx)
 		case <-ctx.Done():
 			timer.Stop()
 			return
@@ -53,39 +75,6 @@ func (s *IngestionScheduler) Start(ctx context.Context) {
 	}
 }
 
-func (s *IngestionScheduler) getNextRun(now time.Time) time.Time {
-	nextBoundary := now.Truncate(s.interval).Add(s.interval)
-	return nextBoundary.Add(s.delay)
-}
-
-func (s *IngestionScheduler) run(ctx context.Context, executionTime time.Time) {
-
-	end := executionTime
-	start := end.Add(-s.interval)
-
-	s.logger.Info(
-		"iniciando ingesta programada",
-		"start", start,
-		"end", end,
-		"execution_time", executionTime,
-	)
-
-	if err := s.service.IngestDataOs(
-		ctx,
-		s.measuringPointID,
-		start,
-		end,
-	); err != nil {
-		s.logger.Error(
-			"error durante la ingesta programada",
-			"error", err,
-		)
-		return
-	}
-
-	s.logger.Info(
-		"ingesta programada completada correctamente",
-		"start", start,
-		"end", end,
-	)
+func (s *IngestionScheduler) nextRun(now time.Time) time.Time {
+	return now.Truncate(s.interval).Add(s.interval).Add(s.delay)
 }

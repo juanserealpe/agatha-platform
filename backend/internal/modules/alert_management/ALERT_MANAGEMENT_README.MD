@@ -81,7 +81,7 @@ En cada hora se emite siempre la regla 1 y, de las demás, gana **la primera que
 | FALSA_ALERTA | `CLIMA_EXTREMO`, `TRANSITO_PESADO`, `OTRO` | Sí |
 | FALSA_ALERTA | `MANTENIMIENTO_PROGRAMADO` | Sí |
 
-Decisión (2026-10-26, cambia la propuesta técnica del documento, que excluía solo Confirmadas y mantenimiento): **toda alerta se excluye de la línea base**, cualquiera sea su clasificación, incluidas Sin clasificar y activas. La regla vive en Baseline (`AlertEventsReader`).
+Decisión (2026-10-26, cambia la propuesta técnica del documento, que excluía solo Confirmadas y mantenimiento): **toda alerta se excluye de la línea base**, cualquiera sea su clasificación, incluidas Sin clasificar y activas. La regla vive en Baseline (`baseline_exclusion_periods`, alimentada por `alert_changed`).
 
 ## Notificaciones (sección 5): eventos para el módulo de notificaciones
 
@@ -97,7 +97,7 @@ Alert Management decide **qué** es una notificación (`kind = NOTIFICACION` en 
 
 Para que el mapa y el panel se actualicen en tiempo real sin consultar la API.
 
-- **Evento**: `contract.AlertChanged` (`schema_version` 1), una **foto** de la alerta (*foto* = **estado actual de la alerta**; no tiene que ver con las evidencias fotográficas de RN-09): `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `change`, `state`, `current_level`, `max_level`, `blinking`, `management_status`, `classification`, `leak_signature` (objeto o `null`, ver "Confirmación por planitud"), `started_at`, `evaluated_at` y `occurred_at`.
+- **Evento**: `contract.AlertChanged` (`schema_version` 1), una **foto** de la alerta (*foto* = **estado actual de la alerta**; no tiene que ver con las evidencias fotográficas de RN-09): `alert_id`, `alert_code`, `measuring_point_id`, `event_type`, `change`, `state`, `current_level`, `max_level`, `blinking`, `management_status`, `classification`, `leak_signature` (objeto o `null`, ver "Confirmación por planitud"), `started_at`, `ended_at` (UTC, `null` mientras está en curso; una reactivación lo vuelve a `null`; campo aditivo, sin cambio de `schema_version`), `evaluated_at` y `occurred_at`. Consumidores: Notifications (web) y Baseline (exclusiones).
 - **`change`** (uno por hora, el más relevante): `OPENED`, `REACTIVATED`, `FINISHED`; si no, `LEVEL_RAISED` o `LEVEL_LOWERED` (incluidas las subidas silenciosas por intervención); si el nivel no cambió, `NO_DATA_STARTED` o `NO_DATA_ENDED`. Una hora sin cambio visible no publica nada.
 - **Gestión**: `ManagementService` publica `CLASSIFIED` y `LABELED` solo cuando el paso se guardó (`SAVED`); un conflicto, un reenvío (`ALREADY_RECEIVED`) o una observación libre no publican. Clasificar un rojo publica `blinking = false`: deja de titilar.
 - **Cuándo**: igual que el aviso, después del commit, y nunca en el backfill. El puerto `AlertChangePublisher` es opcional (`WithChangePublisher` en `ProcessingService` y `ManagementService`); el adaptador al bus es `busAlertChangePublisher` (`internal/bootstrap`).
@@ -155,7 +155,7 @@ Decisión (2026-11-19, cambia §1, §7 y §9 del requerimiento): **FUGA y MOVIMI
 - **Gestión (§7.6)**: `CLASSIFIED` / `LABELED` (kind GESTION) con `evaluated_at` = la hora guardada al segundo (= `classified_at` / `labeled_at`), en el color vigente; `params` agrega `classification` o `label`/`other_text`, `origin`, `device_identifier`, `recorded_at` y `observation`. Un 409, un reenvío o una observación suelta no crean mensaje. `GET /{id}` ya ordenaba por `evaluated_at`.
 - **Avisos**: `alert_notification` y `alert_changed` siguen en v1; `event_type` del aviso es el de la **alerta** (un `TEMP_*` replicado en la FUGA sale como FUGA, con el ID de esa alerta).
 - **Catálogo v7 (§8)** (los textos de movimiento los reemplaza el v8, abajo): textos de §8.1 y §8.2 (`IsMotionKey` marca los de movimiento), sin `LEAK_JOINED`, `MOV_JOINED` ni `PART_NORMAL`, que solo existían por el acople. Excepción: `TEMP_STABILIZED` decía "Pasó lo mismo en cierres anteriores", que §8.3 prohíbe ("cierre"); quedó "Pasó lo mismo antes en este punto, pero no está confirmado".
-- **Rebuild (§11.2)**: `-rebuild` borra **todo** el punto (los dos flujos y sus estados). Si alguna alerta tiene clasificación, etiqueta u observaciones, aborta **sin escribir** salvo `-drop-management`. Cuenta antes (`AlertReset.CountPoint`) alertas, mensajes, clasificaciones, etiquetas y observaciones, lo registra y el comando lo imprime.
+- **Rebuild (§11.2)**: `-rebuild` borra **todo** el punto (los dos flujos y sus estados). Si el punto tiene una **alerta vigente** (`ended_at IS NULL`), aborta **sin escribir** con `ErrActiveAlertPresent`, y no hay flag que lo saltee: el rebuild la recrearía con otro código y su período en `baseline_exclusion_periods` quedaría abierto para siempre; se espera a que finalice. Si alguna alerta tiene clasificación, etiqueta u observaciones, aborta **sin escribir** salvo `-drop-management`. Cuenta antes (`AlertReset.CountPoint`) alertas, vigentes, mensajes, clasificaciones, etiquetas y observaciones, lo registra y el comando lo imprime.
 
 ### motion-v2: `DecideMotion` v8 y catálogo v8 (`REQ_MOVIMIENTO_UMBRALES_V2` §9 y §10)
 
@@ -180,7 +180,7 @@ Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un dupli
 ## Catch-up y backfill (sección 9.2)
 
 - **Catch-up** (`CatchUpScheduler`): corre al arrancar y cada hora en el minuto `ALERT_MANAGEMENT_CATCHUP_MINUTE` (55, después del 50 del Rule Engine). Lee de `rule_evaluations` + `rule_threshold_versions` (modelo propio, solo lectura) las horas posteriores a la última procesada y las procesa con el mismo caso de uso (`CATCH_UP`, publicando avisos). Un punto sin estado se saltea con un Warn ("correr alert_management -backfill"): nunca publica el histórico entero.
-- **Backfill**: `cmd/alert_management -backfill [-point] [-from] [-to] [-rebuild [-drop-management]]`. Reconstruye sin publicar avisos (`BACKFILL`), con FUGA (`rule_evaluations`) y MOVIMIENTO (`motion_evaluations`, `MotionSource`) intercalados por hora. Es idempotente: retoma desde la última hora procesada de cada flujo. `-rebuild` borra **todo** lo del punto y está bloqueado con `AGATHA_ENV=production`; con gestión en el punto exige `-drop-management` (§11.2).
+- **Backfill**: `cmd/alert_management -backfill [-point] [-from] [-to] [-rebuild [-drop-management]]`. Reconstruye sin publicar avisos (`BACKFILL`), con FUGA (`rule_evaluations`) y MOVIMIENTO (`motion_evaluations`, `MotionSource`) intercalados por hora. Es idempotente: retoma desde la última hora procesada de cada flujo. `-rebuild` borra **todo** lo del punto y está bloqueado con `AGATHA_ENV=production` y con una alerta vigente en el punto; con gestión en el punto exige `-drop-management` (§11.2).
 - El catch-up también lee `motion_evaluations` desde el `last_evaluated_at` de la fila (punto, MOVIMIENTO); un flujo sin estado se saltea.
 - En los dos, un salto de `evaluated_at` se procesa como horas `NO_CALCULABLE`, igual que en vivo (como máximo 744 horas inferidas por salto).
 
@@ -188,7 +188,7 @@ Los eventos son best-effort: `rule_evaluations` es la fuente de verdad. Un dupli
 
 ## Exclusión de la línea base (sección 9.3, invertida)
 
-Alert Management no le entrega nada a Baseline: no hay fachada, ni tabla `known_events`, ni endpoints `/known-events`. **Baseline lee `alerts` con su propio modelo** (`AlertEventsReader`) y excluye **todas** las alertas del punto, en `[started_at − 2 h, ended_at + 2 h)` (una activa, hasta el fin del rango que consulta). Ver `baseline/BASELINE_README.md`.
+Alert Management no conoce a Baseline: no hay fachada ni endpoints `/known-events`. **Baseline guarda su propia copia** en `baseline_exclusion_periods`: bootstrap le pasa cada `alert_changed` (upsert por `alert_code` con `started_at`/`ended_at`) y `cmd/baseline -seed-exclusions` copia `alerts` una vez. Excluye **todas** las alertas del punto en `[started_at − 2 h, ended_at + 2 h)`. Como esa copia no se borra, un `-rebuild` de alertas no cambia las exclusiones de la línea base (el backfill tampoco publica). Ver `baseline/BASELINE_README.md`.
 
 ## Tablas
 

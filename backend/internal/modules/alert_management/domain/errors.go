@@ -101,6 +101,14 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "el punto tiene gestión (clasificación, etiqueta u observaciones): -rebuild no borra nada sin -drop-management",
 	}
+	// ErrActiveAlertPresent: guarda del rebuild. El punto tiene una alerta
+	// vigente (sin ended_at); el rebuild la recrearía con otro código y su
+	// período de exclusión en Baseline quedaría abierto para siempre. No hay
+	// flag que lo saltee: se espera a que la alerta finalice.
+	ErrActiveAlertPresent = &errors.AppError{
+		Code:    errors.CodeInvalidInput,
+		Message: "el punto tiene una alerta vigente (sin fecha de fin): -rebuild no se permite hasta que finalice",
+	}
 	ErrDropManagementRequiresRebuild = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
 		Message: "-drop-management solo es válido junto con -rebuild",

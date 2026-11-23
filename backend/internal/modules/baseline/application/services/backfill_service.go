@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/juanserealpe/agatha-platform/backend/internal/modules/baseline/domain"
@@ -17,7 +18,13 @@ type BackfillCommand struct {
 	From    time.Time // cero ⇒ primer registro de B2 del dispositivo
 	To      time.Time // fin exclusivo del reloj virtual (normalmente ahora)
 	DryRun  bool      // simula sin persistir
+	// Rebuild reemplaza el histórico existente del punto (en una sola TX) en
+	// vez de exigir que no tenga versiones. Nunca con AGATHA_ENV=production.
+	Rebuild bool
 }
+
+// productionEnvironment es el valor de AGATHA_ENV que bloquea Rebuild.
+const productionEnvironment = "production"
 
 // BackfillResult es la salida de UC-B4. Versions trae las versiones simuladas
 // (con ID solo si Created = true).
@@ -25,6 +32,7 @@ type BackfillResult struct {
 	PointID       int64
 	From, To      time.Time
 	Created       bool
+	Deleted       int // versiones borradas por Rebuild
 	Versions      []entities.BaselineVersion
 	SkippedReason SkippedReason
 }
@@ -38,17 +46,24 @@ type BackfillResult struct {
 type BackfillService struct {
 	history   repositories.HistoryReader
 	baselines repositories.BaselineRepository
-	replay    *ReplayService
-	log       *logger.Logger
+	// exclusions: guarda de Rebuild (alertas vigentes del punto).
+	exclusions repositories.ExclusionPeriodRepository
+	replay     *ReplayService
+	// environment es AGATHA_ENV: con "production" no se permite Rebuild.
+	environment string
+	log         *logger.Logger
 }
 
 func NewBackfillService(
 	history repositories.HistoryReader,
 	baselines repositories.BaselineRepository,
+	exclusions repositories.ExclusionPeriodRepository,
 	replay *ReplayService,
+	environment string,
 	log *logger.Logger,
 ) *BackfillService {
-	return &BackfillService{history: history, baselines: baselines, replay: replay, log: log}
+	return &BackfillService{history: history, baselines: baselines, exclusions: exclusions, replay: replay,
+		environment: environment, log: log}
 }
 
 // Backfill (UC-B4). Cada versión queda con created_at = valid_from (como si
@@ -63,7 +78,26 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 		return result, domain.ErrInvalidMeasuringPointID
 	}
 
-	if !cmd.DryRun {
+	if cmd.Rebuild && strings.EqualFold(strings.TrimSpace(s.environment), productionEnvironment) {
+		s.log.Error("[BackfillService] -rebuild bloqueado con AGATHA_ENV=production", "measuring_point_id", cmd.PointID)
+		return result, domain.ErrRebuildForbidden
+	}
+
+	if cmd.Rebuild && !cmd.DryRun {
+		open, err := s.exclusions.CountOpenAlerts(ctx, cmd.PointID)
+		if err != nil {
+			s.log.Error("[BackfillService] Error consultando alertas vigentes",
+				"measuring_point_id", cmd.PointID, "error", err)
+			return result, domain.ErrConsultingKnownEvents
+		}
+		if open > 0 {
+			s.log.Error("[BackfillService] -rebuild abortado: el punto tiene una alerta vigente",
+				"measuring_point_id", cmd.PointID, "active", open)
+			return result, domain.ErrActiveAlertPresent
+		}
+	}
+
+	if !cmd.DryRun && !cmd.Rebuild {
 		latest, err := s.baselines.GetLatest(ctx, cmd.PointID)
 		if err != nil {
 			s.log.Error("[BackfillService] Error consultando la última versión",
@@ -109,6 +143,10 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 		return result, nil
 	}
 
+	if cmd.Rebuild {
+		return s.replace(ctx, result, versions)
+	}
+
 	saved, err := s.baselines.SaveHistory(ctx, cmd.PointID, versions)
 	if err != nil {
 		if errors.Is(err, domain.ErrBaselineHistoryExists) {
@@ -130,6 +168,28 @@ func (s *BackfillService) Backfill(ctx context.Context, cmd BackfillCommand) (Ba
 		"versions", len(saved),
 		"from", saved[0].ValidFrom,
 		"to", saved[len(saved)-1].ValidFrom,
+	)
+
+	return result, nil
+}
+
+// replace persiste el histórico simulado en lugar del existente (Rebuild).
+func (s *BackfillService) replace(ctx context.Context, result BackfillResult, versions []entities.BaselineVersion) (BackfillResult, error) {
+	saved, deleted, err := s.baselines.ReplaceHistory(ctx, result.PointID, versions)
+	if err != nil {
+		s.log.Error("[BackfillService] Error reemplazando el histórico",
+			"measuring_point_id", result.PointID, "versions", len(versions), "error", err)
+		return result, domain.ErrPersistingBaseline
+	}
+
+	result.Created = true
+	result.Deleted = deleted
+	result.Versions = saved
+
+	s.log.Info("[BackfillService] Histórico de línea base reconstruido",
+		"measuring_point_id", result.PointID,
+		"deleted", deleted,
+		"versions", len(saved),
 	)
 
 	return result, nil

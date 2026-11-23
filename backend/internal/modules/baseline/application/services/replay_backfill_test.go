@@ -86,7 +86,7 @@ func TestSimulateVersions_Errors(t *testing.T) {
 }
 
 func newBackfill(history *fakeHistory, baselines *fakeBaselines) *BackfillService {
-	return NewBackfillService(history, baselines, newReplay(history, &fakeEvents{}), testLogger())
+	return NewBackfillService(history, baselines, &fakeExclusions{}, newReplay(history, &fakeEvents{}), "", testLogger())
 }
 
 func TestBackfill_SavesTheSimulatedHistoryFromTheFirstRecord(t *testing.T) {

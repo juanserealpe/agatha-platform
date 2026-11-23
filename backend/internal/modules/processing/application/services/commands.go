@@ -14,6 +14,8 @@ type Config struct {
 	Grace                time.Duration // PROCESSING_GRACE (30 min): espera antes de evaluar una hora sin datos
 	ConfigVersion        string        // "m=<B1>,<B2>,<Planitud>"
 	SilentPeriod         time.Duration // fijo: 7 d
+	// Environment es AGATHA_ENV: con "production" no se permite Backfill con Rebuild.
+	Environment string
 }
 
 // DefaultConfig devuelve los valores del spec. ConfigVersion lo arma bootstrap.
