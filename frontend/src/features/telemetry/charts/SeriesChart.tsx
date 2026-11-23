@@ -8,12 +8,12 @@ import type { LeakThresholds, Series } from "@/services/dashboard/series.types";
 import { formatClock, formatDayMonth } from "@/shared/lib/formatDate";
 import type { ReferenceMark, ThresholdBand, YScale } from "../config/seriesSections";
 import { CHART_INK, MULTI_SERIES_COLORS, SOURCE_COLORS } from "../config/chartPalette";
+import { CHART_HEIGHT_PX } from "../config/chartLayout";
 import { buildChartRows, type ChartRow, computeTimeTicks, computeYDomain, computeYTicks, isDayTick, nearestIndex, summarize } from "../lib/chartData";
 import { makeTickFormatter } from "../lib/formatValue";
 import { ChartHeader } from "./ChartHeader";
 import { ChartTooltip } from "./ChartTooltip";
 
-const CHART_HEIGHT = 220;
 // Con pocos puntos (p. ej. 1 día del indicador horario) cada punto se marca: son valores discretos.
 const MAX_POINTS_WITH_DOTS = 48;
 // Con muchas lecturas (una semana de B1 son ~650) un trazo fino deja ver la forma en vez de un bloque.
@@ -100,7 +100,7 @@ export const SeriesChart = memo(function SeriesChart({
                     {series[0]?.source === "evaluation" ? "Aún no se ha calculado para este rango." : "Sin lecturas en este rango."}
                 </p>
             ) : (
-                <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={150}>
+                <ResponsiveContainer width="100%" height={CHART_HEIGHT_PX} debounce={150}>
                     <ComposedChart data={rows} margin={{ top: 8, left: 0, right: 8, bottom: 0 }} syncId={syncId} syncMethod={syncByTime}>
                         <defs>
                             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

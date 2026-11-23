@@ -5,6 +5,8 @@ import type {
     AlertSearchFilters,
     AlertSearchResponse,
     ClassificationRequest,
+    DayRange,
+    DeviceAlertsResponse,
     ExportedFile,
     LabelRequest,
     ManagementResult,
@@ -25,6 +27,11 @@ export interface AlertManagementService {
     getPending(limit?: number, signal?: AbortSignal): Promise<PendingResponse>;
     /** Alertas activas agrupadas por punto de medición (mapa). */
     getActive(signal?: AbortSignal): Promise<ActiveResponse>;
+    /**
+     * Alertas del punto (`measuring_point_id`, no el id de una alerta) que se cruzan con los días dados, activas
+     * o finalizadas. A diferencia de `search`, no filtra por inicio: incluye las que empezaron antes del rango.
+     */
+    getDeviceAlerts(deviceId: number, days: DayRange, signal?: AbortSignal): Promise<DeviceAlertsResponse>;
     classify(id: AlertId, request: ClassificationRequest): Promise<ManagementResult>;
     label(id: AlertId, request: LabelRequest): Promise<ManagementResult>;
     addObservation(id: AlertId, request: ObservationRequest): Promise<ManagementResult>;

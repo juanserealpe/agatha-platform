@@ -45,6 +45,7 @@ export function createDemoAlertManagementService(store: DemoAlertStore): AlertMa
         getDetail: (id, signal) => respond(() => store.getDetail(id), signal),
         getPending: (limit, signal) => respond(() => store.getPending(limit), signal),
         getActive: (signal) => respond(() => store.getActive(), signal),
+        getDeviceAlerts: (deviceId, days, signal) => respond(() => store.getDeviceAlerts(deviceId, days), signal),
         classify: (id, request) => respond(() => store.classify(id, request)),
         label: (id, request) => respond(() => store.label(id, request)),
         addObservation: (id, request) => respond(() => store.addObservation(id, request)),

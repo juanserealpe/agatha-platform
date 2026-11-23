@@ -11,6 +11,12 @@ export interface SeverityStyle {
     /** Fondo tenue y opaco de los avisos (van sobre el mapa), para reconocer el nivel de un vistazo. */
     surfaceClass: string;
     dotClass: string;
+    /**
+     * Fondo de los mensajes de una fase de ese nivel en la línea de tiempo (un tono sobre el -50 de §2.1,
+     * que casi no se distingue del blanco), con el tono pleno y el borde al resaltarlo
+     * (spec multiindicador D8, §2.1). Lo define la fase, no el tipo de mensaje.
+     */
+    phaseMessageClass: string;
     /** Color para capas del mapa (Leaflet no usa clases de Tailwind). */
     hex: string;
 }
@@ -24,6 +30,7 @@ export const SEVERITY_STYLES: Record<AlertLevel, SeverityStyle> = {
         haloClass: "ring-4 ring-alerta-roja/20",
         surfaceClass: "bg-red-50",
         dotClass: "bg-alerta-roja",
+        phaseMessageClass: "bg-red-100/60 hover:bg-red-100 hover:ring-red-300",
         hex: "#ef4444",
     },
     NARANJA: {
@@ -33,6 +40,7 @@ export const SEVERITY_STYLES: Record<AlertLevel, SeverityStyle> = {
         haloClass: "ring-4 ring-alerta-naranja/20",
         surfaceClass: "bg-orange-50",
         dotClass: "bg-alerta-naranja",
+        phaseMessageClass: "bg-orange-100/60 hover:bg-orange-100 hover:ring-orange-300",
         hex: "#f97316",
     },
     AMARILLO: {
@@ -42,6 +50,7 @@ export const SEVERITY_STYLES: Record<AlertLevel, SeverityStyle> = {
         haloClass: "ring-4 ring-alerta-amarilla/25",
         surfaceClass: "bg-amber-50",
         dotClass: "bg-alerta-amarilla",
+        phaseMessageClass: "bg-amber-100/60 hover:bg-amber-100 hover:ring-amber-300",
         hex: "#f59e0b",
     },
 };

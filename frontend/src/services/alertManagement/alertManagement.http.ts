@@ -69,6 +69,14 @@ export const httpAlertManagementService: AlertManagementService = {
             errorMessage: "No fue posible consultar las alertas activas. Intente nuevamente.",
         }),
 
+    // Única ruta del módulo donde el id es del DISPOSITIVO (por el prefijo /devices/).
+    getDeviceAlerts: (deviceId, days, signal) =>
+        httpClient.get(apiPath(...ALERTS_PATH, "devices", deviceId, "alerts"), {
+            query: { from: days.from, to: days.to },
+            signal,
+            errorMessage: "No fue posible consultar las alertas del punto. Intente nuevamente.",
+        }),
+
     classify: (id, request) => postManagement(apiPath(...ALERTS_PATH, id, "classification"), request),
 
     label: (id, request) => postManagement(apiPath(...ALERTS_PATH, id, "label"), request),

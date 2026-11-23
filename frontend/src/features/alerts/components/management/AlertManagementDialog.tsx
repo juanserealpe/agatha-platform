@@ -1,20 +1,14 @@
-import { AlertCircle, Loader2, SearchX } from "lucide-react";
+import { useRef, useState } from "react";
 import type { AlertId } from "@/services/alertManagement";
-import { isApiError, userErrorMessage } from "@/services/http";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { EmptyState } from "@/shared/components/EmptyState";
 import { useAlertManagementDetail } from "../../hooks/useAlertManagementDetail";
 import type { ManagementMode } from "../../lib/managementMode";
-import { ManagementContent } from "./ManagementContent";
-
-const NOT_FOUND_STATUS = 404;
-const LOAD_ERROR = "No fue posible cargar el detalle de la alerta. Intente nuevamente.";
-
-const MANAGEMENT_DIALOG_CLASS = "max-h-[90vh] gap-5 overflow-y-auto p-5 sm:max-w-2xl";
+import { AlertDetailSkeleton, MANAGEMENT_DIALOG_CLASS } from "./AlertDetailSkeleton";
+import { AlertGroupView } from "./AlertGroupView";
+import { DetailLoadState } from "./DetailLoadState";
 
 interface AlertManagementDialogProps {
-    /** ID de la ALERTA (items[].id), nunca el del dispositivo. */
+    /** ID de la ALERTA (items[].id), nunca el del dispositivo. En la vista combinada, la pestaña abierta. */
     alertId: AlertId;
     initialMode: ManagementMode;
     onClose: () => void;
@@ -23,36 +17,27 @@ interface AlertManagementDialogProps {
 /**
  * Modal reutilizable de gestión de una alerta (historial y, más adelante, Centro de Control).
  * El detalle se consulta solo mientras el modal está abierto. Foco atrapado y cierre con Escape los da Dialog.
+ *
+ * La alerta con que se abrió (`anchor`) da el punto y el grupo inicial; luego `alertId` cambia con las pestañas
+ * sin reiniciar el modal (AlertDetailHost conserva la clave).
  */
 export function AlertManagementDialog({ alertId, initialMode, onClose }: AlertManagementDialogProps) {
-    const { data: detail, error, isPending, isError, refetch } = useAlertManagementDetail(alertId);
-    const notFound = isApiError(error) && error.status === NOT_FOUND_STATUS;
+    const [anchorId] = useState(alertId);
+    const anchorQuery = useAlertManagementDetail(anchorId);
+    const anchor = anchorQuery.data;
+    const popupRef = useRef<HTMLDivElement>(null);
 
     return (
         <Dialog open onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className={MANAGEMENT_DIALOG_CLASS}>
-                {detail ? (
-                    <ManagementContent detail={detail} initialMode={initialMode} onClose={onClose} />
+            {/* El foco inicial va al modal y no al primer elemento enfocable (un tramo de la franja), que
+                quedaba marcado con el anillo de foco al abrir. Tab sigue recorriendo desde el principio. */}
+            <DialogContent ref={popupRef} initialFocus={popupRef} className={MANAGEMENT_DIALOG_CLASS}>
+                {anchor ? (
+                    <AlertGroupView anchor={anchor} activeId={alertId} initialMode={initialMode} onClose={onClose} />
                 ) : (
                     <>
                         <DialogTitle className="sr-only">Gestión de alerta</DialogTitle>
-                        {isPending ? (
-                            <EmptyState Icon={Loader2} title="Cargando alerta…" className="border-none py-10 [&>svg]:animate-spin" />
-                        ) : notFound ? (
-                            <EmptyState Icon={SearchX} title="No se encontró la alerta" className="border-none py-10" />
-                        ) : isError ? (
-                            <EmptyState
-                                Icon={AlertCircle}
-                                title="No se pudo cargar la alerta"
-                                description={userErrorMessage(error, LOAD_ERROR)}
-                                action={
-                                    <Button variant="outline" onClick={() => void refetch()}>
-                                        Reintentar
-                                    </Button>
-                                }
-                                className="border-none py-10"
-                            />
-                        ) : null}
+                        <DetailLoadState query={anchorQuery} skeleton={<AlertDetailSkeleton />} />
                     </>
                 )}
             </DialogContent>

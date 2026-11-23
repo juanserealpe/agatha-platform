@@ -1,10 +1,11 @@
 import { useCallback } from "react";
-import { AlertCircle, Loader2, SearchX } from "lucide-react";
+import { AlertCircle, SearchX } from "lucide-react";
 import type { AlertId } from "@/services/alertManagement";
 import { userErrorMessage } from "@/services/http";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { Pagination } from "@/shared/components/Pagination";
+import { Skeleton, SkeletonBlock } from "@/shared/components/Skeleton";
 import { useDevices } from "@/features/sensors";
 import { useAlertDetailParam } from "../../hooks/useAlertDetailParam";
 import { deviceOptionLabel } from "../../lib/deviceLabel";
@@ -14,18 +15,37 @@ import type { RowAction } from "../../lib/rowActions";
 import { historySearchKey } from "../../lib/historySearchParams";
 import { ExportAlertsButton } from "./ExportAlertsButton";
 import { useAlertHistory } from "../../hooks/useAlertHistory";
-import { usePrefetchAlertDetail } from "../../hooks/useAlertManagementDetail";
+import { usePrefetchAlertView } from "../../hooks/useAlertGroup";
 import { useHistorySearch } from "../../hooks/useHistorySearch";
-import { AlertHistoryTable } from "./AlertHistoryTable";
+import { AlertHistoryTable, AlertHistoryTableSkeleton } from "./AlertHistoryTable";
 
 const LOAD_ERROR = "No fue posible consultar las alertas. Intente nuevamente.";
+// Filas del esqueleto: el tamaño de página por defecto del backend, así la tabla no cambia de alto al llegar.
+const SKELETON_ROWS = 10;
+
+/** Primera carga: contador, botón de exportar, tabla y paginación en su lugar, con bloques en vez de datos. */
+function HistorySkeleton() {
+    return (
+        <Skeleton label="Cargando alertas…" className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <SkeletonBlock className="mt-1.5 h-4 w-40" />
+                <SkeletonBlock className="h-8 w-36 rounded-lg" />
+            </div>
+            <div className="overflow-hidden rounded-xl border border-border bg-white shadow-xs">
+                <AlertHistoryTableSkeleton rows={SKELETON_ROWS} />
+            </div>
+            <SkeletonBlock className="h-3 w-32" />
+        </Skeleton>
+    );
+}
 
 /** Resultado de la búsqueda aplicada: contador, tabla, paginación y sus estados de carga, vacío y error. */
 export function AlertHistorySection() {
     const { filters, page, goToPage } = useHistorySearch();
     const { data, error, isPending, isError, isFetching, isPlaceholderData, refetch, totalPages } = useAlertHistory(filters, page);
     const { open: openAlert } = useAlertDetailParam();
-    const prefetchDetail = usePrefetchAlertDetail();
+    // Al acercarse a una fila: su detalle y su grupo, para que el modal abra ya con sus pestañas.
+    const prefetchAlertView = usePrefetchAlertView();
     const { data: devices = [] } = useDevices();
     const summary = summarizeFilters(filters, (id) => deviceOptionLabel(id, devices));
 
@@ -35,9 +55,7 @@ export function AlertHistorySection() {
         [openAlert]
     );
 
-    if (isPending) {
-        return <EmptyState Icon={Loader2} title="Cargando alertas…" className="py-16 [&>svg]:animate-spin" />;
-    }
+    if (isPending) return <HistorySkeleton />;
 
     if (isError && !data) {
         return (
@@ -98,7 +116,7 @@ export function AlertHistorySection() {
                             caption={`Historial de alertas, página ${data.page} de ${totalPages}`}
                             isUpdating={isPlaceholderData && isFetching}
                             onAction={handleAction}
-                            onIntent={prefetchDetail}
+                            onIntent={prefetchAlertView}
                         />
                     </div>
 

@@ -2,6 +2,8 @@ import { useId, useState } from "react";
 import type { AlertDetail, ManagementResult } from "@/services/alertManagement";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import { ALERT_DURATION_LABEL } from "../../config/alertExplanations";
+import type { TimelineNavigation } from "../../hooks/useTimelineNavigation";
 import { allowedClassifications } from "../../lib/classificationForm";
 import type { ManagementMode } from "../../lib/managementMode";
 import { describeExisting } from "../../lib/managementOutcome";
@@ -9,7 +11,6 @@ import { AlertExplanation } from "./AlertExplanation";
 import { ClassificationStep } from "./ClassificationStep";
 import { EventTimeline } from "./EventTimeline";
 import { LabelStep } from "./LabelStep";
-import { ManagementHeader } from "./ManagementHeader";
 import { ManagementNotice, type NoticeTone } from "./ManagementNotice";
 import { ManagementSummary } from "./ManagementSummary";
 import { ObservationList } from "./ObservationList";
@@ -24,6 +25,12 @@ interface ManagementContentProps {
     detail: AlertDetail;
     initialMode: ManagementMode;
     onClose: () => void;
+    /** Estado de la línea de tiempo de ESTA alerta (compartido con la franja). */
+    navigation: TimelineNavigation;
+    /** Alto del bloque fijo (franja compacta y pestañas) más aire: la fase de destino queda debajo. */
+    scrollMarginTopPx: number;
+    /** Hay varias alertas en la vista: la duración de la línea de tiempo es la de esta alerta. */
+    combined: boolean;
 }
 
 function resultNotice(result: ManagementResult, savedText: string): Notice {
@@ -35,15 +42,17 @@ function resultNotice(result: ManagementResult, savedText: string): Notice {
 }
 
 /**
- * Coordina los pasos del modal sobre el detalle ya cargado: 1) clasificación (obligatoria) y 2) etiqueta
- * (opcional). Qué paso se puede mostrar lo decide `available_actions`, nunca el estado de la alerta.
+ * Contenido de una alerta (una pestaña de la vista combinada) sobre su detalle ya cargado: explicación, línea de
+ * tiempo y los pasos de gestión: 1) clasificación (obligatoria) y 2) etiqueta (opcional). Qué paso se puede mostrar
+ * lo decide `available_actions`, nunca el estado de la alerta.
  */
-export function ManagementContent({ detail, initialMode, onClose }: ManagementContentProps) {
+export function ManagementContent({ detail, initialMode, onClose, navigation, scrollMarginTopPx, combined }: ManagementContentProps) {
     const [mode, setMode] = useState<ManagementMode>(initialMode);
     const [notice, setNotice] = useState<Notice | null>(null);
     // Recién clasificada en este modal: se ofrece "Agregar etiqueta" / "Ahora no" (CA-2.2.3).
     const [justClassified, setJustClassified] = useState(false);
     const observationsTitleId = useId();
+    const endedAt = detail.in_progress ? null : detail.ended_at;
 
     const canClassify = allowedClassifications(detail.available_actions).length > 0;
     const canLabel = detail.available_actions.includes("ADD_LABEL") && detail.classification !== null;
@@ -113,15 +122,17 @@ export function ManagementContent({ detail, initialMode, onClose }: ManagementCo
 
     return (
         <>
-            <ManagementHeader alert={detail} />
             {notice && <ManagementNotice tone={notice.tone}>{notice.text}</ManagementNotice>}
             {/* Contexto del evento en todos los modos: para clasificar hay que entender qué pasó. En los pasos
                 la explicación va plegada para que el formulario quede a la vista. */}
             <AlertExplanation detail={detail} collapsed={inStep} />
             <EventTimeline
                 levels={detail.levels}
-                endedAt={detail.in_progress ? null : detail.ended_at}
+                endedAt={endedAt}
                 pendingClassification={detail.management_status === "SIN_CLASIFICAR"}
+                controls={navigation}
+                scrollMarginTopPx={scrollMarginTopPx}
+                durationLabel={combined ? ALERT_DURATION_LABEL : undefined}
             />
             {body}
         </>

@@ -12,6 +12,9 @@ interface ManagementSummaryProps {
     >;
 }
 
+const PENDING_TEXT = "Aún no se ha clasificado. Después de clasificarla podrá agregar la causa del evento (opcional).";
+const PENDING_BOX_CLASS = "rounded-lg border border-dashed border-gray-300 px-3 py-2.5 text-sm text-gray-700";
+
 function Row({ term, value, meta }: { term: string; value: string; meta?: string }) {
     return (
         <div className="grid grid-cols-[8rem_1fr] gap-2 py-2 not-last:border-b not-last:border-border">
@@ -25,7 +28,8 @@ function Row({ term, value, meta }: { term: string; value: string; meta?: string
 }
 
 /**
- * Clasificación y etiqueta registradas, con su origen y fecha-hora, en solo lectura (CA-2.2.4).
+ * Clasificación y etiqueta registradas, con su origen y fecha-hora, en solo lectura (CA-2.2.4). Sin clasificar, un
+ * recuadro pendiente dice qué sigue.
  * Recién guardadas, el valor llega antes que el origen y la fecha (se completan al recargar el detalle).
  */
 export function ManagementSummary({ detail }: ManagementSummaryProps) {
@@ -38,18 +42,24 @@ export function ManagementSummary({ detail }: ManagementSummaryProps) {
     return (
         <section aria-labelledby={titleId} className="flex flex-col gap-2">
             <StepHeading id={titleId} title="Gestión de la alerta" aside={<ManagementStatusBadge status={detail.management_status} />} />
-            <dl className="rounded-lg border border-border px-3">
-                <Row
-                    term="Clasificación"
-                    value={classification ? CLASSIFICATION_LABEL[classification] : "Sin clasificar"}
-                    meta={detail.classification_detail ? managementMeta(detail.classification_detail) : undefined}
-                />
-                <Row
-                    term="Etiqueta"
-                    value={labelText ?? "Sin etiqueta"}
-                    meta={detail.label_detail ? managementMeta(detail.label_detail) : undefined}
-                />
-            </dl>
+            {/* Sin clasificar, la tabla solo repetiría "Sin clasificar" y "Sin etiqueta": en su lugar, un recuadro
+                punteado (pendiente) que dice qué sigue. Una vez clasificada se muestra completa, también la etiqueta
+                pendiente (es un paso opcional aparte). */}
+            {!classification && <p className={PENDING_BOX_CLASS}>{PENDING_TEXT}</p>}
+            {classification && (
+                <dl className="rounded-lg border border-border px-3">
+                    <Row
+                        term="Clasificación"
+                        value={CLASSIFICATION_LABEL[classification]}
+                        meta={detail.classification_detail ? managementMeta(detail.classification_detail) : undefined}
+                    />
+                    <Row
+                        term="Etiqueta"
+                        value={labelText ?? "Sin etiqueta"}
+                        meta={detail.label_detail ? managementMeta(detail.label_detail) : undefined}
+                    />
+                </dl>
+            )}
         </section>
     );
 }

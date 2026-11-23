@@ -39,7 +39,7 @@ La aplicación tiene dos secciones, en las pestañas bajo el encabezado: **Centr
 Al abrir una alerta se ven sus datos, la explicación de por qué se generó y su línea de tiempo.
 
 - **¿Por qué se generó esta alerta?**: explica el tipo de alerta, cuánto se aleja la medición de lo normal y, si la regla de planitud está activa en el punto, si el sonido tiene o no firma de fuga. El **nivel de anomalía** es un puntaje, no una probabilidad.
-- **Línea de tiempo**: los tramos de cada nivel y sus mensajes. Una **Notificación** marca un cambio que se avisó al operador (la alerta abrió o subió de nivel). Una **Actualización** registra un cambio de estado sin aviso, por ejemplo una bajada de nivel o una hora sin datos. Al pasar el cursor sobre el tipo de mensaje aparece su significado.
+- **Línea de tiempo**: los tramos de cada nivel y sus mensajes. Una **Notificación** marca un cambio importante que se avisó al operador (la alerta abrió, subió de nivel o la temperatura de la tubería cambió de comportamiento). Una **Actualización** registra un cambio de estado sin aviso, por ejemplo una bajada de nivel o una hora sin datos. Al pasar el cursor sobre el tipo de mensaje aparece su significado.
 - **Paso 1. Clasificación (obligatoria)**: **Confirmada**, si el evento ocurrió o se verificó en campo, o **Falsa alerta**. La app pide confirmar antes de guardar.
 - **Paso 2. Causa y etiquetado (opcional)**: la causa del evento, entre las opciones que corresponden a la clasificación elegida. "Otro" permite escribirla.
 - **Observaciones**: notas libres sobre la alerta.
