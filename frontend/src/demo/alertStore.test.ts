@@ -55,7 +55,7 @@ describe("createDemoAlertStore", () => {
                 level: "AMARILLO",
                 late: false,
                 title: "Alerta nueva en Sensor MP-9001 PK34-470: nivel Amarillo",
-                body: "El índice de ruido está por encima de lo normal desde las 01:00 del 31/10. Dato: 0,21 (lo normal es menos de 0,16).",
+                body: "El índice de anomalía acústica está por encima de lo normal desde las 01:00 del 31/10. Dato: 0,21 (lo normal es menos de 0,16).",
             },
         });
     });
@@ -80,7 +80,7 @@ describe("createDemoAlertStore", () => {
         expect(new Set(notifications.map((notice) => notice.message_id)).size).toBe(3);
         expect(notifications[2]).toMatchObject({
             title: "La alerta ALR-900001 subió a Rojo",
-            body: "El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de 0,30 a 0,42 (Rojo desde 0,35).",
+            body: "El índice de anomalía acústica siguió subiendo y ya es demasiado alto. Dato: pasó de 0,30 a 0,42 (Rojo desde 0,35).",
         });
     });
 

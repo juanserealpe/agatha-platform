@@ -18,7 +18,7 @@ const notice = (overrides: Partial<AlertNotificationEvent> = {}): AlertNotificat
     max_level: "ROJO",
     classification: null,
     title: "La alerta ALR-000142 subió a Rojo",
-    body: "El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de 0,30 a 0,41 (Rojo desde 0,35).",
+    body: "El índice de anomalía acústica siguió subiendo y ya es demasiado alto. Dato: pasó de 0,30 a 0,41 (Rojo desde 0,35).",
     late: false,
     started_at: "2026-10-30T12:00:00Z",
     evaluated_at: "2026-10-30T15:00:00Z",

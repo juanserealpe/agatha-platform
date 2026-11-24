@@ -22,7 +22,7 @@ const notice = (messageId: number, overrides: Partial<AlertNotificationEvent> = 
     max_level: "AMARILLO",
     classification: null,
     title: "Nueva alerta",
-    body: "Índice de ruido en 0,18.",
+    body: "Índice de anomalía acústica en 0,18.",
     late: false,
     started_at: "2026-10-30T12:00:00Z",
     evaluated_at: "2026-10-30T14:00:00Z",

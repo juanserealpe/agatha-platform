@@ -19,7 +19,7 @@ import (
 // MessageCatalogVersion se guarda en cada mensaje. Subirla al cambiar un texto.
 // v2: {pk} sin "sensor" delante (devices.name ya lo trae).
 // v3: el cuerpo no repite el título y ningún texto dice qué hacer (sin zona).
-// v4: el cuerpo cita el índice de ruido y el límite que explica el mensaje.
+// v4: el cuerpo cita el índice de anomalía acústica y el límite que explica el mensaje.
 // v5: los avisos (banner y push) empiezan con una frase simple de qué pasa y
 // terminan con el dato ("Dato: …"); el resto de los mensajes no cambia.
 // v6: confirmación por planitud. Se agregan OPEN/SIN_FIRMA (la alerta abre en
@@ -37,7 +37,11 @@ import (
 // calculado vs. enviado, historial al abrir, MOV_LEVEL_UP / MOV_LEVEL_OBSERVED,
 // MOV_SLOW_ONGOING, MOV_DAILY y el fin con el cambio total. MOV_OPEN tiene las
 // variantes SALTO, HUECO, RAPIDO y ACUMULADO. Los textos de FUGA y TEMP_* no cambian.
-const MessageCatalogVersion = 8
+// v9: textos de FUGA más claros para el operador: "índice de ruido" pasa a
+// "índice de anomalía acústica" y la "firma de fuga" se explica como el % de
+// mediciones con el patrón de sonido típico de una fuga. Códigos, variantes y
+// variables no cambian.
+const MessageCatalogVersion = 9
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
 const LowConfidenceMark = "Sensor en ajuste: resultado preliminar."
@@ -118,7 +122,7 @@ func ConfirmedVariant(variant string) string {
 }
 
 // confirmedPrefix se antepone al cuerpo de las subidas con la planitud recién confirmada.
-const confirmedPrefix = "El {d_pl} de los registros de las últimas 24 h tiene firma de fuga (mínimo {d_pl_min}). "
+const confirmedPrefix = "En las últimas 24 h, el {d_pl} de las mediciones tuvo el patrón de sonido típico de una fuga (mínimo {d_pl_min}). "
 
 // Template es un texto del catálogo.
 type Template struct {
@@ -143,59 +147,59 @@ func Key(code, variant string) string {
 // detalle sin repetir el título y cita el dato que lo explica. Los avisos
 // (KindNotification y REACTIVATED) se leen de un vistazo en un banner o un
 // push: primero una frase simple y al final "Dato: …". El dato es el índice de
-// ruido de la hora ({valor}) frente al límite normal ({normal}, corte de
+// anomalía acústica de la hora ({valor}) frente al límite normal ({normal}, corte de
 // Amarillo), al corte del nivel ({corte}) o a la salida ({cierre}). Ningún
 // texto indica qué hacer: solo el estado de la alerta (lo verifican las pruebas).
 var catalog = map[string]Template{
 	Key(CodeOpen, VariantAmarillo): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Amarillo",
-		Body:  "El índice de ruido está por encima de lo normal desde las {hora_inicio}. Dato: {valor} (lo normal es menos de {normal}).",
+		Body:  "El índice de anomalía acústica está por encima de lo normal desde las {hora_inicio}. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "valor", "normal"},
 	},
 	Key(CodeOpen, VariantNaranja): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Naranja",
-		Body:  "El índice de ruido está muy por encima de lo normal desde las {hora_inicio}. Dato: {valor} (Naranja desde {corte}; lo normal es menos de {normal}).",
+		Body:  "El índice de anomalía acústica está muy por encima de lo normal desde las {hora_inicio}. Dato: {valor} (Naranja desde {corte}; lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "valor", "corte", "normal"},
 	},
 	Key(CodeOpen, VariantRojo): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Rojo",
-		Body:  "El índice de ruido es demasiado alto desde las {hora_inicio}. Dato: {valor} (Rojo desde {corte}; lo normal es menos de {normal}).",
+		Body:  "El índice de anomalía acústica es demasiado alto desde las {hora_inicio}. Dato: {valor} (Rojo desde {corte}; lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "valor", "corte", "normal"},
 	},
 	// Sin "seguidas": con persistencia WINDOW {N} es un conteo en la ventana.
 	Key(CodeUpNaranjaPersist, ""): {
 		Code: CodeUpNaranjaPersist, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Naranja",
-		Body:  "El índice de ruido lleva {N} h por encima de lo normal. Dato: {valor} (lo normal es menos de {normal}).",
+		Body:  "El índice de anomalía acústica lleva {N} h por encima de lo normal. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"codigo", "N", "normal", "valor"},
 	},
 	Key(CodeUpNaranjaFast, ""): {
 		Code: CodeUpNaranjaFast, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Naranja",
-		Body:  "El índice de ruido está subiendo más rápido de lo normal. Dato: pasó de {valor_anterior} a {valor} (Naranja desde {corte}).",
+		Body:  "El índice de anomalía acústica está subiendo más rápido de lo normal. Dato: pasó de {valor_anterior} a {valor} (Naranja desde {corte}).",
 		Vars:  []string{"codigo", "valor_anterior", "valor", "corte"},
 	},
 	Key(CodeUpRojo, ""): {
 		Code: CodeUpRojo, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Rojo",
-		Body:  "El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de {valor_anterior} a {valor} (Rojo desde {corte}).",
+		Body:  "El índice de anomalía acústica siguió subiendo y ya es demasiado alto. Dato: pasó de {valor_anterior} a {valor} (Rojo desde {corte}).",
 		Vars:  []string{"codigo", "valor_anterior", "valor", "corte"},
 	},
 	// Rojo por duración: las horas se cuentan sobre el corte de Naranja.
 	Key(CodeUpRojo, VariantPersist): {
 		Code: CodeUpRojo, Kind: entities.KindNotification,
 		Title: "La alerta {codigo} subió a Rojo",
-		Body:  "El índice de ruido lleva {N} h muy por encima de lo normal. Dato: {valor} (Naranja desde {corte}).",
+		Body:  "El índice de anomalía acústica lleva {N} h muy por encima de lo normal. Dato: {valor} (Naranja desde {corte}).",
 		Vars:  []string{"codigo", "N", "corte", "valor"},
 	},
 	// El kind de REACTIVATED depende de si supera el máximo: lo fija la regla.
 	Key(CodeReactivated, ""): {
 		Code: CodeReactivated, Kind: entities.KindUpdate,
 		Title: "La alerta {codigo} se reactiva en {nivel}",
-		Body:  "El índice de ruido volvió a subir {horas} h después de normalizarse. Dato: {valor} (lo normal es menos de {normal}).",
+		Body:  "El índice de anomalía acústica volvió a subir {horas} h después de normalizarse. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"horas", "codigo", "nivel", "valor", "normal"},
 	},
 	// La hora quedó limitada a Amarillo: {from} es el nivel que daría el índice
@@ -203,63 +207,63 @@ var catalog = map[string]Template{
 	Key(CodeOpen, VariantNoLeakSignature): {
 		Code: CodeOpen, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel Amarillo",
-		Body:  "Por el índice de ruido la alerta estaría en {from} desde las {hora_inicio}, pero solo el {d_pl} de los registros de las últimas 24 h tiene firma de fuga (se necesita {d_pl_min}). Dato: {valor} ({from} desde {corte}; lo normal es menos de {normal}).",
+		Body:  "Por el índice de anomalía acústica la alerta estaría en {from} desde las {hora_inicio}, pero en las últimas 24 h solo el {d_pl} de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos {d_pl_min}). Dato: {valor} ({from} desde {corte}; lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "hora_inicio", "from", "d_pl", "d_pl_min", "valor", "corte", "normal"},
 	},
 	Key(CodeNoLeakShape, ""): {
 		Code: CodeNoLeakShape, Kind: entities.KindUpdate,
 		Title: "Se mantiene en Amarillo",
-		Body:  "Por el índice de ruido la alerta estaría en {from}, pero solo el {d_pl} de los registros de las últimas 24 h tiene firma de fuga (se necesita {d_pl_min}). Dato: {valor} ({from} desde {corte}).",
+		Body:  "Por el índice de anomalía acústica la alerta estaría en {from}, pero en las últimas 24 h solo el {d_pl} de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos {d_pl_min}). Dato: {valor} ({from} desde {corte}).",
 		Vars:  []string{"from", "d_pl", "d_pl_min", "valor", "corte"},
 	},
 	Key(CodeNewAfterClassified, ""): {
 		Code: CodeNewAfterClassified, Kind: entities.KindNotification,
 		Title: "Alerta nueva en {pk}: nivel {nivel}",
-		Body:  "El índice de ruido otra vez está fuera de lo normal; la alerta anterior ({codigo_anterior}) se clasificó como {clasificacion}. Dato: {valor} (lo normal es menos de {normal}).",
+		Body:  "El índice de anomalía acústica otra vez está fuera de lo normal; la alerta anterior ({codigo_anterior}) se clasificó como {clasificacion}. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"pk", "nivel", "codigo_anterior", "clasificacion", "valor", "normal"},
 	},
 	// Sin cálculo en la hora: cita el último índice calculado.
 	Key(CodeNoCalcStart, ""): {
 		Code: CodeNoCalcStart, Kind: entities.KindUpdate,
 		Title: "Sin datos suficientes",
-		Body:  "No se puede evaluar desde las {hora}; la alerta sigue en {nivel}. Último índice de ruido: {valor_anterior}.",
+		Body:  "No se puede evaluar desde las {hora}; la alerta sigue en {nivel}. Último índice de anomalía acústica: {valor_anterior}.",
 		Vars:  []string{"hora", "nivel", "valor_anterior"},
 	},
 	Key(CodeNoCalcEnd, ""): {
 		Code: CodeNoCalcEnd, Kind: entities.KindUpdate,
 		Title: "Vuelve a haber datos",
-		Body:  "Índice de ruido en {valor}; la alerta sigue en {nivel}.",
+		Body:  "Índice de anomalía acústica en {valor}; la alerta sigue en {nivel}.",
 		Vars:  []string{"nivel", "valor"},
 	},
 	Key(CodeDowngradeStart, ""): {
 		Code: CodeDowngradeStart, Kind: entities.KindUpdate,
 		Title: "El ruido bajó a nivel {nivel_hora}",
-		Body:  "Índice de ruido en {valor}, por debajo del límite de {nivel} ({corte}). Si se mantiene así {horas} h, la alerta bajará a {nivel_inferior}.",
+		Body:  "Índice de anomalía acústica en {valor}, por debajo del límite de {nivel} ({corte}). Si se mantiene así {horas} h, la alerta bajará a {nivel_inferior}.",
 		Vars:  []string{"nivel_hora", "horas", "nivel_inferior", "valor", "nivel", "corte"},
 	},
 	Key(CodeDowngrade, ""): {
 		Code: CodeDowngrade, Kind: entities.KindUpdate,
 		Title: "La alerta bajó a {nivel_inferior}",
-		Body:  "El índice de ruido se mantuvo por debajo del límite de {nivel} ({corte}) durante {horas} h; ahora está en {valor}. Máximo alcanzado: {max}, con índice de hasta {valor_max}.",
+		Body:  "El índice de anomalía acústica se mantuvo por debajo del límite de {nivel} ({corte}) durante {horas} h; ahora está en {valor}. Máximo alcanzado: {max}, con índice de hasta {valor_max}.",
 		Vars:  []string{"nivel", "horas", "nivel_inferior", "max", "corte", "valor", "valor_max"},
 	},
 	Key(CodeRojoHeld, ""): {
 		Code: CodeRojoHeld, Kind: entities.KindUpdate,
 		Title: "Sigue en Rojo",
-		Body:  "El índice de ruido lleva {horas} h por debajo del límite de Rojo ({corte}) y está en {valor}, pero una alerta roja sin clasificar no baja de nivel.",
+		Body:  "El índice de anomalía acústica lleva {horas} h por debajo del límite de Rojo ({corte}) y está en {valor}, pero una alerta roja sin clasificar no baja de nivel.",
 		Vars:  []string{"horas", "corte", "valor"},
 	},
 	// {corte}: el del nivel actual, sobre el que se cuentan las {N} h.
 	Key(CodeCountdown, ""): {
 		Code: CodeCountdown, Kind: entities.KindUpdate,
 		Title: "Puede subir a {nivel_siguiente}",
-		Body:  "El índice de ruido lleva {N} h por encima de {corte} (ahora en {valor}); faltan {horas} h para el cambio de nivel.",
+		Body:  "El índice de anomalía acústica lleva {N} h por encima de {corte} (ahora en {valor}); faltan {horas} h para el cambio de nivel.",
 		Vars:  []string{"N", "horas", "nivel_siguiente", "corte", "valor"},
 	},
 	Key(CodeTrend, ""): {
 		Code: CodeTrend, Kind: entities.KindUpdate,
 		Title: "El ruido está {direccion}",
-		Body:  "El índice de ruido pasó de {valor_anterior} a {valor} en {horas} h. La alerta sigue en {nivel} y lleva {N} h.",
+		Body:  "El índice de anomalía acústica pasó de {valor_anterior} a {valor} en {horas} h. La alerta sigue en {nivel} y lleva {N} h.",
 		Vars:  []string{"direccion", "nivel", "N", "valor_anterior", "valor", "horas"},
 	},
 	// Banda de cierre: bajo el corte de Amarillo, todavía sobre su salida.
@@ -267,37 +271,37 @@ var catalog = map[string]Template{
 		Code: CodeAlmostNormal, Kind: entities.KindUpdate,
 		Title: "Casi normal",
 		// El evento v3 no trae exit_hours del Rule Engine: el texto no lo cita.
-		Body: "Índice de ruido en {valor}, ya por debajo de {normal}; la alerta terminará si baja de {cierre} y se mantiene así.",
+		Body: "Índice de anomalía acústica en {valor}, ya por debajo de {normal}; la alerta terminará si baja de {cierre} y se mantiene así.",
 		Vars: []string{"valor", "normal", "cierre"},
 	},
 	Key(CodeOneHourNormal, ""): {
 		Code: CodeOneHourNormal, Kind: entities.KindUpdate,
 		Title: "1 h con ruido normal",
-		Body:  "Índice de ruido en {valor}, por debajo de {cierre}. La alerta sigue en {nivel} hasta completar el cierre.",
+		Body:  "Índice de anomalía acústica en {valor}, por debajo de {cierre}. La alerta sigue en {nivel} hasta completar el cierre.",
 		Vars:  []string{"nivel", "valor", "cierre"},
 	},
 	Key(CodeBackAbnormal, ""): {
 		Code: CodeBackAbnormal, Kind: entities.KindUpdate,
 		Title: "El ruido anormal volvió",
-		Body:  "Índice de ruido en {valor}; lo normal es menos de {normal}. La alerta sigue en {nivel}.",
+		Body:  "Índice de anomalía acústica en {valor}; lo normal es menos de {normal}. La alerta sigue en {nivel}.",
 		Vars:  []string{"nivel", "valor", "normal"},
 	},
 	Key(CodeOscillating, ""): {
 		Code: CodeOscillating, Kind: entities.KindUpdate,
 		Title: "El ruido oscila",
-		Body:  "El índice de ruido cruzó {cambios} veces el límite normal ({normal}) desde las {hora}; ahora está en {valor}. No se informará cada cambio.",
+		Body:  "El índice de anomalía acústica cruzó {cambios} veces el límite normal ({normal}) desde las {hora}; ahora está en {valor}. No se informará cada cambio.",
 		Vars:  []string{"hora", "cambios", "normal", "valor"},
 	},
 	Key(CodeSummary, ""): {
 		Code: CodeSummary, Kind: entities.KindSummary,
 		Title: "Sin cambios",
-		Body:  "Sigue en {nivel}, lleva {N} h, ruido {tendencia}. Índice de ruido en {valor} (lo normal, menos de {normal}); el máximo de la alerta fue {valor_max}.",
+		Body:  "Sigue en {nivel}, lleva {N} h, ruido {tendencia}. Índice de anomalía acústica en {valor} (lo normal, menos de {normal}); el máximo de la alerta fue {valor_max}.",
 		Vars:  []string{"nivel", "N", "tendencia", "valor", "normal", "valor_max"},
 	},
 	Key(CodeEndNormal, ""): {
 		Code: CodeEndNormal, Kind: entities.KindEnd,
 		Title: "La alerta {codigo} terminó",
-		Body:  "El índice de ruido volvió a {valor} (lo normal, menos de {normal}). Duró {N} h; nivel máximo {max}, con índice de hasta {valor_max}. Si vuelve en las próximas {horas} h y sigue sin clasificar, se reactivará esta misma alerta.",
+		Body:  "El índice de anomalía acústica volvió a {valor} (lo normal, menos de {normal}). Duró {N} h; nivel máximo {max}, con índice de hasta {valor_max}. Si vuelve en las próximas {horas} h y sigue sin clasificar, se reactivará esta misma alerta.",
 		Vars:  []string{"codigo", "N", "max", "horas", "valor", "normal", "valor_max"},
 	},
 	// Gestión (v7): la fecha y hora en que se guardó; {registro} solo si el
