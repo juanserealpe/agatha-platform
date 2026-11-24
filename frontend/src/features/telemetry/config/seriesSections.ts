@@ -53,7 +53,8 @@ function defineSection(charts: SeriesChartConfig[], unavailableReason?: string):
 }
 
 // Rangos mínimos del eje: propuesta inicial del frontend, a validar con quien conoce el sensor.
-const MIN_SPAN = { driftDeg: 0.1, accelG: 0.1, temperatureC: 2, humidityPct: 5, voltageMv: 100, currentMa: 10 };
+// El voltaje llega en V (catálogo de series del backend): 0,1 V, no 100, que dejaba la línea plana sobre un eje 0–120.
+const MIN_SPAN = { driftDeg: 0.1, accelG: 0.1, temperatureC: 2, humidityPct: 5, voltageV: 0.1, currentMa: 10 };
 
 const TILT_HOW_TO_READ = [
     "En un sensor bien fijado la línea es prácticamente plana.",
@@ -63,7 +64,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
     fuga: defineSection([
         {
             // Mismo nombre que usan los mensajes del catálogo del backend.
-            title: "Índice de ruido I",
+            title: "Índice de anomalía acústica I",
             seriesKeys: ["indicador"],
             // Puntaje de anomalía, no probabilidad: mismo mensaje que la nota del modal de alertas (ANOMALY_SCORE_NOTE).
             description:
@@ -82,7 +83,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
             description: "Porcentaje del último día en que el sonido agudo estuvo más fuerte de lo normal.",
             howToRead: [
                 `En condiciones normales ronda el ${EXPECTED_DENSITY_PCT} % (línea punteada).`,
-                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso hace subir el índice de ruido.",
+                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso hace subir el índice de anomalía acústica.",
             ],
             references: [{ label: `Normal ≈ ${EXPECTED_DENSITY_PCT} %`, value: EXPECTED_DENSITY_PCT }],
             yScale: { min: 0, minTop: 25, max: 100 },
@@ -163,7 +164,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
             seriesKeys: ["voltaje"],
             description: "Nivel de carga de la batería del sensor.",
             howToRead: ["Si baja de forma sostenida, la batería se está agotando y conviene revisarla."],
-            yScale: { minSpan: MIN_SPAN.voltageMv },
+            yScale: { minSpan: MIN_SPAN.voltageV },
         },
         {
             title: "Corriente",

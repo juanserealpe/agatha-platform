@@ -146,10 +146,11 @@ export const NOTICE_KIND_LABEL: Record<NotificationCode, string> = {
     REACTIVATED: "Alerta reactivada",
 };
 
-/** Banner de una alerta que ya finalizó (se cierra solo al minuto). */
+/**
+ * Banner de una alerta que ya finalizó (se cierra solo al minuto). Si quedó sin clasificar, su acción sigue
+ * siendo "Clasificar": eso ya dice que está pendiente.
+ */
 export const ENDED_NOTICE_LABEL = "Volvió a la normalidad";
-export const ENDED_UNCLASSIFIED_TEXT = "La alerta terminó sin clasificar: sigue pendiente en «Sin clasificar».";
-export const ENDED_CLASSIFIED_TEXT = "La alerta terminó.";
 
 /** Aviso de una hora que llegó atrasada: se muestra igual, marcado para que no se ignore. */
 export const LATE_NOTICE_LABEL = "Atrasado";

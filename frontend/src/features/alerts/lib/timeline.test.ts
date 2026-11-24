@@ -85,10 +85,13 @@ describe("textos en lenguaje claro", () => {
 
     it("firma de fuga: confirmada, no confirmada y sin dato", () => {
         expect(leakSignatureText({ d_pl: 12.34, d_pl_min: 10, confirmed: true })).toEqual({
-            title: "Con firma de fuga",
-            text: "El 12,3 % de los registros de las últimas 24 h tiene firma de fuga (mínimo 10 %): el sonido se parece al de una fuga.",
+            title: "El sonido se parece al de una fuga",
+            text: "En las últimas 24 h, el 12,3 % de las mediciones tuvo el patrón de sonido típico de una fuga (a partir del 10 % se considera parecido).",
         });
-        expect(leakSignatureText({ d_pl: 4.6, d_pl_min: 10, confirmed: false })?.title).toBe("Sin firma de fuga");
+        expect(leakSignatureText({ d_pl: 4.6, d_pl_min: 10, confirmed: false })).toEqual({
+            title: "El sonido no se parece al de una fuga",
+            text: "En las últimas 24 h, solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga; se necesita al menos el 10 %. El sonido es anómalo, pero no tiene ese patrón.",
+        });
         expect(leakSignatureText({ d_pl: null, d_pl_min: 10, confirmed: false })).toBeNull();
         expect(leakSignatureText(null)).toBeNull();
         expect(leakSignatureText(undefined)).toBeNull();

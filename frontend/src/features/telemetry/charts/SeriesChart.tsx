@@ -85,7 +85,9 @@ export const SeriesChart = memo(function SeriesChart({
     const formatXTick = (ts: number) => (isDayTick(ts, ticks.stepMs) ? formatDayMonth(ts) : formatClock(ts));
 
     return (
-        <section className="rounded-lg border border-slate-200 bg-white p-3" aria-label={title}>
+        // Mosaico gris sin borde dentro del panel blanco: separa las gráficas sin poner una tarjeta dentro de otra.
+        // Alto completo y trazado al fondo: dos gráficas en la misma fila alinean su eje X aunque una tenga más cabecera.
+        <section className="flex h-full flex-col justify-between rounded-xl bg-slate-50 p-3 sm:p-4" aria-label={title}>
             <ChartHeader
                 title={title}
                 unit={unit}
@@ -94,6 +96,8 @@ export const SeriesChart = memo(function SeriesChart({
                 howToRead={howToRead}
                 summary={series.length === 1 ? summary : null}
                 leakThresholds={leakThresholds}
+                thresholds={thresholds}
+                references={references}
             />
             {!hasData ? (
                 <p className="py-10 text-center text-xs text-slate-400">
@@ -125,18 +129,11 @@ export const SeriesChart = memo(function SeriesChart({
                                 y={band.from}
                                 stroke={band.color}
                                 strokeWidth={1.5}
-                                strokeDasharray="6 3"
-                                label={{ value: band.label, position: "insideTopRight", fontSize: 12, fill: CHART_INK.reference }}
+                                strokeDasharray="4 2"
                             />
                         ))}
                         {references.map((ref) => (
-                            <ReferenceLine
-                                key={ref.label}
-                                y={ref.value}
-                                stroke={CHART_INK.reference}
-                                strokeDasharray="3 3"
-                                label={{ value: ref.label, position: "insideTopRight", fontSize: 12, fill: CHART_INK.reference }}
-                            />
+                            <ReferenceLine key={ref.label} y={ref.value} stroke={CHART_INK.reference} strokeWidth={1.5} strokeDasharray="2 2" />
                         ))}
                         <XAxis
                             dataKey="timestamp"
@@ -147,7 +144,7 @@ export const SeriesChart = memo(function SeriesChart({
                             tickFormatter={formatXTick}
                             tick={AXIS_TICK}
                             tickLine={false}
-                            axisLine={{ stroke: CHART_INK.grid }}
+                            axisLine={{ stroke: CHART_INK.axisLine }}
                             allowDataOverflow
                         />
                         <YAxis

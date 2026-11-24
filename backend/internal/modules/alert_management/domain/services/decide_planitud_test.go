@@ -39,7 +39,7 @@ func TestDecide_OpensLimitedWithoutLeakSignature(t *testing.T) {
 		t.Fatalf("mensajes = %v", w.codes())
 	}
 	m := opens[0]
-	want := "Por el índice de ruido la alerta estaría en Rojo desde las 05:00 del 24/08, pero solo el 4,6 % de los registros de las últimas 24 h tiene firma de fuga (se necesita 10 %). Dato: 0,36 (Rojo desde 0,35; lo normal es menos de 0,16)."
+	want := "Por el índice de anomalía acústica la alerta estaría en Rojo desde las 05:00 del 24/08, pero en las últimas 24 h solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos 10 %). Dato: 0,36 (Rojo desde 0,35; lo normal es menos de 0,16)."
 	if m.Title != "Alerta nueva en PK34+500: nivel Amarillo" || m.Body != want || m.Kind != entities.KindNotification || m.Level != A {
 		t.Fatalf("OPEN sin firma = %+v", m)
 	}
@@ -61,7 +61,7 @@ func TestDecide_OpenNotLimitedKeepsTheClassicText(t *testing.T) {
 		calc(1, 0.18, A, A, opened, hoursAbove(2), planitud(30, 10, "")),
 	)
 	m := messageOf(w, messages.CodeOpen)[0]
-	if m.Body != "El índice de ruido está por encima de lo normal desde las 05:00 del 24/08. Dato: 0,18 (lo normal es menos de 0,16)." {
+	if m.Body != "El índice de anomalía acústica está por encima de lo normal desde las 05:00 del 24/08. Dato: 0,18 (lo normal es menos de 0,16)." {
 		t.Fatalf("body = %q", m.Body)
 	}
 	if s := w.alerts[123].LeakSignature; s == nil || !s.Confirmed {
@@ -87,7 +87,7 @@ func TestDecide_NoLeakShapeOncePerStreak(t *testing.T) {
 		t.Fatalf("NO_LEAK_SHAPE en %v; se esperaba h2 y h6 (mensajes %v)", got, w.codes())
 	}
 	m := messageOf(w, messages.CodeNoLeakShape)[0]
-	want := "Por el índice de ruido la alerta estaría en Naranja, pero solo el 4,6 % de los registros de las últimas 24 h tiene firma de fuga (se necesita 10 %). Dato: 0,27 (Naranja desde 0,25)."
+	want := "Por el índice de anomalía acústica la alerta estaría en Naranja, pero en las últimas 24 h solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos 10 %). Dato: 0,27 (Naranja desde 0,25)."
 	if m.Kind != entities.KindUpdate || m.Title != "Se mantiene en Amarillo" || m.Body != want {
 		t.Fatalf("NO_LEAK_SHAPE = %+v", m)
 	}
@@ -141,7 +141,7 @@ func TestDecide_RiseRightAfterLimitedPrependsTheSignature(t *testing.T) {
 		t.Fatalf("mensajes = %v", w.codes())
 	}
 	m := ups[0]
-	want := "El 12 % de los registros de las últimas 24 h tiene firma de fuga (mínimo 10 %). El índice de ruido siguió subiendo y ya es demasiado alto. Dato: pasó de 0,36 a 0,36 (Rojo desde 0,35)."
+	want := "En las últimas 24 h, el 12 % de las mediciones tuvo el patrón de sonido típico de una fuga (mínimo 10 %). El índice de anomalía acústica siguió subiendo y ya es demasiado alto. Dato: pasó de 0,36 a 0,36 (Rojo desde 0,35)."
 	if m.Title != "La alerta ALR-000123 subió a Rojo" || m.Body != want || m.Params["d_pl"] != "12 %" || m.Params["d_pl_min"] != "10 %" {
 		t.Fatalf("UP_ROJO = %+v", m)
 	}
@@ -159,7 +159,7 @@ func TestDecide_PersistRiseAfterLimitedPrependsTheSignature(t *testing.T) {
 		calc(2, 0.27, O, R, none, persistence(6), planitud(40, 10, "")),
 	)
 	m := messageOf(w, messages.CodeUpRojo)
-	if len(m) != 1 || m[0].Body != "El 40 % de los registros de las últimas 24 h tiene firma de fuga (mínimo 10 %). El índice de ruido lleva 6 h muy por encima de lo normal. Dato: 0,27 (Naranja desde 0,25)." {
+	if len(m) != 1 || m[0].Body != "En las últimas 24 h, el 40 % de las mediciones tuvo el patrón de sonido típico de una fuga (mínimo 10 %). El índice de anomalía acústica lleva 6 h muy por encima de lo normal. Dato: 0,27 (Naranja desde 0,25)." {
 		t.Fatalf("mensajes = %+v", m)
 	}
 }
@@ -173,7 +173,7 @@ func TestDecide_RiseWithoutPreviousLimitKeepsTheText(t *testing.T) {
 		calc(2, 0.27, O, O, none, planitud(30, 10, "")),
 	)
 	m := messageOf(w, messages.CodeUpNaranjaFast)
-	if len(m) != 1 || m[0].Body != "El índice de ruido está subiendo más rápido de lo normal. Dato: pasó de 0,18 a 0,27 (Naranja desde 0,25)." {
+	if len(m) != 1 || m[0].Body != "El índice de anomalía acústica está subiendo más rápido de lo normal. Dato: pasó de 0,18 a 0,27 (Naranja desde 0,25)." {
 		t.Fatalf("mensajes = %+v", m)
 	}
 }

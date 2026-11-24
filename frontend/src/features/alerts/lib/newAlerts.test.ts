@@ -8,6 +8,8 @@ import {
     expireEndedNotice,
     ingestNotification,
     INITIAL_NEW_ALERTS_STATE,
+    noticeAction,
+    noticeLevelChange,
     sortNotices,
 } from "./newAlerts";
 
@@ -22,7 +24,7 @@ const notice = (messageId: number, overrides: Partial<AlertNotificationEvent> = 
     max_level: "AMARILLO",
     classification: null,
     title: "Nueva alerta",
-    body: "Índice de ruido en 0,18.",
+    body: "Índice de anomalía acústica en 0,18.",
     late: false,
     started_at: "2026-10-30T12:00:00Z",
     evaluated_at: "2026-10-30T14:00:00Z",
@@ -37,6 +39,13 @@ describe("ingestNotification", () => {
         const opened = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
         const raised = ingestNotification(opened, notice(2, { code: "UP_ROJO", level: "ROJO" }));
         expect(ids(raised.notices)).toEqual([2]);
+        expect(raised.notices[0].previous_level).toBe("AMARILLO");
+    });
+
+    it("un aviso del mismo nivel no registra un nivel anterior", () => {
+        const opened = ingestNotification(INITIAL_NEW_ALERTS_STATE, notice(1));
+        const reactivated = ingestNotification(opened, notice(2, { code: "REACTIVATED" }));
+        expect(reactivated.notices[0].previous_level).toBeUndefined();
     });
 
     it("avisos de alertas distintas se acumulan", () => {
@@ -106,5 +115,39 @@ describe("endNotice / expireEndedNotice", () => {
         const red = notice(1, { alert_code: "ALR-1", level: "ROJO" });
         const yellow = notice(2, { alert_code: "ALR-2" });
         expect(ids(sortNotices([{ ...red, ended: true }, yellow]))).toEqual([2, 1]);
+    });
+});
+
+describe("noticeAction", () => {
+    it("sin clasificar abre en la clasificación, aunque ya haya finalizado", () => {
+        expect(noticeAction(notice(1))).toBe("classify");
+        expect(noticeAction({ ...notice(1), ended: true })).toBe("classify");
+    });
+
+    it("ya clasificada abre en lectura", () => {
+        expect(noticeAction(notice(1, { classification: "CONFIRMADA" }))).toBe("view");
+    });
+});
+describe("noticeLevelChange", () => {
+    it("una alerta nueva no tiene nivel de origen", () => {
+        expect(noticeLevelChange(notice(1))).toEqual({ from: null, to: "AMARILLO" });
+    });
+
+    it("una subida usa el nivel del banner que reemplazó", () => {
+        expect(
+            noticeLevelChange({ ...notice(2, { code: "UP_ROJO", level: "ROJO" }), previous_level: "NARANJA" })
+        ).toEqual({ from: "NARANJA", to: "ROJO" });
+    });
+
+    it("sin banner previo, una subida a Naranja viene de Amarillo y una a Rojo no tiene origen", () => {
+        expect(noticeLevelChange(notice(2, { code: "UP_NARANJA_FAST", level: "NARANJA" }))).toEqual({
+            from: "AMARILLO",
+            to: "NARANJA",
+        });
+        expect(noticeLevelChange(notice(2, { code: "UP_ROJO", level: "ROJO" }))).toEqual({ from: null, to: "ROJO" });
+    });
+
+    it("finalizada muestra el máximo que alcanzó", () => {
+        expect(noticeLevelChange({ ...notice(1, { max_level: "ROJO" }), ended: true })).toEqual({ from: null, to: "ROJO" });
     });
 });

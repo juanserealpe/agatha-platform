@@ -27,7 +27,8 @@ export function ManagementNotice({ tone, children, className }: ManagementNotice
             className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-sm", toneClass, className)}
         >
             <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
-            <div>{children}</div>
+            {/* Puede citar la etiqueta "Otro" escrita por el usuario. */}
+            <div className="min-w-0 wrap-anywhere">{children}</div>
         </div>
     );
 }

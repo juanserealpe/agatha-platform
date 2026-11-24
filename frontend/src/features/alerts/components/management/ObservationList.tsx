@@ -25,7 +25,7 @@ export function ObservationList({ observations }: ObservationListProps) {
                 return (
                     <li key={observation.id} className="rounded-lg border border-border bg-gray-50 px-3 py-2">
                         {/* Texto escrito por usuarios: se renderiza como texto, nunca como HTML. */}
-                        <p className="text-sm whitespace-pre-line text-gray-800">{observation.text}</p>
+                        <p className="text-sm whitespace-pre-line wrap-anywhere text-gray-800">{observation.text}</p>
                         <p className="mt-1 font-data-mono text-xs text-gray-500">
                             {kind && <span className="font-semibold text-gray-600">{kind} · </span>}
                             {ORIGIN_LABEL[observation.origin] ?? observation.origin} ·{" "}
