@@ -39,20 +39,6 @@ func (r *IndicatorReader) calculated(ctx context.Context, from, to time.Time) *g
 	return q
 }
 
-// GetDPl lee el d_pl de la fila (punto, 24 h, hora) por el índice único de Processing.
-func (r *IndicatorReader) GetDPl(ctx context.Context, pointID int64, at time.Time) (*float64, error) {
-	var rows []models.FeatureEvaluationReadModel
-	err := r.db.WithContext(ctx).
-		Select("d_pl").
-		Where("measuring_point_id = ? AND window_hours = ? AND evaluated_at = ?", pointID, sourceWindowHours, at.UTC()).
-		Limit(1).
-		Find(&rows).Error
-	if err != nil || len(rows) == 0 {
-		return nil, err
-	}
-	return rows[0].DPl, nil
-}
-
 func (r *IndicatorReader) ListPoints(ctx context.Context, from, to time.Time) ([]int64, error) {
 	var points []int64
 	err := r.calculated(ctx, from, to).
@@ -83,7 +69,6 @@ func (r *IndicatorReader) ListCalculated(ctx context.Context, pointID int64, fro
 			MeasuringPointID: m.MeasuringPointID,
 			EvaluatedAt:      m.EvaluatedAt.UTC(),
 			I:                *m.I,
-			DPl:              m.DPl,
 			LowConfidence:    m.LowConfidence,
 		})
 	}

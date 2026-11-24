@@ -75,9 +75,6 @@ const (
 	ReasonLeakThreshold ReasonCode = "LEAK_THRESHOLD"
 	// ReasonLeakPersistence: la racha subió un nivel sobre el raw.
 	ReasonLeakPersistence ReasonCode = "LEAK_PERSISTENCE"
-	// ReasonNaranjaNotConfirmed: la hora habría sido NARANJA (o más, por
-	// persistencia) pero d_pl < d_pl_min; queda en AMARILLO.
-	ReasonNaranjaNotConfirmed ReasonCode = "NARANJA_NOT_CONFIRMED"
 )
 
 // PersistenceMode es cómo se cuenta la persistencia que escala un nivel.

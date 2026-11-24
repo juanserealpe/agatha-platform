@@ -58,20 +58,6 @@ type LevelNotice struct {
 	BelowRun int
 
 	LowConfidence bool
-
-	// DPl es el % de registros de las últimas 24 h con planitud alta (nil si
-	// no se calculó). DPlMin es el mínimo de la versión (nil si no lo define:
-	// la regla de planitud no está activa para el punto).
-	DPl, DPlMin *float64
-	// LimitedFrom es el nivel que el índice daría solo cuando el Rule Engine
-	// limitó la hora a Amarillo por la planitud (motivo NARANJA_NOT_CONFIRMED,
-	// Naranja o Rojo); vacío si la hora no se limitó.
-	LimitedFrom Level
-}
-
-// Limited indica que la planitud limitó la hora a Amarillo.
-func (n LevelNotice) Limited() bool {
-	return n.LimitedFrom != ""
 }
 
 // Calculated indica si la hora tiene I.

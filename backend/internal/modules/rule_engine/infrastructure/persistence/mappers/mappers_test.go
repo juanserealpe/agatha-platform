@@ -44,12 +44,11 @@ func TestRuleEvaluation_NoReasonsIsAnEmptyArray(t *testing.T) {
 }
 
 func TestRuleEvaluation_RoundTripKeepsV3Fields(t *testing.T) {
-	dPl := 8.0
 	row := entities.RuleEvaluation{
-		RawLevel: entities.LevelNaranja, ComputedLevel: entities.LevelAmarillo, Level: entities.LevelAmarillo,
-		RunAmarillo: 18, RunNaranja: 1, BelowRun: 0, DPl: &dPl,
+		RawLevel: entities.LevelNaranja, ComputedLevel: entities.LevelNaranja, Level: entities.LevelNaranja,
+		RunAmarillo: 18, RunNaranja: 1, BelowRun: 0,
 		Reasons: []entities.Reason{
-			{Code: entities.ReasonNaranjaNotConfirmed, Level: entities.LevelAmarillo, From: entities.LevelNaranja, DPl: &dPl, DPlMin: 12},
+			{Code: entities.ReasonLeakThreshold, Level: entities.LevelNaranja, I: 0.26, Threshold: 0.25},
 			{Code: entities.ReasonLeakPersistence, Level: entities.LevelNaranja, Hours: 18, From: entities.LevelAmarillo, WindowHours: 24},
 		},
 		EvaluatedAt: time.Date(2026, 9, 19, 5, 0, 0, 0, time.UTC),
@@ -62,8 +61,7 @@ func TestRuleEvaluation_RoundTripKeepsV3Fields(t *testing.T) {
 
 func TestThresholdVersion_RoundTripKeepsV2Columns(t *testing.T) {
 	p := entities.DefaultThresholdParams()
-	min, window, minHours := 12.0, 24, 18
-	p.ConfirmNaranjaWithPlanitud, p.ConfirmRojoWithPlanitud, p.DPlMin = true, true, &min
+	window, minHours := 24, 18
 	p.PersistenceMode, p.PersistenceWindowHours, p.PersistenceMinHours = entities.PersistenceWindow, &window, &minHours
 	v := entities.ThresholdVersion{
 		ID: 2, MeasuringPointID: 11556, EventType: entities.EventTypeLeak, Version: 2, ThresholdParams: p,

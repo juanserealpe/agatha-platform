@@ -133,7 +133,6 @@ func wireRuleEngine(bus eventbus.Bus, deps ruleEngineDeps, log *logger.Logger) *
 		deps.thresholds,
 		deps.evaluations,
 		thresholds,
-		deps.source,
 		busLevelEventPublisher{bus: bus},
 		deps.clock,
 		log,

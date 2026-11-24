@@ -28,18 +28,6 @@ type ThresholdParams struct {
 	// ExitHours: horas calculadas consecutivas bajo la banda de salida que cierran el episodio.
 	ExitHours int
 
-	// ConfirmNaranjaWithPlanitud: NARANJA (por umbral o persistencia) solo se
-	// asigna si el d_pl de la hora es >= DPlMin; si no, la hora queda en
-	// AMARILLO con el motivo NARANJA_NOT_CONFIRMED.
-	ConfirmNaranjaWithPlanitud bool
-	// ConfirmRojoWithPlanitud: ROJO (por valor o por duración) también exige
-	// planitud confirmada (d_pl >= DPlMin). Sin ella, la excepción histórica
-	// sigue: un ROJO por umbral no se limita. Exige ConfirmNaranjaWithPlanitud
-	// (no existe un Rojo confirmado sin un Naranja confirmado).
-	ConfirmRojoWithPlanitud bool
-	// DPlMin es el % mínimo de registros con planitud alta (0–100). Obligatorio
-	// si ConfirmNaranjaWithPlanitud.
-	DPlMin *float64
 	// PersistenceMode: STRICT = racha seguida; WINDOW = horas sobre el corte en
 	// las últimas PersistenceWindowHours horas calculadas.
 	PersistenceMode PersistenceMode
@@ -70,16 +58,13 @@ func DefaultThresholdParams() ThresholdParams {
 }
 
 // Normalize redondea los umbrales y el margen a la precisión de la columna
-// (4 decimales; d_pl_min a 2) y normaliza el modo de persistencia (vacío ⇒ STRICT). Se valida DESPUÉS de normalizar: dos valores distintos pueden
+// (4 decimales) y normaliza el modo de persistencia (vacío ⇒ STRICT). Se valida DESPUÉS de normalizar: dos valores distintos pueden
 // quedar iguales al redondear.
 func (p ThresholdParams) Normalize() ThresholdParams {
 	p.Amarillo = round4(p.Amarillo)
 	p.Naranja = round4(p.Naranja)
 	p.Rojo = round4(p.Rojo)
 	p.ExitMargin = round4(p.ExitMargin)
-	if p.DPlMin != nil {
-		p.DPlMin = floatPtr(round2(*p.DPlMin))
-	}
 	p.PersistenceMode = PersistenceMode(strings.ToUpper(strings.TrimSpace(string(p.PersistenceMode))))
 	if p.PersistenceMode == "" {
 		p.PersistenceMode = PersistenceStrict
@@ -102,15 +87,6 @@ func (p ThresholdParams) Validate() error {
 	if (p.EscalateAmarilloAfterHours != nil && *p.EscalateAmarilloAfterHours < 1) ||
 		(p.EscalateNaranjaAfterHours != nil && *p.EscalateNaranjaAfterHours < 1) {
 		return domain.ErrHoursRange
-	}
-	if p.DPlMin != nil && !(*p.DPlMin >= 0 && *p.DPlMin <= 100) {
-		return domain.ErrPlanitudConfig
-	}
-	if p.ConfirmNaranjaWithPlanitud && p.DPlMin == nil {
-		return domain.ErrPlanitudConfig
-	}
-	if p.ConfirmRojoWithPlanitud && !p.ConfirmNaranjaWithPlanitud {
-		return domain.ErrRojoPlanitudConfig
 	}
 	return p.validatePersistence()
 }
@@ -153,25 +129,6 @@ func (p ThresholdParams) EscalationHours(from Level) *int {
 		return copyIntPtr(p.PersistenceMinHours)
 	}
 	return copyIntPtr(configured)
-}
-
-// IsNaranjaConfirmed indica si el d_pl de la hora confirma NARANJA. Sin la
-// confirmación activa, siempre; con ella, d_pl conocido y >= d_pl_min.
-func (p ThresholdParams) IsNaranjaConfirmed(dPl *float64) bool {
-	if !p.ConfirmNaranjaWithPlanitud {
-		return true
-	}
-	return dPl != nil && p.DPlMin != nil && *dPl >= *p.DPlMin
-}
-
-// IsRojoConfirmed indica si el d_pl de la hora confirma ROJO. Sin
-// ConfirmRojoWithPlanitud, siempre (excepción histórica del ROJO por umbral);
-// con ella, se exige la misma confirmación que para NARANJA.
-func (p ThresholdParams) IsRojoConfirmed(dPl *float64) bool {
-	if !p.ConfirmRojoWithPlanitud {
-		return true
-	}
-	return p.IsNaranjaConfirmed(dPl)
 }
 
 // HistoryDepth es K: cuántas horas calculadas anteriores hacen falta para
@@ -244,9 +201,6 @@ type ThresholdPatch struct {
 	EscalateNaranjaAfterHours  Optional[*int]
 	ExitMargin                 Optional[float64]
 	ExitHours                  Optional[int]
-	ConfirmNaranjaWithPlanitud Optional[bool]
-	ConfirmRojoWithPlanitud    Optional[bool]
-	DPlMin                     Optional[*float64]
 	PersistenceMode            Optional[PersistenceMode]
 	PersistenceWindowHours     Optional[*int]
 	PersistenceMinHours        Optional[*int]
@@ -263,9 +217,6 @@ func (patch ThresholdPatch) ApplyTo(base ThresholdParams) ThresholdParams {
 		EscalateNaranjaAfterHours:  copyIntPtr(patch.EscalateNaranjaAfterHours.or(base.EscalateNaranjaAfterHours)),
 		ExitMargin:                 patch.ExitMargin.or(base.ExitMargin),
 		ExitHours:                  patch.ExitHours.or(base.ExitHours),
-		ConfirmNaranjaWithPlanitud: patch.ConfirmNaranjaWithPlanitud.or(base.ConfirmNaranjaWithPlanitud),
-		ConfirmRojoWithPlanitud:    patch.ConfirmRojoWithPlanitud.or(base.ConfirmRojoWithPlanitud),
-		DPlMin:                     copyFloatPtr(patch.DPlMin.or(base.DPlMin)),
 		PersistenceMode:            patch.PersistenceMode.or(base.PersistenceMode),
 		PersistenceWindowHours:     copyIntPtr(patch.PersistenceWindowHours.or(base.PersistenceWindowHours)),
 		PersistenceMinHours:        copyIntPtr(patch.PersistenceMinHours.or(base.PersistenceMinHours)),
@@ -306,15 +257,6 @@ const (
 func round4(v float64) float64 { return math.Round(v*1e4) / 1e4 }
 
 func round2(v float64) float64 { return math.Round(v*1e2) / 1e2 }
-
-func floatPtr(v float64) *float64 { return &v }
-
-func copyFloatPtr(p *float64) *float64 {
-	if p == nil {
-		return nil
-	}
-	return floatPtr(*p)
-}
 
 func intPtr(v int) *int { return &v }
 

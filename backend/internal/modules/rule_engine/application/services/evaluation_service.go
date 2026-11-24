@@ -22,8 +22,6 @@ type EvaluationService struct {
 	thresholds   repositories.ThresholdRepository
 	evaluations  repositories.RuleEvaluationRepository
 	thresholdUCs *ThresholdService
-	// source lee el d_pl de las horas en vivo (nil ⇒ d_pl desconocido).
-	source ports.IndicatorSource
 	// publisher nil ⇒ no publica.
 	publisher ports.LevelEventPublisher
 	clock     ports.Clock
@@ -38,7 +36,6 @@ func NewEvaluationService(
 	thresholds repositories.ThresholdRepository,
 	evaluations repositories.RuleEvaluationRepository,
 	thresholdUCs *ThresholdService,
-	source ports.IndicatorSource,
 	publisher ports.LevelEventPublisher,
 	clock ports.Clock,
 	log *logger.Logger,
@@ -47,7 +44,6 @@ func NewEvaluationService(
 		thresholds:   thresholds,
 		evaluations:  evaluations,
 		thresholdUCs: thresholdUCs,
-		source:       source,
 		publisher:    publisher,
 		clock:        clock,
 		log:          log,
@@ -117,13 +113,8 @@ func (s *EvaluationService) evaluate(ctx context.Context, notice IndicatorEvalua
 		return EvaluationResult{}, domain.ErrConsultingRuleEvaluations
 	}
 
-	dPl, err := s.dPl(ctx, notice)
-	if err != nil {
-		return EvaluationResult{}, err
-	}
-
 	// 3) Lógica pura + inserción.
-	a := domainServices.Assess(*notice.I, dPl, version.ThresholdParams, history)
+	a := domainServices.Assess(*notice.I, version.ThresholdParams, history)
 	row := entities.RuleEvaluation{
 		MeasuringPointID:   pointID,
 		EventType:          eventType,
@@ -139,7 +130,6 @@ func (s *EvaluationService) evaluate(ctx context.Context, notice IndicatorEvalua
 		RunAmarillo:        a.RunAmarillo,
 		RunNaranja:         a.RunNaranja,
 		BelowRun:           a.BelowRun,
-		DPl:                dPl,
 		ThresholdVersionID: version.ID,
 		LowConfidence:      notice.LowConfidence,
 		EpisodeEvent:       a.EpisodeEvent,
@@ -223,21 +213,6 @@ func (s *EvaluationService) forwardNoCalculable(ctx context.Context, notice Indi
 		SchemaVersion:    contract.SchemaVersion,
 	})
 	return result, nil
-}
-
-// dPl devuelve el d_pl de la hora: el del Notice si ya viene cargado
-// (backfill, simulación) o el de feature_evaluations (en vivo).
-func (s *EvaluationService) dPl(ctx context.Context, notice IndicatorEvaluatedNotice) (*float64, error) {
-	if notice.DPlLoaded || s.source == nil {
-		return notice.DPl, nil
-	}
-	dPl, err := s.source.GetDPl(ctx, notice.MeasuringPointID, notice.EvaluatedAt.UTC())
-	if err != nil {
-		s.log.Error("[EvaluationService] Error consultando el d_pl de la hora",
-			"measuring_point_id", notice.MeasuringPointID, "evaluated_at", notice.EvaluatedAt, "error", err)
-		return nil, domain.ErrConsultingIndicators
-	}
-	return dPl, nil
 }
 
 // effectiveVersion devuelve la versión vigente en evaluated_at. Si el punto no

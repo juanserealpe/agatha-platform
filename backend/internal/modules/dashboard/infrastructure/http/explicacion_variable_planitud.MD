@@ -112,7 +112,7 @@ En los mensajes de alerta aparece la **firma de fuga** (`d_pl`): el porcentaje d
 | Qué es | La lectura cruda del sensor | Un porcentaje calculado a partir de la planitud |
 | Unidad | Sin unidad | % (de 0 a 100) |
 | Frecuencia | Una por lectura (~15 min) | Una por hora |
-| Dónde está | `/api/dashboard/series?variables=planitud` | En la alerta (`leak_signature`), no en el dashboard |
+| Dónde está | `/api/dashboard/series?variables=planitud` | Ya no se expone en las alertas (`leak_signature` se retiró en nov 2026) |
 
 ## Errores
 

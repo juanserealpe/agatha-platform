@@ -19,7 +19,11 @@ const (
 	// los campos v2 no cambian).
 	// v4 agrega d_pl_min (aditivo: el d_pl ya viajaba desde v3) y el motivo
 	// NARANJA_NOT_CONFIRMED puede llevar from = ROJO.
-	SchemaVersion = 4
+	// v5 RETIRA la confirmación por planitud (nov 2026): se quitan d_pl y
+	// d_pl_min del evento (y de los datos del motivo) y el motivo
+	// NARANJA_NOT_CONFIRMED deja de existir. Cambio incompatible para quien
+	// leyera esos campos: computed_level ya no queda nunca bajo el raw.
+	SchemaVersion = 5
 )
 
 // Status de la hora evaluada (los mismos valores que Processing).
@@ -47,9 +51,6 @@ const (
 const (
 	ReasonLeakThreshold   = "LEAK_THRESHOLD"
 	ReasonLeakPersistence = "LEAK_PERSISTENCE"
-	// ReasonNaranjaNotConfirmed: NARANJA (o ROJO, con confirm_rojo_with_planitud)
-	// no confirmado por planitud (la hora queda en AMARILLO).
-	ReasonNaranjaNotConfirmed = "NARANJA_NOT_CONFIRMED"
 )
 
 // Modos de persistencia.

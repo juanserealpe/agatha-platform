@@ -6,7 +6,6 @@ import {
     ANOMALY_SCORE_NOTE,
     EVENT_EXPLANATION,
     formatAnomalyScore,
-    leakSignatureText,
     SCORE_LEVEL_CAPTION,
 } from "../../config/alertExplanations";
 import { LevelBadge } from "../badges/LevelBadge";
@@ -22,7 +21,6 @@ type ExplanationDetail = Pick<
     | "last_indicator_value"
     | "levels"
     | "trigger_variables"
-    | "leak_signature"
 >;
 
 interface ScoreProps {
@@ -145,7 +143,6 @@ function ExplanationSection({ detail }: { detail: ExplanationDetail }) {
 function ExplanationBody({ detail }: { detail: ExplanationDetail }) {
     const event = EVENT_EXPLANATION[detail.event];
     const levelPhrase = event.levelPhrase[detail.max_level];
-    const leak = detail.event === "FUGA" ? leakSignatureText(detail.leak_signature) : null;
 
     return (
         <div className="flex flex-col gap-3">
@@ -153,11 +150,6 @@ function ExplanationBody({ detail }: { detail: ExplanationDetail }) {
                 <strong className="text-gray-900">{event.title}.</strong> {event.description}
             </p>
             {levelPhrase && <p className="text-sm text-gray-800">{levelPhrase}</p>}
-            {leak && (
-                <p className="text-sm text-gray-800">
-                    <strong className="text-gray-900">{leak.title}.</strong> {leak.text}
-                </p>
-            )}
 
             {/* Sin puntaje propio (movimiento) se oculta el bloque: nunca se muestra un 0 que no es una medición. */}
             {event.hasAnomalyScore && <AnomalyScores detail={detail} />}

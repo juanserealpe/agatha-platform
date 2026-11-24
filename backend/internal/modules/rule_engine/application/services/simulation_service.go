@@ -208,8 +208,8 @@ func (s *SimulationService) run(
 		CreatedBy:        SimulationCreatedBy,
 		CreatedAt:        now,
 	})
-	// Sin source (el d_pl ya viene en cada hora) y sin publisher: nunca publica.
-	evaluator := NewEvaluationService(thresholds, evaluations, NewThresholdService(thresholds, s.clock, s.log), nil, nil, s.clock, s.log)
+	// Sin publisher: nunca publica.
+	evaluator := NewEvaluationService(thresholds, evaluations, NewThresholdService(thresholds, s.clock, s.log), nil, s.clock, s.log)
 
 	rows := make([]entities.RuleEvaluation, 0, len(hours))
 	for _, h := range hours {
@@ -223,8 +223,6 @@ func (s *SimulationService) run(
 			EvaluatedAt:      h.EvaluatedAt,
 			Status:           StatusCalculated,
 			I:                &i,
-			DPl:              h.DPl,
-			DPlLoaded:        true,
 			LowConfidence:    h.LowConfidence,
 			Trigger:          TriggerSimulation,
 		})

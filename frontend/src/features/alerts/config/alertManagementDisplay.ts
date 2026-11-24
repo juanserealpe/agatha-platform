@@ -53,7 +53,7 @@ export function displayLevel(alert: Pick<AlertItem, "current_level" | "max_level
 }
 
 export const EVENT_LABEL: Record<AlertEvent, string> = {
-    // No toda anomalía acústica es una fuga: solo la firma de fuga (planitud) permite hablar de posible fuga.
+    // No toda anomalía acústica es una fuga: por eso se llama anomalía y no fuga.
     FUGA: "Anomalía acústica",
     MOVIMIENTO: "Movimiento",
 };

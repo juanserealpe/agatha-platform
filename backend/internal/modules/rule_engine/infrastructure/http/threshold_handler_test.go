@@ -37,7 +37,6 @@ func (emptySource) ListPoints(context.Context, time.Time, time.Time) ([]int64, e
 func (emptySource) ListCalculated(context.Context, int64, time.Time, time.Time, time.Time, int) ([]ports.CalculatedIndicator, error) {
 	return nil, nil
 }
-func (emptySource) GetDPl(context.Context, int64, time.Time) (*float64, error) { return nil, nil }
 
 type server struct {
 	repo *memory.ThresholdRepository
@@ -117,31 +116,13 @@ func TestCreate_NullDisablesEscalation(t *testing.T) {
 	}
 }
 
-func TestCreate_PlanitudAndWindow(t *testing.T) {
+func TestCreate_Window(t *testing.T) {
 	s := newServer()
 	code, body := s.do(t, http.MethodPost, "/api/rule-engine/points/11556/thresholds", `{"patch": {
-		"confirm_naranja_with_planitud": true, "d_pl_min": 12,
 		"persistence_mode": "WINDOW", "persistence_window_hours": 24, "persistence_min_hours": 18},
 		"reason": "r", "created_by": "c"}`)
-	if code != http.StatusCreated || body["d_pl_min"].(float64) != 12 || body["persistence_mode"] != "WINDOW" {
+	if code != http.StatusCreated || body["persistence_mode"] != "WINDOW" {
 		t.Fatalf("status = %d, body = %v", code, body)
-	}
-}
-
-func TestCreate_RojoWithPlanitud(t *testing.T) {
-	s := newServer()
-	code, body := s.do(t, http.MethodPost, "/api/rule-engine/points/11556/thresholds", `{"patch": {
-		"confirm_naranja_with_planitud": true, "confirm_rojo_with_planitud": true, "d_pl_min": 10},
-		"reason": "r", "created_by": "c"}`)
-	if code != http.StatusCreated || body["confirm_rojo_with_planitud"] != true || body["d_pl_min"].(float64) != 10 {
-		t.Fatalf("status = %d, body = %v", code, body)
-	}
-
-	// La versión sin la opción la devuelve en false (aditivo).
-	code, body = newServer().do(t, http.MethodPost, "/api/rule-engine/points/11556/thresholds",
-		`{"patch": {"amarillo": 0.16}, "reason": "r", "created_by": "c"}`)
-	if code != http.StatusCreated || body["confirm_rojo_with_planitud"] != false {
-		t.Fatalf("status = %d, body = %v; se esperaba confirm_rojo_with_planitud false", code, body)
 	}
 }
 
@@ -160,8 +141,7 @@ func TestCreate_Rejections(t *testing.T) {
 		{"null no anulable", `{"patch": {"amarillo": null}, "reason": "r", "created_by": "c"}`},
 		{"tipo inválido", `{"patch": {"min_hours": 2.5}, "reason": "r", "created_by": "c"}`},
 		{"campo raíz desconocido", `{"patch": {}, "reason": "r", "created_by": "c", "extra": 1}`},
-		{"planitud sin d_pl_min", `{"patch": {"confirm_naranja_with_planitud": true}, "reason": "r", "created_by": "c"}`},
-		{"rojo con planitud sin naranja", `{"patch": {"confirm_rojo_with_planitud": true, "d_pl_min": 10}, "reason": "r", "created_by": "c"}`},
+		{"campos de planitud retirados", `{"patch": {"confirm_naranja_with_planitud": true, "d_pl_min": 12}, "reason": "r", "created_by": "c"}`},
 		{"WINDOW incompleto", `{"patch": {"persistence_mode": "WINDOW"}, "reason": "r", "created_by": "c"}`},
 		{"JSON roto", `{"patch":`},
 	}
@@ -268,7 +248,7 @@ func TestSimulate(t *testing.T) {
 
 func TestParsePatch_AbsentVsNull(t *testing.T) {
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(`{"escalate_amarillo_after_hours": 6, "d_pl_min": null}`), &raw); err != nil {
+	if err := json.Unmarshal([]byte(`{"escalate_amarillo_after_hours": 6, "persistence_window_hours": null}`), &raw); err != nil {
 		t.Fatal(err)
 	}
 	patch, err := ruleEngineHTTP.ParsePatch(raw)
@@ -276,7 +256,7 @@ func TestParsePatch_AbsentVsNull(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !patch.EscalateAmarilloAfterHours.Set || *patch.EscalateAmarilloAfterHours.Value != 6 ||
-		!patch.DPlMin.Set || patch.DPlMin.Value != nil || patch.EscalateNaranjaAfterHours.Set {
+		!patch.PersistenceWindowHours.Set || patch.PersistenceWindowHours.Value != nil || patch.EscalateNaranjaAfterHours.Set {
 		t.Fatalf("parche = %+v", patch)
 	}
 	if _, err := ruleEngineHTTP.ParsePatch(nil); !errors.Is(err, domain.ErrInvalidPatch) {

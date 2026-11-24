@@ -23,12 +23,11 @@ type RuleEvaluationModel struct {
 	HoursAbove   int  `gorm:"column:hours_above;type:integer;not null"`
 	HoursInLevel int  `gorm:"column:hours_in_level;type:integer;not null"`
 
-	// v3: rachas, racha de salida y d_pl con los que se interpretó la hora
-	// (las filas anteriores a la columna quedan en 0 / NULL; -rebuild las recalcula).
-	RunAmarillo int      `gorm:"column:run_amarillo;type:integer;not null;default:0"`
-	RunNaranja  int      `gorm:"column:run_naranja;type:integer;not null;default:0"`
-	BelowRun    int      `gorm:"column:below_run;type:integer;not null;default:0"`
-	DPl         *float64 `gorm:"column:d_pl;type:double precision"`
+	// v3: rachas y racha de salida con los que se interpretó la hora
+	// (las filas anteriores a la columna quedan en 0; -rebuild las recalcula).
+	RunAmarillo int `gorm:"column:run_amarillo;type:integer;not null;default:0"`
+	RunNaranja  int `gorm:"column:run_naranja;type:integer;not null;default:0"`
+	BelowRun    int `gorm:"column:below_run;type:integer;not null;default:0"`
 
 	ThresholdVersionID int64                     `gorm:"column:threshold_version_id;not null"`
 	ThresholdVersion   RuleThresholdVersionModel `gorm:"foreignKey:ThresholdVersionID;references:ID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT"`
@@ -49,13 +48,11 @@ type ReasonRow struct {
 }
 
 type ReasonDataRow struct {
-	I           float64  `json:"i,omitempty"`
-	Threshold   float64  `json:"threshold,omitempty"`
-	Hours       int      `json:"hours,omitempty"`
-	From        string   `json:"from,omitempty"`
-	WindowHours int      `json:"window_hours,omitempty"`
-	DPl         *float64 `json:"d_pl,omitempty"`
-	DPlMin      float64  `json:"d_pl_min,omitempty"`
+	I           float64 `json:"i,omitempty"`
+	Threshold   float64 `json:"threshold,omitempty"`
+	Hours       int     `json:"hours,omitempty"`
+	From        string  `json:"from,omitempty"`
+	WindowHours int     `json:"window_hours,omitempty"`
 }
 
 func (RuleEvaluationModel) TableName() string {

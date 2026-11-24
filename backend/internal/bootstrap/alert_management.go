@@ -232,15 +232,10 @@ func toLevelNotice(e ruleEngineContract.LevelEvaluated) alertEntities.LevelNotic
 		EscalationNaranja:  e.Escalation.NaranjaAfterHours,
 		BelowRun:           e.BelowRun,
 		LowConfidence:      e.LowConfidence,
-		DPl:                copyFloat(e.DPl),
-		DPlMin:             copyFloat(e.DPlMin),
 	}
 	for _, r := range e.Reasons {
-		switch r.Code {
-		case ruleEngineContract.ReasonLeakPersistence:
+		if r.Code == ruleEngineContract.ReasonLeakPersistence {
 			n.PersistenceHours = r.Data.Hours
-		case ruleEngineContract.ReasonNaranjaNotConfirmed:
-			n.LimitedFrom = alertEntities.Level(r.Data.From)
 		}
 	}
 	return n

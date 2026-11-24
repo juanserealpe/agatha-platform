@@ -23,9 +23,6 @@ func ToThresholdVersionModel(v entities.ThresholdVersion) models.RuleThresholdVe
 		EscalateNaranjaAfterHours:  v.EscalateNaranjaAfterHours,
 		ExitMargin:                 v.ExitMargin,
 		ExitHours:                  v.ExitHours,
-		ConfirmNaranjaWithPlanitud: v.ConfirmNaranjaWithPlanitud,
-		ConfirmRojoWithPlanitud:    v.ConfirmRojoWithPlanitud,
-		DPlMin:                     v.DPlMin,
 		PersistenceMode:            string(v.PersistenceMode),
 		PersistenceWindowHours:     v.PersistenceWindowHours,
 		PersistenceMinHours:        v.PersistenceMinHours,
@@ -52,9 +49,6 @@ func ToThresholdVersion(m models.RuleThresholdVersionModel) entities.ThresholdVe
 			EscalateNaranjaAfterHours:  m.EscalateNaranjaAfterHours,
 			ExitMargin:                 m.ExitMargin,
 			ExitHours:                  m.ExitHours,
-			ConfirmNaranjaWithPlanitud: m.ConfirmNaranjaWithPlanitud,
-			ConfirmRojoWithPlanitud:    m.ConfirmRojoWithPlanitud,
-			DPlMin:                     m.DPlMin,
 			PersistenceMode:            entities.PersistenceMode(m.PersistenceMode),
 			PersistenceWindowHours:     m.PersistenceWindowHours,
 			PersistenceMinHours:        m.PersistenceMinHours,
@@ -92,7 +86,6 @@ func ToRuleEvaluationModel(e entities.RuleEvaluation) models.RuleEvaluationModel
 		RunAmarillo:        e.RunAmarillo,
 		RunNaranja:         e.RunNaranja,
 		BelowRun:           e.BelowRun,
-		DPl:                e.DPl,
 		ThresholdVersionID: e.ThresholdVersionID,
 		LowConfidence:      e.LowConfidence,
 		EpisodeEvent:       string(e.EpisodeEvent),
@@ -118,7 +111,6 @@ func ToRuleEvaluation(m models.RuleEvaluationModel) entities.RuleEvaluation {
 		RunAmarillo:        m.RunAmarillo,
 		RunNaranja:         m.RunNaranja,
 		BelowRun:           m.BelowRun,
-		DPl:                m.DPl,
 		ThresholdVersionID: m.ThresholdVersionID,
 		LowConfidence:      m.LowConfidence,
 		EpisodeEvent:       entities.EpisodeEvent(m.EpisodeEvent),
@@ -136,7 +128,7 @@ func reasonsJSON(reasons []entities.Reason) string {
 			Level: string(r.Level),
 			Data: models.ReasonDataRow{
 				I: r.I, Threshold: r.Threshold, Hours: r.Hours, From: string(r.From),
-				WindowHours: r.WindowHours, DPl: r.DPl, DPlMin: r.DPlMin,
+				WindowHours: r.WindowHours,
 			},
 		}
 	}
@@ -163,8 +155,6 @@ func reasonsFromJSON(raw string) []entities.Reason {
 			Hours:       r.Data.Hours,
 			From:        entities.Level(r.Data.From),
 			WindowHours: r.Data.WindowHours,
-			DPl:         r.Data.DPl,
-			DPlMin:      r.Data.DPlMin,
 		}
 	}
 	return out

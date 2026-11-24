@@ -43,8 +43,6 @@ type step struct {
 	inEpisode bool
 	// hoursAbove < 0 ⇒ no se verifica.
 	hoursAbove int
-	// dPl es el d_pl de la hora (nil = no calculado).
-	dPl *float64
 }
 
 // runSequence evalúa las horas en orden como lo hace el caso de uso: cada hora
@@ -61,7 +59,7 @@ func runSequence(t *testing.T, p entities.ThresholdParams, steps []step) []Asses
 			window = window[:k]
 		}
 
-		got := Assess(s.i, s.dPl, p, window)
+		got := Assess(s.i, p, window)
 		out = append(out, got)
 
 		label := s.name
@@ -88,7 +86,6 @@ func runSequence(t *testing.T, p entities.ThresholdParams, steps []step) []Asses
 			RunAmarillo:    got.RunAmarillo,
 			RunNaranja:     got.RunNaranja,
 			BelowRun:       got.BelowRun,
-			DPl:            s.dPl,
 			EpisodeEvent:   got.EpisodeEvent,
 			Reasons:        got.Reasons,
 		}
@@ -284,7 +281,7 @@ func TestAssess_ExitRunUsesStoredRawLevel(t *testing.T) {
 		{IndicatorValue: 0.20, RawLevel: amarillo, Level: normal},
 	}
 
-	got := Assess(0.20, nil, strict, history)
+	got := Assess(0.20, strict, history)
 	if got.Level != amarillo || got.Rule != hold || got.EpisodeEvent != evNone || !got.InEpisode {
 		t.Fatalf("got = %+v; se esperaba HOLD en AMARILLO (la racha de salida es 1 < 2)", got)
 	}
@@ -313,13 +310,13 @@ func TestAssess_Reasons(t *testing.T) {
 	p := referenceParams()
 
 	t.Run("NORMAL no tiene motivos", func(t *testing.T) {
-		if got := Assess(0.10, nil, p, nil); len(got.Reasons) != 0 {
+		if got := Assess(0.10, p, nil); len(got.Reasons) != 0 {
 			t.Fatalf("reasons = %+v", got.Reasons)
 		}
 	})
 
 	t.Run("umbral: nivel raw con I y el corte de ese nivel", func(t *testing.T) {
-		got := Assess(0.27, nil, p, nil)
+		got := Assess(0.27, p, nil)
 		want := []entities.Reason{{Code: entities.ReasonLeakThreshold, Level: naranja, I: 0.27, Threshold: 0.25}}
 		if !equalReasons(got.Reasons, want) {
 			t.Fatalf("reasons = %+v, se esperaba %+v", got.Reasons, want)

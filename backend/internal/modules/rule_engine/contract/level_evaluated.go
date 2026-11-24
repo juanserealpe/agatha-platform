@@ -14,16 +14,12 @@ type LevelCuts struct {
 //   - LEAK_THRESHOLD: I y Threshold (corte del nivel del motivo).
 //   - LEAK_PERSISTENCE: Hours (racha o conteo), From (nivel sobre el que se
 //     contó) y WindowHours (solo con persistencia WINDOW).
-//   - NARANJA_NOT_CONFIRMED: From (nivel que no se confirmó), DPl (null si no
-//     se calculó) y DPlMin.
 type ReasonData struct {
-	I           float64  `json:"i,omitempty"`
-	Threshold   float64  `json:"threshold,omitempty"`
-	Hours       int      `json:"hours,omitempty"`
-	From        string   `json:"from,omitempty"`
-	WindowHours int      `json:"window_hours,omitempty"`
-	DPl         *float64 `json:"d_pl,omitempty"`
-	DPlMin      float64  `json:"d_pl_min,omitempty"`
+	I           float64 `json:"i,omitempty"`
+	Threshold   float64 `json:"threshold,omitempty"`
+	Hours       int     `json:"hours,omitempty"`
+	From        string  `json:"from,omitempty"`
+	WindowHours int     `json:"window_hours,omitempty"`
 }
 
 // LevelRuns son las horas sobre cada corte con las que se evaluó la
@@ -53,7 +49,7 @@ type Reason struct {
 //
 // Con Status = NO_CALCULABLE no hay fila: RuleEvaluationID = 0, IndicatorValue
 // = nil, niveles y EpisodeEvent vacíos, sin Reasons ni umbrales; Runs y
-// BelowRun en 0, Escalation y DPl null, DPlMin omitido, PersistenceMode vacío. Distingue
+// BelowRun en 0, Escalation null, PersistenceMode vacío. Distingue
 // "sin datos" de "bajo el umbral"; qué hacer con la hora lo decide el consumidor.
 type LevelEvaluated struct {
 	// RuleEvaluationID es el id de la fila de rule_evaluations (0 si NO_CALCULABLE).
@@ -93,13 +89,7 @@ type LevelEvaluated struct {
 	Escalation Escalation `json:"escalation"`
 	// BelowRun son las horas seguidas bajo la salida de AMARILLO, incluida esta.
 	BelowRun int `json:"below_run"`
-	// DPl es el % de registros con planitud alta de la hora (null si no se calculó).
-	DPl *float64 `json:"d_pl"`
-	// v4 (aditivo): DPlMin es el % mínimo de planitud de la versión vigente en
-	// la hora (se omite si la versión no lo define). Junto con DPl permite
-	// explicar la limitación por planitud en TODA hora, no solo cuando hay un
-	// motivo NARANJA_NOT_CONFIRMED.
-	DPlMin *float64 `json:"d_pl_min,omitempty"`
+	// v5 (retiro): d_pl y d_pl_min dejaron de publicarse (v3/v4 los traían).
 	// PersistenceMode es STRICT o WINDOW (vacío con NO_CALCULABLE).
 	PersistenceMode string `json:"persistence_mode"`
 

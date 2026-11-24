@@ -17,13 +17,9 @@ type IndicatorEvaluatedNotice struct {
 	Status           string    // CALCULATED | NO_CALCULABLE
 	NoCalcReason     string    // vacío si Status = CALCULATED
 	I                *float64  // nil si no se calculó
-	// DPl es el d_pl de la hora. Con DPlLoaded = false (evento en vivo, que no
-	// lo trae) el caso de uso lo lee de feature_evaluations.
-	DPl           *float64
-	DPlLoaded     bool
-	LowConfidence bool
-	Trigger       string
-	OccurredAt    time.Time
+	LowConfidence    bool
+	Trigger          string
+	OccurredAt       time.Time
 }
 
 // Valores del Notice que interpreta el Rule Engine.

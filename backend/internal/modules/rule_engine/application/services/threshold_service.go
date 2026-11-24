@@ -105,8 +105,7 @@ func (s *ThresholdService) CreateThresholdVersionBulk(ctx context.Context, cmd C
 		s.log.Info("[ThresholdService] Versión de umbrales creada",
 			"measuring_point_id", v.MeasuringPointID, "event_type", v.EventType, "version", v.Version,
 			"amarillo", v.Amarillo, "naranja", v.Naranja, "rojo", v.Rojo,
-			"confirm_naranja_with_planitud", v.ConfirmNaranjaWithPlanitud,
-			"confirm_rojo_with_planitud", v.ConfirmRojoWithPlanitud, "persistence_mode", v.PersistenceMode,
+			"persistence_mode", v.PersistenceMode,
 			"valid_from", v.ValidFrom, "reason", v.Reason, "created_by", v.CreatedBy)
 	}
 

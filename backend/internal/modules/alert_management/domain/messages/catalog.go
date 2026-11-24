@@ -7,7 +7,6 @@ package messages
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,11 +21,7 @@ import (
 // v4: el cuerpo cita el índice de anomalía acústica y el límite que explica el mensaje.
 // v5: los avisos (banner y push) empiezan con una frase simple de qué pasa y
 // terminan con el dato ("Dato: …"); el resto de los mensajes no cambia.
-// v6: confirmación por planitud. Se agregan OPEN/SIN_FIRMA (la alerta abre en
-// Amarillo porque la hora quedó limitada), NO_LEAK_SHAPE (se mantiene en
-// Amarillo) y las variantes *_CONFIRMADA de las subidas (anteponen la firma de
-// fuga). La "firma de fuga" es el % de registros de las últimas 24 h con
-// planitud alta (d_pl) frente al mínimo (d_pl_min).
+// v6: confirmación por planitud (retirada en v10).
 // v7: movimiento y temperatura (REQ_ALERTAS_MOVIMIENTO §8): MOV_*, TEMP_* y
 // END_NORMAL/MOVIMIENTO; CLASSIFIED y LABELED con su fecha y hora; se elimina
 // UP_DURING_INTERVENTION. Los demás textos de fuga no cambian. FUGA y
@@ -41,7 +36,10 @@ import (
 // "índice de anomalía acústica" y la "firma de fuga" se explica como el % de
 // mediciones con el patrón de sonido típico de una fuga. Códigos, variantes y
 // variables no cambian.
-const MessageCatalogVersion = 9
+// v10: se retira la confirmación por planitud (nov 2026): desaparecen
+// OPEN/SIN_FIRMA, NO_LEAK_SHAPE y las variantes *_CONFIRMADA de las subidas
+// (y la "firma de fuga" que citaban). Los demás textos no cambian.
+const MessageCatalogVersion = 10
 
 // LowConfidenceMark se agrega con low_confidence = true (sección 6.1).
 const LowConfidenceMark = "Sensor en ajuste: resultado preliminar."
@@ -69,9 +67,6 @@ const (
 	CodeEndNormal          = "END_NORMAL"
 	CodeClassified         = "CLASSIFIED"
 	CodeLabeled            = "LABELED"
-	// CodeNoLeakShape: la hora quedó limitada a Amarillo por la planitud (una
-	// vez por racha de horas limitadas).
-	CodeNoLeakShape = "NO_LEAK_SHAPE"
 
 	// Movimiento y temperatura (v7).
 	CodeMovOpen           = "MOV_OPEN"
@@ -95,11 +90,6 @@ const (
 	VariantNaranja  = "NARANJA"
 	VariantRojo     = "ROJO"
 	VariantPersist  = "PERSIST"
-	// VariantNoLeakSignature: OPEN con la hora limitada a Amarillo por la planitud.
-	VariantNoLeakSignature = "SIN_FIRMA"
-	// VariantConfirmed se agrega a la variante de una subida (UP_*) cuando la
-	// hora anterior estaba limitada y la planitud acaba de confirmarse.
-	VariantConfirmed = "CONFIRMADA"
 
 	// Variantes de movimiento (v8: las de episode_kind).
 	VariantJump       = "SALTO"     // MOV_OPEN / MOV_DISPLACED por salto o desplazamiento
@@ -111,18 +101,6 @@ const (
 	VariantNoData  = "SIN_DATOS"
 	VariantPartial = "PARCIAL"
 )
-
-// ConfirmedVariant es la variante "con firma de fuga confirmada" de la
-// variante de una subida ("" ⇒ CONFIRMADA; PERSIST ⇒ PERSIST_CONFIRMADA).
-func ConfirmedVariant(variant string) string {
-	if variant == "" {
-		return VariantConfirmed
-	}
-	return variant + "_" + VariantConfirmed
-}
-
-// confirmedPrefix se antepone al cuerpo de las subidas con la planitud recién confirmada.
-const confirmedPrefix = "En las últimas 24 h, el {d_pl} de las mediciones tuvo el patrón de sonido típico de una fuga (mínimo {d_pl_min}). "
 
 // Template es un texto del catálogo.
 type Template struct {
@@ -201,20 +179,6 @@ var catalog = map[string]Template{
 		Title: "La alerta {codigo} se reactiva en {nivel}",
 		Body:  "El índice de anomalía acústica volvió a subir {horas} h después de normalizarse. Dato: {valor} (lo normal es menos de {normal}).",
 		Vars:  []string{"horas", "codigo", "nivel", "valor", "normal"},
-	},
-	// La hora quedó limitada a Amarillo: {from} es el nivel que daría el índice
-	// solo y {corte}, su corte. d_pl / d_pl_min ya vienen como porcentaje.
-	Key(CodeOpen, VariantNoLeakSignature): {
-		Code: CodeOpen, Kind: entities.KindNotification,
-		Title: "Alerta nueva en {pk}: nivel Amarillo",
-		Body:  "Por el índice de anomalía acústica la alerta estaría en {from} desde las {hora_inicio}, pero en las últimas 24 h solo el {d_pl} de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos {d_pl_min}). Dato: {valor} ({from} desde {corte}; lo normal es menos de {normal}).",
-		Vars:  []string{"pk", "hora_inicio", "from", "d_pl", "d_pl_min", "valor", "corte", "normal"},
-	},
-	Key(CodeNoLeakShape, ""): {
-		Code: CodeNoLeakShape, Kind: entities.KindUpdate,
-		Title: "Se mantiene en Amarillo",
-		Body:  "Por el índice de anomalía acústica la alerta estaría en {from}, pero en las últimas 24 h solo el {d_pl} de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos {d_pl_min}). Dato: {valor} ({from} desde {corte}).",
-		Vars:  []string{"from", "d_pl", "d_pl_min", "valor", "corte"},
 	},
 	Key(CodeNewAfterClassified, ""): {
 		Code: CodeNewAfterClassified, Kind: entities.KindNotification,
@@ -441,23 +405,6 @@ var catalog = map[string]Template{
 	},
 }
 
-// init agrega a cada subida su variante con la firma de fuga confirmada: el
-// mismo título y código, con la frase de la firma antes del cuerpo.
-func init() {
-	for _, k := range []string{
-		Key(CodeUpNaranjaPersist, ""), Key(CodeUpNaranjaFast, ""), Key(CodeUpRojo, ""), Key(CodeUpRojo, VariantPersist),
-	} {
-		tpl := catalog[k]
-		variant := ""
-		if i := strings.IndexByte(k, '/'); i >= 0 {
-			variant = k[i+1:]
-		}
-		tpl.Body = confirmedPrefix + tpl.Body
-		tpl.Vars = append(append([]string(nil), tpl.Vars...), "d_pl", "d_pl_min")
-		catalog[Key(tpl.Code, ConfirmedVariant(variant))] = tpl
-	}
-}
-
 // Text es un mensaje renderizado.
 type Text struct {
 	Code  string
@@ -524,14 +471,6 @@ func FormatValue(v float64) string {
 	s := strconv.FormatFloat(v, 'f', 3, 64)
 	s = strings.TrimSuffix(s, "0")
 	return strings.Replace(s, ".", ",", 1)
-}
-
-// FormatPercent es un porcentaje (0 a 100) con coma y un decimal como máximo:
-// 4,6 → "4,6 %"; 10 → "10 %".
-func FormatPercent(v float64) string {
-	s := strconv.FormatFloat(math.Round(v*10)/10, 'f', 1, 64)
-	s = strings.TrimSuffix(s, ".0")
-	return strings.Replace(s, ".", ",", 1) + " %"
 }
 
 // colombia es la zona en la que se muestran las horas (RN-11).

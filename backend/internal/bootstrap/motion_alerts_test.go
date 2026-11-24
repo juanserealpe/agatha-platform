@@ -254,7 +254,6 @@ func realLeak(t *testing.T, path string) []alertEntities.LevelNotice {
 			HoursAbove: atoi(get(r, "hours_above")), RunAmarillo: atoi(get(r, "run_amarillo")), RunNaranja: atoi(get(r, "run_naranja")),
 			BelowRun: atoi(get(r, "below_run")), ThresholdVersionID: int64(atoi(get(r, "threshold_version_id"))),
 			LowConfidence: boolean(get(r, "low_confidence")), EpisodeEvent: get(r, "episode_event"), Reasons: get(r, "reasons"),
-			DPl: optFloatField(get(r, "d_pl")), DPlMin: optFloatField(get(r, "d_pl_min")),
 			Amarillo: f(get(r, "amarillo")), Naranja: f(get(r, "naranja")), Rojo: f(get(r, "rojo")), ExitMargin: f(get(r, "exit_margin")),
 			EscalateAmarilloAfterHours: optInt(get(r, "escalate_amarillo_after_hours")),
 			EscalateNaranjaAfterHours:  optInt(get(r, "escalate_naranja_after_hours")),

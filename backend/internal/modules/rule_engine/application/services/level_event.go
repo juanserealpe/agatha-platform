@@ -25,8 +25,6 @@ func LevelEvaluatedFromRow(row entities.RuleEvaluation, p entities.ThresholdPara
 				Hours:       r.Hours,
 				From:        string(r.From),
 				WindowHours: r.WindowHours,
-				DPl:         copyFloat(r.DPl),
-				DPlMin:      r.DPlMin,
 			},
 		}
 	}
@@ -62,19 +60,9 @@ func LevelEvaluatedFromRow(row entities.RuleEvaluation, p entities.ThresholdPara
 			NaranjaAfterHours:  p.EscalationHours(entities.LevelNaranja),
 		},
 		BelowRun:        row.BelowRun,
-		DPl:             copyFloat(row.DPl),
-		DPlMin:          copyFloat(p.DPlMin),
 		PersistenceMode: string(p.Normalize().PersistenceMode),
 		LowConfidence:   row.LowConfidence,
 		OccurredAt:      occurredAt,
 		SchemaVersion:   contract.SchemaVersion,
 	}
-}
-
-func copyFloat(p *float64) *float64 {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
 }

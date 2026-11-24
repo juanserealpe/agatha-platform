@@ -62,7 +62,6 @@ func newFixture(versions ...entities.ThresholdVersion) *fixture {
 		f.thresholds,
 		f.evaluations,
 		services.NewThresholdService(f.thresholds, fixedClock(), testLogger()),
-		f.source,
 		f.publisher,
 		fixedClock(),
 		testLogger(),
@@ -182,8 +181,6 @@ func TestEvaluateIndicator_NoCalculableIsNotForwardedWhenLateOrInBackfill(t *tes
 // incluidas las de nivel NORMAL y las de histéresis.
 func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing.T) {
 	f := newFixture()
-	// En vivo el d_pl no viene en el evento: se lee de feature_evaluations.
-	f.source.setDPl(pointA, hour(2), 15)
 
 	// NORMAL, entrada pendiente, abre, sube, histéresis, salida 1/2, cierra, NORMAL.
 	results := f.feed(t, 0.12, 0.19, 0.20, 0.30, 0.17, 0.15, 0.14, 0.10)
@@ -239,7 +236,6 @@ func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing
 		HoursAbove:         2,
 		Runs:               contract.LevelRuns{Amarillo: 2},
 		Escalation:         contract.Escalation{AmarilloAfterHours: intPtr(12), NaranjaAfterHours: intPtr(6)},
-		DPl:                f64(15),
 		PersistenceMode:    "STRICT",
 		OccurredAt:         now,
 		SchemaVersion:      contract.SchemaVersion,
@@ -258,35 +254,6 @@ func TestEvaluateIndicator_PublishesLevelEvaluatedEveryCalculatedHour(t *testing
 	// v3: la racha de salida viaja para el aviso "se cerrará si sigue así".
 	if e := f.publisher.events[5]; e.BelowRun != 1 || f.publisher.events[6].BelowRun != 2 {
 		t.Fatalf("below_run = %d/%d; se esperaba 1/2", e.BelowRun, f.publisher.events[6].BelowRun)
-	}
-	if rows[2].DPl == nil || *rows[2].DPl != 15 || rows[0].DPl != nil {
-		t.Fatal("la fila guarda el d_pl leído de feature_evaluations (nil si no hay)")
-	}
-}
-
-func TestEvaluateIndicator_DPlLookupFailureFailsTheHour(t *testing.T) {
-	f := newFixture()
-	f.source.dPlErr = errors.New("caída de la BD")
-
-	_, err := f.svc.EvaluateIndicator(context.Background(), calculated(pointA, hour(0), 0.20))
-	if !errors.Is(err, domain.ErrConsultingIndicators) {
-		t.Fatalf("err = %v; se esperaba ErrConsultingIndicators", err)
-	}
-	if rows := f.evaluations.Rows(pointA); len(rows) != 0 {
-		t.Fatal("sin d_pl no se guarda la hora: el reintento la evalúa completa")
-	}
-}
-
-// Con d_pl ya cargado (backfill, simulación) no se consulta feature_evaluations.
-func TestEvaluateIndicator_UsesLoadedDPl(t *testing.T) {
-	f := newFixture()
-	f.source.dPlErr = errors.New("no debía consultarse")
-
-	n := calculated(pointA, hour(0), 0.20)
-	n.DPl, n.DPlLoaded = f64(9), true
-	r, err := f.svc.EvaluateIndicatorWithoutPublishing(context.Background(), n)
-	if err != nil || r.Evaluation.DPl == nil || *r.Evaluation.DPl != 9 {
-		t.Fatalf("err = %v, d_pl = %v; se esperaba 9", err, r.Evaluation.DPl)
 	}
 }
 

@@ -31,7 +31,6 @@ export type {
     DayRange,
     DeviceAlert,
     DeviceAlertsResponse,
-    LeakSignature,
     DeviceRef,
     ExistingManagement,
     ExportedFile,

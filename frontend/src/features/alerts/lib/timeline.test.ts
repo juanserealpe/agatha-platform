@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_EXPLANATION, formatAnomalyScore, leakSignatureText } from "../config/alertExplanations";
+import { EVENT_EXPLANATION, formatAnomalyScore } from "../config/alertExplanations";
 import { formatDuration, segmentDurationMs, totalDurationMs } from "./timeline";
 
 const HOUR = 3_600_000;
@@ -81,20 +81,6 @@ describe("textos en lenguaje claro", () => {
     it("ningún texto presenta el indicador como probabilidad o porcentaje", () => {
         const texts = Object.values(EVENT_EXPLANATION).flatMap((e) => [e.description, ...Object.values(e.levelPhrase)]);
         texts.forEach((text) => expect(text).not.toMatch(/%|probabilidad/i));
-    });
-
-    it("firma de fuga: confirmada, no confirmada y sin dato", () => {
-        expect(leakSignatureText({ d_pl: 12.34, d_pl_min: 10, confirmed: true })).toEqual({
-            title: "El sonido se parece al de una fuga",
-            text: "En las últimas 24 h, el 12,3 % de las mediciones tuvo el patrón de sonido típico de una fuga (a partir del 10 % se considera parecido).",
-        });
-        expect(leakSignatureText({ d_pl: 4.6, d_pl_min: 10, confirmed: false })).toEqual({
-            title: "El sonido no se parece al de una fuga",
-            text: "En las últimas 24 h, solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga; se necesita al menos el 10 %. El sonido es anómalo, pero no tiene ese patrón.",
-        });
-        expect(leakSignatureText({ d_pl: null, d_pl_min: 10, confirmed: false })).toBeNull();
-        expect(leakSignatureText(null)).toBeNull();
-        expect(leakSignatureText(undefined)).toBeNull();
     });
 
     it("el puntaje se muestra como número, no como porcentaje", () => {

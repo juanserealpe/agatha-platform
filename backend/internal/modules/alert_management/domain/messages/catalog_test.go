@@ -169,17 +169,7 @@ func TestCatalog_ProcessingMessagesCiteTheIndex(t *testing.T) {
 	}
 }
 
-// El porcentaje usa coma y un decimal como máximo: 4,6 % / 10 %.
-func TestFormatPercent(t *testing.T) {
-	for v, want := range map[float64]string{4.6: "4,6 %", 10: "10 %", 0: "0 %", 12.34: "12,3 %", 99.96: "100 %", 7.06: "7,1 %", 100: "100 %"} {
-		if got := FormatPercent(v); got != want {
-			t.Errorf("FormatPercent(%v) = %q, se esperaba %q", v, got, want)
-		}
-	}
-}
-
-// Ningún texto da un veredicto de fuga: se habla de "firma de fuga" (el % de
-// registros con planitud alta frente al mínimo), nunca de si es o no una fuga.
+// Ningún texto da un veredicto de fuga: nunca dice si es o no una fuga.
 func TestCatalog_NeverGivesALeakVerdict(t *testing.T) {
 	banned := []string{"es una fuga", "no es una fuga", "parece", "forma de fuga", "es fuga", "hay una fuga", "no hay fuga"}
 	for key, tpl := range catalog {
@@ -188,52 +178,6 @@ func TestCatalog_NeverGivesALeakVerdict(t *testing.T) {
 			if strings.Contains(text, b) {
 				t.Errorf("%s da un veredicto (%q): %s", key, b, text)
 			}
-		}
-	}
-}
-
-func TestCatalog_NoLeakSignatureTexts(t *testing.T) {
-	params := map[string]string{
-		"pk": "PK34+500", "hora_inicio": "12:00 del 14/11", "from": "Rojo", "d_pl": "4,6 %", "d_pl_min": "10 %",
-		"valor": "0,36", "corte": "0,35", "normal": "0,16",
-	}
-	open, err := Render(Key(CodeOpen, VariantNoLeakSignature), params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if open.Kind != entities.KindNotification || open.Code != CodeOpen || open.Title != "Alerta nueva en PK34+500: nivel Amarillo" ||
-		open.Body != "Por el índice de anomalía acústica la alerta estaría en Rojo desde las 12:00 del 14/11, pero en las últimas 24 h solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos 10 %). Dato: 0,36 (Rojo desde 0,35; lo normal es menos de 0,16)." {
-		t.Fatalf("OPEN sin firma = %+v", open)
-	}
-	shape, err := Render(Key(CodeNoLeakShape, ""), params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if shape.Kind != entities.KindUpdate || shape.Title != "Se mantiene en Amarillo" ||
-		shape.Body != "Por el índice de anomalía acústica la alerta estaría en Rojo, pero en las últimas 24 h solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos 10 %). Dato: 0,36 (Rojo desde 0,35)." {
-		t.Fatalf("NO_LEAK_SHAPE = %+v", shape)
-	}
-}
-
-// La subida con la planitud recién confirmada antepone la firma de fuga y no
-// cambia el título ni el código guardado.
-func TestCatalog_UpConfirmedVariantsPrependTheSignature(t *testing.T) {
-	prefix := "En las últimas 24 h, el 12 % de las mediciones tuvo el patrón de sonido típico de una fuga (mínimo 10 %). "
-	params := map[string]string{"codigo": "ALR-000123", "N": "12", "normal": "0,16", "valor": "0,27", "valor_anterior": "0,20",
-		"corte": "0,25", "d_pl": "12 %", "d_pl_min": "10 %"}
-	for _, c := range []struct{ code, variant string }{
-		{CodeUpNaranjaPersist, ""}, {CodeUpNaranjaFast, ""}, {CodeUpRojo, ""}, {CodeUpRojo, VariantPersist},
-	} {
-		plain, err := Render(Key(c.code, c.variant), params)
-		if err != nil {
-			t.Fatalf("%s/%s: %v", c.code, c.variant, err)
-		}
-		confirmed, err := Render(Key(c.code, ConfirmedVariant(c.variant)), params)
-		if err != nil {
-			t.Fatalf("%s/%s confirmada: %v", c.code, c.variant, err)
-		}
-		if confirmed.Code != c.code || confirmed.Title != plain.Title || confirmed.Kind != plain.Kind || confirmed.Body != prefix+plain.Body {
-			t.Errorf("%s/%s confirmada = %+v (simple %+v)", c.code, c.variant, confirmed, plain)
 		}
 	}
 }
@@ -289,9 +233,6 @@ func TestCatalog_NoInterventionCode(t *testing.T) {
 			t.Fatalf("sigue la clave %s", key)
 		}
 	}
-	if MessageCatalogVersion != 9 {
-		t.Fatalf("MessageCatalogVersion = %d", MessageCatalogVersion)
-	}
 }
 
 func TestFormatDegreesAndDuration(t *testing.T) {
@@ -318,5 +259,22 @@ func TestRender_ManagementWithTimeRecordAndObservation(t *testing.T) {
 	want := "Registrada desde la app el 21/10 a las 14:23. Hecha en el celular a las 13:50. Observación: «maniobra de TGI»"
 	if text.Body != want || text.Kind != entities.KindManagement {
 		t.Fatalf("body = %q", text.Body)
+	}
+}
+
+// v10 retiró los mensajes de la confirmación por planitud.
+func TestCatalog_PlanitudMessagesWereRetired(t *testing.T) {
+	if MessageCatalogVersion != 10 {
+		t.Fatalf("MessageCatalogVersion = %d, se esperaba 10", MessageCatalogVersion)
+	}
+	for key, tpl := range catalog {
+		for _, retired := range []string{"NO_LEAK_SHAPE", "SIN_FIRMA", "CONFIRMADA"} {
+			if strings.Contains(key, retired) {
+				t.Errorf("la clave %s debía retirarse", key)
+			}
+		}
+		if strings.Contains(tpl.Body, "{d_pl") || strings.Contains(strings.Join(tpl.Vars, ","), "d_pl") {
+			t.Errorf("%s todavía cita la planitud", key)
+		}
 	}
 }

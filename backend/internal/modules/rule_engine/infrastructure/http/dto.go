@@ -56,9 +56,6 @@ type ThresholdParamsResponse struct {
 	ExitMargin                 float64           `json:"exit_margin"`
 	ExitHours                  int               `json:"exit_hours"`
 	Exit                       LevelCutsResponse `json:"exit"`
-	ConfirmNaranjaWithPlanitud bool              `json:"confirm_naranja_with_planitud"`
-	ConfirmRojoWithPlanitud    bool              `json:"confirm_rojo_with_planitud"`
-	DPlMin                     *float64          `json:"d_pl_min"`
 	PersistenceMode            string            `json:"persistence_mode"`
 	PersistenceWindowHours     *int              `json:"persistence_window_hours"`
 	PersistenceMinHours        *int              `json:"persistence_min_hours"`
@@ -138,12 +135,9 @@ func toParamsResponse(p entities.ThresholdParams) ThresholdParamsResponse {
 			Naranja:  p.ExitFor(entities.LevelNaranja),
 			Rojo:     p.ExitFor(entities.LevelRojo),
 		},
-		ConfirmNaranjaWithPlanitud: p.ConfirmNaranjaWithPlanitud,
-		ConfirmRojoWithPlanitud:    p.ConfirmRojoWithPlanitud,
-		DPlMin:                     p.DPlMin,
-		PersistenceMode:            string(p.Normalize().PersistenceMode),
-		PersistenceWindowHours:     p.PersistenceWindowHours,
-		PersistenceMinHours:        p.PersistenceMinHours,
+		PersistenceMode:        string(p.Normalize().PersistenceMode),
+		PersistenceWindowHours: p.PersistenceWindowHours,
+		PersistenceMinHours:    p.PersistenceMinHours,
 	}
 }
 
@@ -218,7 +212,7 @@ func toSimulationResponse(r services.SimulationResult) SimulationResponse {
 
 // ParsePatch traduce el objeto patch a un ThresholdPatch. Un campo ausente se
 // copia de la versión vigente; null solo se acepta en los campos anulables
-// (escalamientos, d_pl_min y horas de ventana) y los deja en NULL.
+// (escalamientos y horas de ventana) y los deja en NULL.
 func ParsePatch(raw map[string]json.RawMessage) (entities.ThresholdPatch, error) {
 	var patch entities.ThresholdPatch
 	if raw == nil {
@@ -240,10 +234,6 @@ func ParsePatch(raw map[string]json.RawMessage) (entities.ThresholdPatch, error)
 			patch.MinHours, err = required[int](value)
 		case "exit_hours":
 			patch.ExitHours, err = required[int](value)
-		case "confirm_naranja_with_planitud":
-			patch.ConfirmNaranjaWithPlanitud, err = required[bool](value)
-		case "confirm_rojo_with_planitud":
-			patch.ConfirmRojoWithPlanitud, err = required[bool](value)
 		case "persistence_mode":
 			var mode entities.Optional[string]
 			mode, err = required[string](value)
@@ -256,8 +246,6 @@ func ParsePatch(raw map[string]json.RawMessage) (entities.ThresholdPatch, error)
 			patch.PersistenceWindowHours, err = nullable[int](value)
 		case "persistence_min_hours":
 			patch.PersistenceMinHours, err = nullable[int](value)
-		case "d_pl_min":
-			patch.DPlMin, err = nullable[float64](value)
 		default:
 			return entities.ThresholdPatch{}, domain.ErrInvalidPatch
 		}

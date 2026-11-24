@@ -15,7 +15,7 @@ El sistema detecta que un sensor se comporta **distinto de lo normal para ese pu
 Consecuencias que ya están en el producto:
 
 - Los mensajes nunca dicen "hay una fuga" ni "no es una fuga". Dicen qué cambió y muestran el dato.
-- Para el sonido hablamos de "**firma de fuga**": un patrón del sonido que en el pasado acompañó a una fuga. Es evidencia, no un veredicto.
+- Para el sonido mostramos el índice y lo comparamos con lo normal. Es evidencia, no un veredicto.
 - Para la temperatura decimos "pasó lo mismo antes en este punto, pero no está confirmado".
 - La clasificación del operador (CONFIRMADA / FALSA_ALERTA + etiqueta) es el único camino para salir de ese techo. Por eso es tan importante que se use.
 
@@ -29,7 +29,7 @@ El equipo envía 21 variables cada 15 minutos. Usamos siete:
 |---|---|---|
 | Banda acústica de fuga 1 (`pspec_b1_leak`) | 12 | Sonido: coherencia |
 | Banda acústica de fuga 2 (`pspec_b2_leak`) | 13 | Sonido: señal principal |
-| Planitud espectral (`pspec_flatness`) | 18 | Sonido: coherencia y firma de fuga |
+| Planitud espectral (`pspec_flatness`) | 18 | Sonido: coherencia (dato de análisis) |
 | Inclinación pitch (`accel_pitch`) | 1 | Movimiento |
 | Inclinación roll (`accel_roll`) | 2 | Movimiento |
 | Deriva (`accel_drift_deg_cloud`) | 19 | Movimiento: salto |
@@ -82,7 +82,7 @@ Con los últimos **90 días** del punto se calcula:
 
 - `median_B2`: la mediana de la banda de fuga 2. Es el ruido típico.
 - `theta_D` (θD): el percentil 90 de B2. Por encima de θD, el ruido se considera "elevado".
-- `P90_planitud`: el percentil 90 de la planitud. Se usa para la firma de fuga.
+- `P90_planitud`: el percentil 90 de la planitud. Se usa para calcular `d_pl` (dato de análisis).
 - La mediana y la dispersión (MAD) de cada componente del índice (ver 4.2) en las ventanas históricas.
 
 **Limpieza del historial.** La línea base no debe aprender como "normal" un período anómalo. Por eso:
@@ -119,7 +119,7 @@ I = s(P) × [ s(D) + s(Ex) + s(C) ] / 3
 
 Los pisos del MAD evitan que un punto muy estable dispare con variaciones mínimas.
 
-**Firma de fuga (d_pl):** el % de registros de las últimas 24 h con planitud por encima de su percentil 90 histórico. Un escape suele producir un ruido "plano" (de banda ancha, tipo siseo). Es información adicional: no entra en I, pero sí en la confirmación de niveles altos (4.3).
+**d_pl (antes "firma de fuga"):** el % de registros de las últimas 24 h con planitud por encima de su percentil 90 histórico. Un escape suele producir un ruido "plano" (de banda ancha, tipo siseo). Es información adicional que Processing sigue calculando y guardando: no entra en I ni en el nivel. (Desde nov 2026 ya no confirma niveles altos: ver 4.3.)
 
 ### 4.3 Rule Engine: el nivel de la hora
 
@@ -138,7 +138,7 @@ Reglas:
    - 12 h en Amarillo o más sube a Naranja.
    - 6 h en Naranja o más sube a Rojo.
    - Sube como máximo un nivel por regla.
-3. **Confirmación por planitud** (en el MP-11556: `d_pl_min` = 10 y `confirm_rojo_with_planitud` activo): para estar en Naranja o Rojo, la hora necesita firma de fuga (d_pl ≥ 10 %). Sin firma, queda en Amarillo aunque el índice diga más. Las horas acumuladas no se pierden: la primera hora con firma recupera el nivel.
+3. **Sin confirmación por planitud.** Se eliminó en noviembre de 2026: antes, en el MP-11556, un Naranja o Rojo sin `d_pl` suficiente quedaba en Amarillo. Ahora el nivel de la hora nunca queda por debajo del que marca el índice (la persistencia solo puede subirlo). Histórico en `docs/CAMBIO_CONFIRMACION_PLANITUD.md`.
 4. **Cierre del episodio:** 2 horas seguidas con I < 0,14 (Amarillo menos un margen de 0,02). Ese margen evita que la alerta se abra y se cierre cada hora cuando el índice ronda el umbral.
 5. **Histéresis:** si el índice baja de Amarillo pero no cumple el cierre, se mantiene el nivel anterior.
 
@@ -220,7 +220,7 @@ Los puntos nuevos arrancan en **modo sombra**: se evalúan y se guardan, pero no
 
 1. **Decimos el estado, nunca qué hacer.** Nada de "enviar cuadrilla" ni "no hace falta salir a campo": la decisión es del operador.
 2. **Siempre con el dato.** Cada mensaje cita el valor y lo compara con lo normal. Ejemplo: "Dato: 0,27 (Naranja desde 0,25; lo normal es menos de 0,16)."
-3. **Sin veredictos.** No decimos "es una fuga" ni "no es una fuga". Decimos "firma de fuga" y mostramos el porcentaje.
+3. **Sin veredictos.** No decimos "es una fuga" ni "no es una fuga". Mostramos el dato y lo comparamos con lo normal.
 4. **Lenguaje de campo.** No usamos "umbral", "persistencia" ni "I". Decimos "índice de ruido", "límite" y "lo normal".
 5. **El título dice qué pasó y el nivel.** El cuerpo agrega el detalle sin repetir el título.
 6. **Los avisos se leen de un vistazo.** Banner y push empiezan con una frase simple y terminan con "Dato: …".
@@ -257,28 +257,22 @@ Lo que escribe el operador **no se puede modificar después** (lo protege un tri
 
 Los valores son ilustrativos y siguen las reglas vigentes del MP-11556.
 
-### Escenario 1. Ruido que crece y tiene firma de fuga
+### Escenario 1. Ruido que crece
 
-| Hora | I | d_pl | Qué pasa | Mensaje |
-|---|---|---|---|---|
-| 08:00 | 0,17 | 14 % | Primera hora sobre Amarillo, todavía no abre (hacen falta 2) | — |
-| 09:00 | 0,19 | 15 % | Segunda hora seguida: abre | `OPEN/AMARILLO`: "Alerta nueva en {pk}: nivel Amarillo" |
-| 10:00 a 17:00 | 0,18 a 0,22 | > 10 % | Sigue en Amarillo | `SUMMARY` a las 6 h; `COUNTDOWN` 3 h antes de subir: "Puede subir a Naranja" |
-| 20:00 | 0,21 | 16 % | 12 h en Amarillo con firma | `UP_NARANJA_PERSIST`: "La alerta ALR-… subió a Naranja" |
-| Más tarde | 0,36 | 18 % | Supera Rojo con firma | `UP_ROJO` |
-| ... | < 0,35 | | Lleva horas por debajo de Rojo, pero sin clasificar | `ROJO_HELD`: "Sigue en Rojo" |
-| El operador clasifica | | | | `CLASSIFIED` |
-| Después | < 0,14 dos horas | | Cierra | `END_NORMAL`: "La alerta ALR-… terminó" |
+| Hora | I | Qué pasa | Mensaje |
+|---|---|---|---|
+| 08:00 | 0,17 | Primera hora sobre Amarillo, todavía no abre (hacen falta 2) | — |
+| 09:00 | 0,19 | Segunda hora seguida: abre | `OPEN/AMARILLO`: "Alerta nueva en {pk}: nivel Amarillo" |
+| 10:00 a 17:00 | 0,18 a 0,22 | Sigue en Amarillo | `SUMMARY` a las 6 h; `COUNTDOWN` 3 h antes de subir: "Puede subir a Naranja" |
+| 20:00 | 0,21 | 12 h en Amarillo | `UP_NARANJA_PERSIST`: "La alerta ALR-… subió a Naranja" |
+| Más tarde | 0,36 | Supera Rojo | `UP_ROJO` |
+| ... | < 0,35 | Lleva horas por debajo de Rojo, pero sin clasificar | `ROJO_HELD`: "Sigue en Rojo" |
+| El operador clasifica | | | `CLASSIFIED` |
+| Después | < 0,14 dos horas | Cierra | `END_NORMAL`: "La alerta ALR-… terminó" |
 
-### Escenario 2. Ruido alto SIN firma de fuga
+### Escenario 2. Ruido alto de golpe
 
-El índice llega a 0,28, pero d_pl es 4 % (se necesitan 10). Por índice sería Naranja, pero sin firma queda en Amarillo.
-
-- Si es la apertura: `OPEN/SIN_FIRMA`: "Por el índice de ruido la alerta estaría en Naranja …, pero solo el 4 % de los registros de las últimas 24 h tiene firma de fuga (se necesita 10 %)."
-- Si ya estaba abierta: `NO_LEAK_SHAPE`: "Se mantiene en Amarillo". Sale una sola vez por racha.
-- Si después aparece la firma: `UP_NARANJA_*/CONFIRMADA`. El mensaje antepone "El 12 % de los registros … tiene firma de fuga".
-
-Este es el caso típico de un ruido fuerte y sostenido (maquinaria, por ejemplo) que no tiene el patrón de un escape.
+El índice llega a 0,28 de una hora a otra. Es Naranja por valor: la alerta abre (o sube) directo a Naranja, sin esperar nada más. Desde nov 2026 no hay confirmación por planitud, así que un ruido fuerte y sostenido (maquinaria, por ejemplo) también escala; la clasificación del operador es lo que lo distingue de una fuga.
 
 ### Escenario 3. Índice que ronda el límite
 
@@ -335,7 +329,7 @@ Hay una FUGA en Naranja y el sensor se mueve. Se abre una segunda alerta, de MOV
 - **Todo es reproducible y trazable.** Cada hora queda guardada con sus variables, la versión de umbrales, la versión del algoritmo y su origen (en vivo, puesta al día o histórico). Se puede reconstruir el historial completo y explicar cada mensaje.
 - **Lógica pura y probada.** Las reglas están en funciones sin base de datos ni reloj, con pruebas golden contra los notebooks del analista (`motion_ref.py` para el movimiento).
 - **Versiones sin reinterpretar el pasado.** Un cambio de umbral rige desde su fecha. Además se puede simular antes de aplicarlo (endpoint `simulate`).
-- **Filtros de falsas alarmas:** 2 horas seguidas para abrir, margen de salida, firma de fuga para los niveles altos, los dos ejes juntos para el movimiento, y el aviso de oscilación.
+- **Filtros de falsas alarmas:** 2 horas seguidas para abrir, margen de salida, los dos ejes juntos para el movimiento, y el aviso de oscilación.
 - **Mensajes honestos.** Muestran evidencia y no dan veredictos ni órdenes.
 - **Gestión inmutable.** Lo que clasifica el operador no se puede reescribir.
 - **Resiliencia.** Las horas perdidas se recuperan solas (puesta al día cada hora), los eventos son idempotentes y los avisos tardíos se marcan.
@@ -349,8 +343,8 @@ Hay una FUGA en Naranja y el sensor se mueve. Se abre una segunda alerta, de MOV
 | Punto | Por qué importa |
 |---|---|
 | **Techo de validación (TGI)** | Sin confirmaciones de campo no se puede medir la precisión ni la tasa de falsas alarmas. Todo umbral es una hipótesis hasta que haya casos confirmados |
-| **Un solo dispositivo** | Los umbrales (0,16 / 0,25 / 0,35, d_pl_min 10, los 0,03° y 0,04°) se ajustaron con un punto y pocos eventos. Pueden no servir en otro lugar |
-| **Pocos eventos de referencia** | Hay un puñado de eventos conocidos en el MP-11556. Es poco para afirmar que la firma de fuga o la temperatura estable significan algo |
+| **Un solo dispositivo** | Los umbrales (0,16 / 0,25 / 0,35, los 0,03° y 0,04°) se ajustaron con un punto y pocos eventos. Pueden no servir en otro lugar |
+| **Pocos eventos de referencia** | Hay un puñado de eventos conocidos en el MP-11556. Es poco para afirmar que la temperatura estable significa algo |
 | **Línea base contaminada** | Si las anomalías cubren más de alrededor del 10 % del historial, θD sube y la exclusión deja de funcionar. Una anomalía con pérdida de datos tampoco se excluye |
 | **Cobertura de datos** | Con menos del 70 % de datos no se calcula. Una pérdida nocturna larga y recurrente deja la línea base en confianza baja para siempre |
 | **Hora del proveedor** | Dataflow Labs envía la hora local de Colombia marcada como UTC. Está corregido al recibir, pero los datos guardados antes de la corrección tienen 5 h de diferencia |
@@ -395,7 +389,7 @@ Hay una FUGA en Naranja y el sensor se mueve. Se abre una segunda alerta, de MOV
 |---|---|
 | Anomalía | Comportamiento distinto de lo normal para ese punto. No implica una causa |
 | Índice de ruido (I) | Número entre 0 y 1 que resume cuánto se aparta el sonido de lo normal en 24 h |
-| Firma de fuga (d_pl) | % de registros de 24 h con la planitud del sonido alta. Patrón que acompañó fugas en el pasado; no las confirma |
+| d_pl (antes "firma de fuga") | % de registros de 24 h con la planitud del sonido alta. Se calcula y se guarda como dato de análisis, pero desde nov 2026 no influye en el nivel ni en los mensajes |
 | Línea base | Lo que es normal en un punto, calculado con 90 días |
 | Episodio | Período en que el Rule Engine considera la señal anómala. Se traduce en una alerta |
 | Pitch / roll | Inclinación del sensor en sus dos ejes |

@@ -35,8 +35,6 @@ type RuleEvaluation struct {
 	// BelowRun son las horas calculadas seguidas bajo la salida de AMARILLO,
 	// incluida esta (0 si esta no está bajo la salida).
 	BelowRun int
-	// DPl es el % de registros con planitud alta de la hora (nil si Processing no lo calculó).
-	DPl *float64
 
 	ThresholdVersionID int64
 	LowConfidence      bool
@@ -51,8 +49,6 @@ type RuleEvaluation struct {
 //   - LEAK_THRESHOLD: Level = raw, I y Threshold (corte de ese nivel).
 //   - LEAK_PERSISTENCE: Level = nivel ganado, Hours (racha o conteo), From
 //     (nivel de la racha) y WindowHours (solo WINDOW).
-//   - NARANJA_NOT_CONFIRMED: Level = AMARILLO (el asignado), From (nivel que
-//     no se confirmó), DPl (nil si no se calculó) y DPlMin.
 type Reason struct {
 	Code        ReasonCode
 	Level       Level
@@ -61,8 +57,6 @@ type Reason struct {
 	Hours       int
 	From        Level
 	WindowHours int
-	DPl         *float64
-	DPlMin      float64
 }
 
 // ThresholdSegment es un tramo de la línea de tiempo de umbrales recortado a

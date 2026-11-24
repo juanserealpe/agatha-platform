@@ -55,6 +55,9 @@ END $$`,
 		`ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_events`,
 		`ALTER TABLE alerts DROP COLUMN IF EXISTS events`,
 		`ALTER TABLE alert_processing_state DROP COLUMN IF EXISTS in_episode`,
+		// La confirmación por planitud se retiró (nov 2026): la firma de fuga ya
+		// no se guarda. Destructivo; AutoMigrate no las recrea (no están en el modelo).
+		`ALTER TABLE alerts DROP COLUMN IF EXISTS leak_d_pl, DROP COLUMN IF EXISTS leak_d_pl_min, DROP COLUMN IF EXISTS leak_confirmed`,
 		`CREATE INDEX IF NOT EXISTS ix_alerts_unclassified ON alerts (started_at DESC) WHERE management_status = 'SIN_CLASIFICAR'`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_alert_policy_versions_scope_version
 			ON alert_policy_versions (COALESCE(measuring_point_id, 0), event_type, version)`,

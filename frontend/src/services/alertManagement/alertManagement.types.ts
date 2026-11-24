@@ -87,20 +87,6 @@ export interface AlertItem {
     label: AlertLabel | null;
     label_other_text: string | null;
     available_actions: AlertAction[];
-    /**
-     * Firma de fuga (planitud espectral) de la última hora calculada. null si la regla de planitud no está
-     * activa en el punto, no hay datos o la alerta es anterior al campo. Solo informativo.
-     */
-    leak_signature?: LeakSignature | null;
-}
-
-export interface LeakSignature {
-    /** % de registros de las últimas 24 h con planitud alta; null si la hora no lo trajo. */
-    d_pl: number | null;
-    /** Mínimo de la versión de umbrales del punto. */
-    d_pl_min: number;
-    /** La hora no se limitó a Amarillo y d_pl >= d_pl_min. */
-    confirmed: boolean;
 }
 
 export interface AlertSearchResponse {

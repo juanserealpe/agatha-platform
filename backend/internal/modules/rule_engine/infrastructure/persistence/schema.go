@@ -22,7 +22,7 @@ const ExcludeConstraint = "ex_rule_threshold_versions_no_overlap"
 //  0. upgradeRuleEvaluationsToV2: convierte una rule_evaluations del esquema v1
 //     (columna emitted) antes de que AutoMigrate vea las columnas NOT NULL nuevas.
 //  1. AutoMigrate: tablas, CHECK, UNIQUE, índices y FK (tags de los modelos).
-//  2. ensureRojoPlanitudColumn: confirm_rojo_with_planitud + su CHECK, aditivo.
+//  2. dropPlanitudColumns: retira la confirmación por planitud (nov 2026).
 //  3. SQL idempotente: btree_gist + EXCLUDE USING gist (no expresable con tags).
 func Migrate(db *gorm.DB) error {
 	if err := upgradeRuleEvaluationsToV2(db); err != nil {
@@ -33,7 +33,7 @@ func Migrate(db *gorm.DB) error {
 		return fmt.Errorf("automigrate rule_engine: %w", err)
 	}
 
-	if err := ensureRojoPlanitudColumn(db); err != nil {
+	if err := dropPlanitudColumns(db); err != nil {
 		return err
 	}
 
@@ -61,28 +61,25 @@ END $$;`).Error
 	return migrateMotion(db)
 }
 
-// RojoPlanitudConstraint ata confirm_rojo_with_planitud a confirm_naranja_with_planitud.
-const RojoPlanitudConstraint = "chk_rule_threshold_versions_planitud_rojo"
-
-// ensureRojoPlanitudColumn garantiza, de forma aditiva e idempotente, la
-// columna confirm_rojo_with_planitud (NOT NULL DEFAULT false: las versiones
-// existentes quedan en false y se comportan igual) y su CHECK. AutoMigrate ya
-// los crea por los tags del modelo; esto cubre una tabla previa donde el
-// constraint no se hubiera agregado.
-func ensureRojoPlanitudColumn(db *gorm.DB) error {
+// dropPlanitudColumns retira, de forma idempotente, todo lo que sostenía la
+// confirmación por planitud (eliminada en nov 2026): los CHECK que la ataban,
+// las columnas de la versión de umbrales y el d_pl guardado por hora. AutoMigrate
+// ya no las conoce (se quitaron de los modelos), así que no las recrea.
+// Destructivo: no hay vuelta atrás sin restaurar un respaldo.
+func dropPlanitudColumns(db *gorm.DB) error {
 	err := db.Exec(`
 ALTER TABLE rule_threshold_versions
-	ADD COLUMN IF NOT EXISTS confirm_rojo_with_planitud boolean NOT NULL DEFAULT false;
-DO $$
-BEGIN
-	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '` + RojoPlanitudConstraint + `') THEN
-		ALTER TABLE rule_threshold_versions
-			ADD CONSTRAINT ` + RojoPlanitudConstraint + `
-			CHECK (NOT confirm_rojo_with_planitud OR confirm_naranja_with_planitud);
-	END IF;
-END $$;`).Error
+	DROP CONSTRAINT IF EXISTS chk_rule_threshold_versions_planitud,
+	DROP CONSTRAINT IF EXISTS chk_rule_threshold_versions_planitud_rojo,
+	DROP CONSTRAINT IF EXISTS chk_rule_threshold_versions_d_pl_min;
+ALTER TABLE rule_threshold_versions
+	DROP COLUMN IF EXISTS confirm_naranja_with_planitud,
+	DROP COLUMN IF EXISTS confirm_rojo_with_planitud,
+	DROP COLUMN IF EXISTS d_pl_min;
+ALTER TABLE rule_evaluations
+	DROP COLUMN IF EXISTS d_pl;`).Error
 	if err != nil {
-		return fmt.Errorf("agregar confirm_rojo_with_planitud: %w", err)
+		return fmt.Errorf("retirar las columnas de planitud: %w", err)
 	}
 	return nil
 }

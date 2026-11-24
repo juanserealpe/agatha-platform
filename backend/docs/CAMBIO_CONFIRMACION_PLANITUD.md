@@ -1,3 +1,5 @@
+> Retirado (2026-11-24): la confirmación por planitud se eliminó del código; este documento queda como histórico.
+
 # Cambio: confirmación por planitud
 
 Noviembre 2026 · Rule Engine y Alert Management · solo backend

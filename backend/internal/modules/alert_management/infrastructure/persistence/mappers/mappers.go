@@ -29,9 +29,7 @@ func str(p *string) string {
 func ToAlertModel(a entities.Alert) models.AlertModel {
 	runtime, _ := json.Marshal(a.Runtime)
 	m := a.Management
-	leakDPl, leakDPlMin, leakConfirmed := leakColumns(a.LeakSignature)
 	return models.AlertModel{
-		LeakDPl: leakDPl, LeakDPlMin: leakDPlMin, LeakConfirmed: leakConfirmed,
 		ID: a.ID, MeasuringPointID: a.MeasuringPointID, EventType: string(a.EventType), State: string(a.State),
 		MotionState: strPtr(a.MotionState), TempState: strPtr(a.TempState),
 		TempStableFrom: utcPtr(a.TempStableFrom), TempStableTo: utcPtr(a.TempStableTo),
@@ -56,31 +54,6 @@ func ToAlertModel(a entities.Alert) models.AlertModel {
 		LabeledRecordedAt: m.LabeledRecordedAt, LabeledClientRecordID: strPtr(m.LabeledClientRecordID),
 		Source: string(a.Source), CreatedAt: a.CreatedAt.UTC(),
 	}
-}
-
-// leakColumns separa la firma de fuga en sus tres columnas (todas NULL sin firma).
-func leakColumns(s *entities.LeakSignature) (dPl, dPlMin *float64, confirmed *bool) {
-	if s == nil {
-		return nil, nil, nil
-	}
-	min, ok := s.DPlMin, s.Confirmed
-	return copyFloat(s.DPl), &min, &ok
-}
-
-func copyFloat(v *float64) *float64 {
-	if v == nil {
-		return nil
-	}
-	c := *v
-	return &c
-}
-
-// leakSignature arma la firma desde las columnas; sin d_pl_min no hay firma.
-func leakSignature(m models.AlertModel) *entities.LeakSignature {
-	if m.LeakDPlMin == nil {
-		return nil
-	}
-	return &entities.LeakSignature{DPl: copyFloat(m.LeakDPl), DPlMin: *m.LeakDPlMin, Confirmed: m.LeakConfirmed != nil && *m.LeakConfirmed}
 }
 
 func managementStatus(m entities.Management) entities.ManagementStatus {
@@ -117,7 +90,7 @@ func ToAlert(m models.AlertModel) entities.Alert {
 		MaxIndicatorValue: m.MaxIndicatorValue,
 		LastEvaluatedAt:   m.LastEvaluatedAt.UTC(),
 		HoursCalculated:   m.HoursCalculated, HoursNoData: m.HoursNoData, BelowLevelHours: m.BelowLevelHours,
-		LowConfidenceAtOpen: m.LowConfidenceAtOpen, Runtime: runtime, LeakSignature: leakSignature(m),
+		LowConfidenceAtOpen: m.LowConfidenceAtOpen, Runtime: runtime,
 		PolicyVersionID: m.PolicyVersionID, ThresholdVersionIDAtOpen: m.ThresholdVersionIDAtOpen,
 		OpenedByRuleEvaluationID: m.OpenedByRuleEvaluationID,
 		Management: entities.Management{
@@ -148,8 +121,6 @@ func ProcessingColumns(a entities.Alert) map[string]any {
 		"temp_stable_from": m.TempStableFrom, "temp_stable_to": m.TempStableTo,
 		"last_motion_evaluated_at": m.LastMotionEvaluatedAt,
 		"motion_history":           m.MotionHistory, "motion_table_level": m.MotionTableLevel,
-		// La firma de fuga siempre se escribe (NULL incluido): describe la última hora.
-		"leak_d_pl": m.LeakDPl, "leak_d_pl_min": m.LeakDPlMin, "leak_confirmed": m.LeakConfirmed,
 	}
 }
 
@@ -316,7 +287,6 @@ func ToLevelNotice(m models.RuleEvaluationReadModel) entities.LevelNotice {
 		RunsAmarillo: m.RunAmarillo, RunsNaranja: m.RunNaranja, BelowRun: m.BelowRun, LowConfidence: m.LowConfidence,
 		EscalationAmarillo: effectiveEscalation(m.EscalateAmarilloAfterHours, m),
 		EscalationNaranja:  effectiveEscalation(m.EscalateNaranjaAfterHours, m),
-		DPl:                copyFloat(m.DPl), DPlMin: copyFloat(m.DPlMin),
 	}
 	var reasons []models.ReasonReadRow
 	if err := json.Unmarshal([]byte(m.Reasons), &reasons); err == nil {
@@ -324,8 +294,6 @@ func ToLevelNotice(m models.RuleEvaluationReadModel) entities.LevelNotice {
 			switch r.Code {
 			case "LEAK_PERSISTENCE":
 				n.PersistenceHours = r.Data.Hours
-			case "NARANJA_NOT_CONFIRMED":
-				n.LimitedFrom = entities.Level(r.Data.From)
 			}
 		}
 	}

@@ -132,28 +132,3 @@ func TestProcess_WithoutChangePublisherStillNotifies(t *testing.T) {
 		t.Fatalf("avisos = %d, cambios = %v", len(f.pub.published), f.changes.changes())
 	}
 }
-
-// La foto lleva la firma de fuga de la última hora calculada; null sin d_pl_min.
-func TestProcess_SnapshotCarriesTheLeakSignature(t *testing.T) {
-	f := newFixture()
-	dPl, dPlMin := 4.6, 10.0
-	n0 := notice(0, 0.36, entities.LevelRojo, entities.LevelAmarillo, entities.EpisodeNone, 0)
-	n1 := notice(1, 0.36, entities.LevelRojo, entities.LevelAmarillo, entities.EpisodeOpened, 2)
-	for _, n := range []*entities.LevelNotice{&n0, &n1} {
-		n.DPl, n.DPlMin, n.LimitedFrom = &dPl, &dPlMin, entities.LevelRojo
-	}
-	f.process(t, entities.SourceLive, n0, n1)
-	c := f.changes.published[0]
-	if c.LeakSignature == nil || c.LeakSignature.DPl == nil || *c.LeakSignature.DPl != 4.6 || c.LeakSignature.DPlMin != 10 || c.LeakSignature.Confirmed {
-		t.Fatalf("foto = %+v", c)
-	}
-	if a := f.store.Alerts()[0]; a.LeakSignature == nil || a.Runtime.Limited != true {
-		t.Fatalf("alerta = %+v", a)
-	}
-
-	g := newFixture()
-	g.process(t, entities.SourceLive, opening()...)
-	if got := g.changes.published[0].LeakSignature; got != nil {
-		t.Fatalf("sin d_pl_min: firma = %+v", got)
-	}
-}

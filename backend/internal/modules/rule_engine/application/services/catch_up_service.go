@@ -112,8 +112,6 @@ func (s *CatchUpService) catchUpPoint(ctx context.Context, pointID int64) PointC
 				EvaluatedAt:      h.EvaluatedAt,
 				Status:           StatusCalculated,
 				I:                &i,
-				DPl:              h.DPl,
-				DPlLoaded:        true,
 				LowConfidence:    h.LowConfidence,
 				Trigger:          TriggerCatchUp,
 			})

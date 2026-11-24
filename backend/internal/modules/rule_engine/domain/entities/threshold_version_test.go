@@ -142,9 +142,8 @@ func TestThresholdParams_CutAndExitPerLevel(t *testing.T) {
 	}
 }
 
-func TestThresholdParams_ValidatePlanitudAndWindow(t *testing.T) {
+func TestThresholdParams_ValidateWindow(t *testing.T) {
 	ok := DefaultThresholdParams()
-	f := func(v float64) *float64 { return &v }
 
 	tests := []struct {
 		name   string
@@ -152,14 +151,6 @@ func TestThresholdParams_ValidatePlanitudAndWindow(t *testing.T) {
 		want   error
 	}{
 		{"plantilla", func(*ThresholdParams) {}, nil},
-		{"planitud sin d_pl_min", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud = true }, domain.ErrPlanitudConfig},
-		{"rojo con planitud sin naranja", func(p *ThresholdParams) { p.ConfirmRojoWithPlanitud, p.DPlMin = true, f(10) }, domain.ErrRojoPlanitudConfig},
-		{"rojo con planitud y naranja", func(p *ThresholdParams) {
-			p.ConfirmNaranjaWithPlanitud, p.ConfirmRojoWithPlanitud, p.DPlMin = true, true, f(10)
-		}, nil},
-		{"naranja sin rojo", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, f(10) }, nil},
-		{"d_pl_min > 100", func(p *ThresholdParams) { p.DPlMin = f(101) }, domain.ErrPlanitudConfig},
-		{"planitud válida", func(p *ThresholdParams) { p.ConfirmNaranjaWithPlanitud, p.DPlMin = true, f(12) }, nil},
 		{"modo desconocido", func(p *ThresholdParams) { p.PersistenceMode = "ROLLING" }, domain.ErrPersistenceConfig},
 		{"WINDOW sin horas", func(p *ThresholdParams) { p.PersistenceMode = PersistenceWindow }, domain.ErrPersistenceConfig},
 		{"WINDOW min > ventana", func(p *ThresholdParams) {
@@ -179,17 +170,12 @@ func TestThresholdParams_ValidatePlanitudAndWindow(t *testing.T) {
 	}
 }
 
-func TestThresholdParams_NormalizeModeAndDPlMin(t *testing.T) {
+func TestThresholdParams_NormalizeMode(t *testing.T) {
 	p := DefaultThresholdParams()
 	p.PersistenceMode = " window "
-	v := 12.345
-	p.DPlMin = &v
 	n := p.Normalize()
-	if n.PersistenceMode != PersistenceWindow || *n.DPlMin != 12.35 {
-		t.Fatalf("mode=%q d_pl_min=%v; se esperaba WINDOW y 12.35", n.PersistenceMode, *n.DPlMin)
-	}
-	if v != 12.345 {
-		t.Fatal("Normalize no debe modificar el puntero original")
+	if n.PersistenceMode != PersistenceWindow {
+		t.Fatalf("mode=%q; se esperaba WINDOW", n.PersistenceMode)
 	}
 
 	p.PersistenceMode = ""
@@ -216,29 +202,17 @@ func TestThresholdParams_EscalationHoursByMode(t *testing.T) {
 
 func TestThresholdPatch_NewFields(t *testing.T) {
 	base := DefaultThresholdParams()
-	min := 12.0
 	got := ThresholdPatch{
-		ConfirmNaranjaWithPlanitud: Some(true),
-		ConfirmRojoWithPlanitud:    Some(true),
-		DPlMin:                     Some(&min),
-		PersistenceMode:            Some(PersistenceWindow),
-		PersistenceWindowHours:     Some(intPtr(24)),
-		PersistenceMinHours:        Some(intPtr(18)),
+		PersistenceMode:        Some(PersistenceWindow),
+		PersistenceWindowHours: Some(intPtr(24)),
+		PersistenceMinHours:    Some(intPtr(18)),
 	}.ApplyTo(base)
 
-	if !got.ConfirmRojoWithPlanitud {
-		t.Fatalf("confirm_rojo_with_planitud no aplicado: %+v", got)
-	}
-	if !got.ConfirmNaranjaWithPlanitud || *got.DPlMin != 12 || got.PersistenceMode != PersistenceWindow ||
+	if got.PersistenceMode != PersistenceWindow ||
 		*got.PersistenceWindowHours != 24 || *got.PersistenceMinHours != 18 {
 		t.Fatalf("parche no aplicado: %+v", got)
 	}
-	min = 99
-	if *got.DPlMin != 12 {
-		t.Fatal("ApplyTo comparte el puntero de d_pl_min con el parche")
-	}
-
-	if again := (ThresholdPatch{}).ApplyTo(got); !again.ConfirmNaranjaWithPlanitud || !again.ConfirmRojoWithPlanitud || again.PersistenceMode != PersistenceWindow {
+	if again := (ThresholdPatch{}).ApplyTo(got); again.PersistenceMode != PersistenceWindow {
 		t.Fatal("un parche vacío copia los campos nuevos de la base")
 	}
 }

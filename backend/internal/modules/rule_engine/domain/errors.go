@@ -23,14 +23,6 @@ var (
 		Code:    errors.CodeInvalidInput,
 		Message: "min_hours y exit_hours deben ser >= 1 y los escalamientos NULL o >= 1",
 	}
-	ErrPlanitudConfig = &errors.AppError{
-		Code:    errors.CodeInvalidInput,
-		Message: "d_pl_min debe estar entre 0 y 100 y es obligatorio con confirm_naranja_with_planitud",
-	}
-	ErrRojoPlanitudConfig = &errors.AppError{
-		Code:    errors.CodeInvalidInput,
-		Message: "confirm_rojo_with_planitud exige confirm_naranja_with_planitud",
-	}
 	ErrPersistenceConfig = &errors.AppError{
 		Code:    errors.CodeInvalidInput,
 		Message: "persistence_mode debe ser STRICT o WINDOW; con WINDOW, persistence_window_hours y persistence_min_hours son obligatorios, >= 1 y min <= ventana",

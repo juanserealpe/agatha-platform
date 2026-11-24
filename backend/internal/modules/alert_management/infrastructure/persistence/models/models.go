@@ -81,13 +81,6 @@ type AlertModel struct {
 	LowConfidenceAtOpen bool   `gorm:"column:low_confidence_at_open;not null"`
 	Runtime             string `gorm:"column:runtime;type:jsonb;not null;default:'{}'"`
 
-	// Firma de fuga de la última hora calculada (aditivo; NULL = sin firma:
-	// filas anteriores, versión sin d_pl_min o sin datos). leak_d_pl es NULL
-	// si la hora no trajo d_pl aunque haya mínimo.
-	LeakDPl       *float64 `gorm:"column:leak_d_pl;type:double precision"`
-	LeakDPlMin    *float64 `gorm:"column:leak_d_pl_min;type:double precision"`
-	LeakConfirmed *bool    `gorm:"column:leak_confirmed"`
-
 	PolicyVersionID          int64 `gorm:"column:policy_version_id;not null"`
 	ThresholdVersionIDAtOpen int64 `gorm:"column:threshold_version_id_at_open;not null"`
 	OpenedByRuleEvaluationID int64 `gorm:"column:opened_by_rule_evaluation_id;not null"`
@@ -200,10 +193,6 @@ type RuleEvaluationReadModel struct {
 	LowConfidence      bool      `gorm:"column:low_confidence"`
 	EpisodeEvent       string    `gorm:"column:episode_event"`
 	Reasons            string    `gorm:"column:reasons"`
-	// DPl es el d_pl de la hora (NULL si no se calculó); DPlMin, el mínimo de
-	// su versión de umbrales (NULL si no lo define).
-	DPl    *float64 `gorm:"column:d_pl"`
-	DPlMin *float64 `gorm:"column:d_pl_min"`
 
 	Amarillo                   float64 `gorm:"column:amarillo"`
 	Naranja                    float64 `gorm:"column:naranja"`

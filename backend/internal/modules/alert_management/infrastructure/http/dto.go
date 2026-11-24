@@ -35,27 +35,6 @@ type DeviceRef struct {
 	PK string `json:"pk"`
 }
 
-// LeakSignatureItem es la firma de fuga de la última hora calculada: el % de
-// registros de las últimas 24 h con planitud alta (null si no se calculó), el
-// mínimo y si la planitud confirma (hora no limitada y d_pl >= d_pl_min).
-type LeakSignatureItem struct {
-	DPl       *float64 `json:"d_pl"`
-	DPlMin    float64  `json:"d_pl_min"`
-	Confirmed bool     `json:"confirmed"`
-}
-
-func toLeakSignature(s *entities.LeakSignature) *LeakSignatureItem {
-	if s == nil {
-		return nil
-	}
-	item := LeakSignatureItem{DPlMin: s.DPlMin, Confirmed: s.Confirmed}
-	if s.DPl != nil {
-		v := *s.DPl
-		item.DPl = &v
-	}
-	return &item
-}
-
 // AlertItem es una fila del historial, del panel o del mapa.
 type AlertItem struct {
 	ID         int64     `json:"id"`
@@ -78,8 +57,6 @@ type AlertItem struct {
 	Label            *string           `json:"label"`
 	LabelOtherText   *string           `json:"label_other_text"`
 	AvailableActions []entities.Action `json:"available_actions"`
-	// LeakSignature es la de la última hora calculada; null sin d_pl_min o datos.
-	LeakSignature *LeakSignatureItem `json:"leak_signature"`
 }
 
 func toItem(s ports.AlertSummary) AlertItem {
@@ -92,7 +69,6 @@ func toItem(s ports.AlertSummary) AlertItem {
 		ManagementStatus: string(a.Management.Status),
 		Label:            strOrNil(string(a.Management.Label)), LabelOtherText: strOrNil(a.Management.LabelOtherText),
 		AvailableActions: entities.ActionsFor(a.Management.Status),
-		LeakSignature:    toLeakSignature(a.LeakSignature),
 	}
 	until := a.LastEvaluatedAt
 	if a.State == entities.AlertActive {

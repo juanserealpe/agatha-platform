@@ -6,7 +6,7 @@ Aplicación web para monitorear en tiempo real el gasoducto Otero–Santana: map
 
 Sobre el ducto hay sensores instalados que miden el sonido de la tubería, el movimiento del terreno, las condiciones ambientales y la energía del equipo. El backend procesa esas mediciones cada hora y calcula un **índice de ruido**, que indica qué tan distinto suena el ducto frente a su comportamiento habitual en ese punto. Cuando el índice se mantiene alto, el backend abre una **alerta** con un nivel de criticidad: **Amarilla**, **Naranja** o **Roja**.
 
-Una alerta acústica se llama **anomalía acústica** y no **fuga**, porque un sonido anómalo no siempre es una fuga: también lo producen la maquinaria, el tránsito pesado o el clima. Para acercarse a una respuesta, el backend analiza la **planitud espectral**. Si una parte suficiente de los registros de las últimas 24 h tiene **firma de fuga**, el sonido se parece al de una fuga. Si no la tiene, la alerta no pasa de Amarilla. Quien confirma si hubo una fuga es el operador, al clasificar la alerta.
+Una alerta acústica se llama **anomalía acústica** y no **fuga**, porque un sonido anómalo no siempre es una fuga: también lo producen la maquinaria, el tránsito pesado o el clima. Quien confirma si hubo una fuga es el operador, al clasificar la alerta.
 
 El frontend no calcula niveles ni decide nada: muestra lo que entrega el backend y permite que el operador gestione cada alerta.
 
@@ -38,7 +38,7 @@ La aplicación tiene dos secciones, en las pestañas bajo el encabezado: **Centr
 
 Al abrir una alerta se ven sus datos, la explicación de por qué se generó y su línea de tiempo.
 
-- **¿Por qué se generó esta alerta?**: explica el tipo de alerta, cuánto se aleja la medición de lo normal y, si la regla de planitud está activa en el punto, si el sonido tiene o no firma de fuga. El **nivel de anomalía** es un puntaje, no una probabilidad.
+- **¿Por qué se generó esta alerta?**: explica el tipo de alerta, cuánto se aleja la medición de lo normal y. El **nivel de anomalía** es un puntaje, no una probabilidad.
 - **Línea de tiempo**: los tramos de cada nivel y sus mensajes. Una **Notificación** marca un cambio importante que se avisó al operador (la alerta abrió, subió de nivel o la temperatura de la tubería cambió de comportamiento). Una **Actualización** registra un cambio de estado sin aviso, por ejemplo una bajada de nivel o una hora sin datos. Al pasar el cursor sobre el tipo de mensaje aparece su significado.
 - **Paso 1. Clasificación (obligatoria)**: **Confirmada**, si el evento ocurrió o se verificó en campo, o **Falsa alerta**. La app pide confirmar antes de guardar.
 - **Paso 2. Causa y etiquetado (opcional)**: la causa del evento, entre las opciones que corresponden a la clasificación elegida. "Otro" permite escribirla.

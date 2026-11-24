@@ -18,30 +18,10 @@ import (
 type fakeSource struct {
 	rows  map[int64][]ports.CalculatedIndicator
 	calls int
-	// dPl es el d_pl por punto y hora que devuelve GetDPl (evaluación en vivo).
-	dPl    map[int64]map[time.Time]float64
-	dPlErr error
 }
 
 func newSource() *fakeSource {
-	return &fakeSource{rows: map[int64][]ports.CalculatedIndicator{}, dPl: map[int64]map[time.Time]float64{}}
-}
-
-func (s *fakeSource) setDPl(pointID int64, at time.Time, v float64) {
-	if s.dPl[pointID] == nil {
-		s.dPl[pointID] = map[time.Time]float64{}
-	}
-	s.dPl[pointID][at] = v
-}
-
-func (s *fakeSource) GetDPl(_ context.Context, pointID int64, at time.Time) (*float64, error) {
-	if s.dPlErr != nil {
-		return nil, s.dPlErr
-	}
-	if v, ok := s.dPl[pointID][at]; ok {
-		return &v, nil
-	}
-	return nil, nil
+	return &fakeSource{rows: map[int64][]ports.CalculatedIndicator{}}
 }
 
 func (s *fakeSource) add(pointID int64, values ...float64) {
