@@ -13,6 +13,7 @@ import {
     ROW_ACTION_LABEL,
 } from "../config/alertManagementDisplay";
 import { useAlertDetailParam } from "../hooks/useAlertDetailParam";
+import { LevelTag } from "./badges/LevelTag";
 import { useNewAlerts } from "../hooks/useNewAlerts";
 import { deviceOptionLabel } from "../lib/deviceLabel";
 import { ROW_ACTION_MODE } from "../lib/managementMode";
@@ -24,17 +25,6 @@ import {
     type LevelChange,
     type Notice,
 } from "../lib/newAlerts";
-
-/** Nivel con su punto de color: el color nunca va solo, siempre con el nombre. */
-function LevelTag({ level }: { level: LevelChange["to"] }) {
-    const style = levelStyle(level);
-    return (
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span aria-hidden className={cn("size-2 rounded-full", style.dotClass)} />
-            {style.label}
-        </span>
-    );
-}
 
 function levelChangeText(change: LevelChange, ended: boolean): string {
     const to = levelStyle(change.to).label;
