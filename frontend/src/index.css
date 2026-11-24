@@ -66,6 +66,10 @@
     /* Fondo de página: gris con un toque verde, casi imperceptible. */
     --color-tgi-fondo: #eef3ef;
     --font-data-mono: "JetBrains Mono Variable", monospace;
+    /* Avisos flotantes: un contorno de medio píxel, una sombra corta que los asienta y otra amplia y difusa que
+       los separa del mapa. Profundidad sin peso. */
+    --shadow-notification: inset 0 1px 0 rgb(255 255 255 / 0.55), 0 0 0 0.5px rgb(0 0 0 / 0.04),
+      0 1px 3px rgb(0 0 0 / 0.06), 0 12px 32px -6px rgb(0 0 0 / 0.18);
 
 }
 
@@ -262,5 +266,39 @@
     animation: none;
     opacity: 1;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--glow-color) 30%, transparent);
+  }
+}
+
+/* Vidrio de los avisos flotantes. Si el usuario pide menos transparencia o más contraste en su sistema, el
+   vidrio se vuelve sólido: el degradado del nivel (background-image) queda sobre blanco opaco y sin desenfoque. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .notice-material {
+    background-color: #fff;
+    backdrop-filter: none;
+  }
+}
+
+/* Variante del aviso flotante: un anillo nítido pegado al borde y un halo amplio que respira alrededor. Más
+   presente que la sombra de la tarjeta (tiene que leerse sobre el mapa satelital), sin llegar al resplandor de
+   las tarjetas del panel. Misma técnica: solo se anima la opacity. */
+.notice-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--glow-color) 70%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--glow-color) 25%, transparent),
+    0 0 28px 4px color-mix(in srgb, var(--glow-color) 50%, transparent);
+  animation: alert-glow 1.8s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-glow::before {
+    animation: none;
+    opacity: 1;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--glow-color) 70%, transparent),
+      0 0 0 6px color-mix(in srgb, var(--glow-color) 25%, transparent);
   }
 }

@@ -1,6 +1,7 @@
-import type { Classification } from "@/services/alertManagement";
+import type { AlertLevel, Classification } from "@/services/alertManagement";
 import type { AlertNotificationEvent } from "@/services/realtime";
 import { LEVEL_ORDER } from "../config/alertManagementDisplay";
+import type { RowAction } from "./rowActions";
 
 /** Banners de alerta nueva que se muestran a la vez; el resto se resume como "+N". */
 export const MAX_VISIBLE_NOTICES = 3;
@@ -8,8 +9,11 @@ export const MAX_VISIBLE_NOTICES = 3;
 /** Tras volver a la normalidad, el banner queda este tiempo (para que se vea que terminó) y se cierra solo. */
 export const ENDED_NOTICE_TTL_MS = 60_000;
 
-/** Aviso en pantalla. `ended`: la alerta ya finalizó (volvió a la normalidad). */
-export type Notice = AlertNotificationEvent & { ended?: boolean };
+/**
+ * Aviso en pantalla. `ended`: la alerta ya finalizó (volvió a la normalidad). `previous_level`: nivel del banner
+ * que este aviso reemplazó, para mostrar el cambio (el evento del stream no lo trae).
+ */
+export type Notice = AlertNotificationEvent & { ended?: boolean; previous_level?: AlertLevel };
 
 export interface NewAlertsState {
     /** Avisos ya recibidos: tras una reconexión el servidor puede reenviarlos y no deben repetirse. */
@@ -28,10 +32,30 @@ export const INITIAL_NEW_ALERTS_STATE: NewAlertsState = { seenMessageIds: new Se
 export function ingestNotification(state: NewAlertsState, notice: AlertNotificationEvent): NewAlertsState {
     if (state.seenMessageIds.has(notice.message_id)) return state;
 
+    const replaced = state.notices.find((current) => current.alert_code === notice.alert_code);
+    const next: Notice =
+        replaced && replaced.level !== notice.level ? { ...notice, previous_level: replaced.level } : notice;
     return {
         seenMessageIds: new Set([...state.seenMessageIds, notice.message_id]),
-        notices: [...state.notices.filter((current) => current.alert_code !== notice.alert_code), notice],
+        notices: [...state.notices.filter((current) => current.alert_code !== notice.alert_code), next],
     };
+}
+
+export interface LevelChange {
+    /** null: no hubo cambio de nivel o no se sabe desde cuál (p. ej. un Rojo sin banner previo). */
+    from: AlertLevel | null;
+    to: AlertLevel;
+}
+
+/**
+ * Cambio de nivel que anuncia el aviso. Solo las subidas tienen origen: el del banner reemplazado o, en
+ * `UP_NARANJA_*`, Amarillo (es el único nivel por debajo). Finalizada, se muestra el máximo que alcanzó.
+ */
+export function noticeLevelChange(notice: Notice): LevelChange {
+    if (notice.ended) return { from: null, to: notice.max_level };
+    if (!notice.code.startsWith("UP_")) return { from: null, to: notice.level };
+    const fallback: AlertLevel | null = notice.code.startsWith("UP_NARANJA") ? "AMARILLO" : null;
+    return { from: notice.previous_level ?? fallback, to: notice.level };
 }
 
 /** Reemplaza el banner de esa alerta con `update`. Misma referencia si no hay banner o `update` no cambia nada. */
@@ -70,6 +94,15 @@ export function expireEndedNotice(state: NewAlertsState, alertCode: string, mess
 
 export function dismissNotice(state: NewAlertsState, alertCode: string): NewAlertsState {
     return { ...state, notices: state.notices.filter((notice) => notice.alert_code !== alertCode) };
+}
+
+/**
+ * Qué hace el clic en el banner: sin clasificar, abre directo en la clasificación (es lo que se espera del
+ * operador); ya clasificada, en lectura. El aviso no trae `available_actions`: si el backend ya no permite
+ * clasificar (p. ej. se gestionó en otra pestaña), el modal cae solo al resumen de lectura.
+ */
+export function noticeAction(notice: Notice): Extract<RowAction, "classify" | "view"> {
+    return notice.classification === null ? "classify" : "view";
 }
 
 /** Orden de los banners: los de alertas en curso primero; luego mayor nivel y, entre iguales, el más reciente. */
