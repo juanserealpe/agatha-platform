@@ -75,7 +75,7 @@ export function CustomRangeDialog({ applied, onApply }: CustomRangeDialogProps) 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger
-                render={<Button variant={applied ? "default" : "outline"} size="sm" className="font-data-mono text-xs" />}
+                render={<Button variant={applied ? "default" : "outline"} size="sm" className="text-xs" />}
             >
                 <CalendarRange aria-hidden />
                 {isComplete(appliedDraft)
