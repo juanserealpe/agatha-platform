@@ -17,9 +17,10 @@ const PENDING_BOX_CLASS = "rounded-lg border border-dashed border-gray-300 px-3 
 
 function Row({ term, value, meta }: { term: string; value: string; meta?: string }) {
     return (
-        <div className="grid grid-cols-[8rem_1fr] gap-2 py-2 not-last:border-b not-last:border-border">
+        <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-2 py-2 not-last:border-b not-last:border-border">
             <dt className="text-xs font-medium text-gray-500">{term}</dt>
-            <dd className="text-sm text-gray-900">
+            {/* La etiqueta "Otro" es texto libre: sin espacios, se parte en lugar de ensanchar el modal. */}
+            <dd className="text-sm wrap-anywhere text-gray-900">
                 {value}
                 {meta && <span className="block font-data-mono text-xs text-gray-500">{meta}</span>}
             </dd>

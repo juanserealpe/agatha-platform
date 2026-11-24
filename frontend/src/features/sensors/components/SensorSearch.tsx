@@ -1,5 +1,8 @@
 import { Search, X } from "lucide-react";
 
+/** Holgado para nombres y PK ("34+470"); evita que se pegue texto arbitrariamente largo. */
+const SEARCH_MAX_LENGTH = 60;
+
 interface SensorSearchProps {
     value: string;
     onChange: (value: string) => void;
@@ -12,6 +15,7 @@ export function SensorSearch({ value, onChange }: SensorSearchProps) {
             <input
                 type="search"
                 value={value}
+                maxLength={SEARCH_MAX_LENGTH}
                 onChange={(event) => onChange(event.target.value)}
                 onKeyDown={(event) => event.key === "Escape" && onChange("")}
                 placeholder="Nombre o PK (ej. 34+470)"

@@ -4,6 +4,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+/** Unas 7 líneas visibles: suficiente para revisar lo escrito sin empujar los botones fuera del modal. */
+const MULTILINE_MAX_HEIGHT = "max-h-40";
+
 interface CountedTextFieldProps {
     label: string;
     value: string;
@@ -58,7 +61,14 @@ export function CountedTextField({
                 </span>
             </div>
             {multiline ? (
-                <Textarea {...fieldProps} rows={3} onChange={(event) => onChange(event.target.value)} />
+                // El área crece con el texto hasta MULTILINE_MAX_HEIGHT y luego desplaza por dentro; `wrap-anywhere`
+                // parte las cadenas sin espacios para que no ensanchen el modal.
+                <Textarea
+                    {...fieldProps}
+                    rows={3}
+                    className={cn(MULTILINE_MAX_HEIGHT, "overflow-y-auto wrap-anywhere")}
+                    onChange={(event) => onChange(event.target.value)}
+                />
             ) : (
                 <Input {...fieldProps} onChange={(event) => onChange(event.target.value)} />
             )}

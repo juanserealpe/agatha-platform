@@ -108,7 +108,7 @@ export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction, o
                 </div>
             </TableCell>
 
-            <TableCell className="max-w-48 min-w-32 px-3 text-xs whitespace-normal text-gray-700">
+            <TableCell className="max-w-48 min-w-32 px-3 text-xs whitespace-normal wrap-anywhere text-gray-700">
                 {label ?? <span className={MUTED}>{EMPTY_CELL}</span>}
             </TableCell>
 
