@@ -15,7 +15,7 @@ export const SECTION_STYLES: Record<SectionKey, SectionStyle> = {
     fuga: {
         icon: AudioWaveform,
         label: "Anomalía acústica",
-        subtitle: "Índice de ruido, densidad y bandas acústicas B1 y B2",
+        subtitle: "Índice de anomalía acústica, densidad y bandas acústicas B1 y B2",
         badgeClass: "bg-amber-50 text-amber-600 border-amber-200",
     },
     movimiento: {

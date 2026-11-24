@@ -56,7 +56,7 @@ func TestRender_ReplacesAndMarksLowConfidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text.Body != "El índice de ruido lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel." || text.Title != "Puede subir a Naranja" {
+	if text.Body != "El índice de anomalía acústica lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel." || text.Title != "Puede subir a Naranja" {
 		t.Fatalf("body = %q", text.Body)
 	}
 	if got := WithLowConfidence(text).Body; !strings.HasSuffix(got, LowConfidenceMark) {
@@ -156,7 +156,7 @@ func TestFormatValue(t *testing.T) {
 	}
 }
 
-// Todo mensaje del procesamiento horario de FUGA cita el índice de ruido
+// Todo mensaje del procesamiento horario de FUGA cita el índice de anomalía acústica
 // (los de movimiento y temperatura citan su propio dato: §8.3).
 func TestCatalog_ProcessingMessagesCiteTheIndex(t *testing.T) {
 	for key, tpl := range catalog {
@@ -164,7 +164,7 @@ func TestCatalog_ProcessingMessagesCiteTheIndex(t *testing.T) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(tpl.Body), "índice") {
-			t.Errorf("%s no cita el índice de ruido: %q", key, tpl.Body)
+			t.Errorf("%s no cita el índice de anomalía acústica: %q", key, tpl.Body)
 		}
 	}
 }
@@ -202,7 +202,7 @@ func TestCatalog_NoLeakSignatureTexts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if open.Kind != entities.KindNotification || open.Code != CodeOpen || open.Title != "Alerta nueva en PK34+500: nivel Amarillo" ||
-		open.Body != "Por el índice de ruido la alerta estaría en Rojo desde las 12:00 del 14/11, pero solo el 4,6 % de los registros de las últimas 24 h tiene firma de fuga (se necesita 10 %). Dato: 0,36 (Rojo desde 0,35; lo normal es menos de 0,16)." {
+		open.Body != "Por el índice de anomalía acústica la alerta estaría en Rojo desde las 12:00 del 14/11, pero en las últimas 24 h solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos 10 %). Dato: 0,36 (Rojo desde 0,35; lo normal es menos de 0,16)." {
 		t.Fatalf("OPEN sin firma = %+v", open)
 	}
 	shape, err := Render(Key(CodeNoLeakShape, ""), params)
@@ -210,7 +210,7 @@ func TestCatalog_NoLeakSignatureTexts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if shape.Kind != entities.KindUpdate || shape.Title != "Se mantiene en Amarillo" ||
-		shape.Body != "Por el índice de ruido la alerta estaría en Rojo, pero solo el 4,6 % de los registros de las últimas 24 h tiene firma de fuga (se necesita 10 %). Dato: 0,36 (Rojo desde 0,35)." {
+		shape.Body != "Por el índice de anomalía acústica la alerta estaría en Rojo, pero en las últimas 24 h solo el 4,6 % de las mediciones tuvo el patrón de sonido típico de una fuga (se necesita al menos 10 %). Dato: 0,36 (Rojo desde 0,35)." {
 		t.Fatalf("NO_LEAK_SHAPE = %+v", shape)
 	}
 }
@@ -218,7 +218,7 @@ func TestCatalog_NoLeakSignatureTexts(t *testing.T) {
 // La subida con la planitud recién confirmada antepone la firma de fuga y no
 // cambia el título ni el código guardado.
 func TestCatalog_UpConfirmedVariantsPrependTheSignature(t *testing.T) {
-	prefix := "El 12 % de los registros de las últimas 24 h tiene firma de fuga (mínimo 10 %). "
+	prefix := "En las últimas 24 h, el 12 % de las mediciones tuvo el patrón de sonido típico de una fuga (mínimo 10 %). "
 	params := map[string]string{"codigo": "ALR-000123", "N": "12", "normal": "0,16", "valor": "0,27", "valor_anterior": "0,20",
 		"corte": "0,25", "d_pl": "12 %", "d_pl_min": "10 %"}
 	for _, c := range []struct{ code, variant string }{
@@ -289,7 +289,7 @@ func TestCatalog_NoInterventionCode(t *testing.T) {
 			t.Fatalf("sigue la clave %s", key)
 		}
 	}
-	if MessageCatalogVersion != 8 {
+	if MessageCatalogVersion != 9 {
 		t.Fatalf("MessageCatalogVersion = %d", MessageCatalogVersion)
 	}
 }

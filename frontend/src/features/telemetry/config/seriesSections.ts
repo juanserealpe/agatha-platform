@@ -63,7 +63,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
     fuga: defineSection([
         {
             // Mismo nombre que usan los mensajes del catálogo del backend.
-            title: "Índice de ruido I",
+            title: "Índice de anomalía acústica I",
             seriesKeys: ["indicador"],
             // Puntaje de anomalía, no probabilidad: mismo mensaje que la nota del modal de alertas (ANOMALY_SCORE_NOTE).
             description:
@@ -82,7 +82,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
             description: "Porcentaje del último día en que el sonido agudo estuvo más fuerte de lo normal.",
             howToRead: [
                 `En condiciones normales ronda el ${EXPECTED_DENSITY_PCT} % (línea punteada).`,
-                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso hace subir el índice de ruido.",
+                "Si se mantiene muy por encima, el sonido está más alto de lo habitual y eso hace subir el índice de anomalía acústica.",
             ],
             references: [{ label: `Normal ≈ ${EXPECTED_DENSITY_PCT} %`, value: EXPECTED_DENSITY_PCT }],
             yScale: { min: 0, minTop: 25, max: 100 },

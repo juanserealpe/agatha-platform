@@ -96,8 +96,9 @@ export const MESSAGE_KIND_DESCRIPTION: Record<MessageKind, string> = {
 const PERCENT_FORMATTER = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 });
 
 /**
- * Firma de fuga (planitud espectral) en lenguaje claro, con el mismo vocabulario del catálogo del backend.
- * null si no hay dato para mostrar. Como el catálogo, no afirma que sea una fuga.
+ * Firma de fuga (planitud espectral) en lenguaje claro: el % de mediciones con el patrón de sonido típico de una
+ * fuga, con el mismo vocabulario del catálogo v9 del backend. null si no hay dato para mostrar. Como el catálogo,
+ * no afirma que sea una fuga: solo si el sonido se parece.
  */
 export function leakSignatureText(signature: LeakSignature | null | undefined): { title: string; text: string } | null {
     if (!signature || signature.d_pl === null) return null;
@@ -105,13 +106,13 @@ export function leakSignatureText(signature: LeakSignature | null | undefined): 
     const min = `${PERCENT_FORMATTER.format(signature.d_pl_min)} %`;
     if (signature.confirmed) {
         return {
-            title: "Con firma de fuga",
-            text: `El ${value} de los registros de las últimas 24 h tiene firma de fuga (mínimo ${min}): el sonido se parece al de una fuga.`,
+            title: "El sonido se parece al de una fuga",
+            text: `En las últimas 24 h, el ${value} de las mediciones tuvo el patrón de sonido típico de una fuga (a partir del ${min} se considera parecido).`,
         };
     }
     return {
-        title: "Sin firma de fuga",
-        text: `Solo el ${value} de los registros de las últimas 24 h tiene firma de fuga (se necesita ${min}): el sonido es anómalo, pero no se parece al de una fuga.`,
+        title: "El sonido no se parece al de una fuga",
+        text: `En las últimas 24 h, solo el ${value} de las mediciones tuvo el patrón de sonido típico de una fuga; se necesita al menos el ${min}. El sonido es anómalo, pero no tiene ese patrón.`,
     };
 }
 

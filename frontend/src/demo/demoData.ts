@@ -27,7 +27,7 @@ export const FIRST_DEMO_ALERT_ID = 900001;
 // y la gráfica dibuja esas franjas, así que los valores simulados deben caer en ellas. Una prueba lo verifica.
 export const DEMO_THRESHOLDS: LeakThresholds = { amarillo: 0.16, naranja: 0.25, rojo: 0.35 };
 
-/** Índice de ruido simulado en cada nivel (dentro de su franja) y en normalidad. */
+/** Índice de anomalía acústica simulado en cada nivel (dentro de su franja) y en normalidad. */
 export const INDICATOR_BY_LEVEL: Record<AlertLevel | "NORMAL", number> = {
     NORMAL: 0.08,
     AMARILLO: 0.21,
