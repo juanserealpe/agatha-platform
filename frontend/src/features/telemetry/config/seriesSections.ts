@@ -53,7 +53,8 @@ function defineSection(charts: SeriesChartConfig[], unavailableReason?: string):
 }
 
 // Rangos mínimos del eje: propuesta inicial del frontend, a validar con quien conoce el sensor.
-const MIN_SPAN = { driftDeg: 0.1, accelG: 0.1, temperatureC: 2, humidityPct: 5, voltageMv: 100, currentMa: 10 };
+// El voltaje llega en V (catálogo de series del backend): 0,1 V, no 100, que dejaba la línea plana sobre un eje 0–120.
+const MIN_SPAN = { driftDeg: 0.1, accelG: 0.1, temperatureC: 2, humidityPct: 5, voltageV: 0.1, currentMa: 10 };
 
 const TILT_HOW_TO_READ = [
     "En un sensor bien fijado la línea es prácticamente plana.",
@@ -163,7 +164,7 @@ export const SERIES_SECTIONS: Record<SectionKey, SeriesSectionConfig> = {
             seriesKeys: ["voltaje"],
             description: "Nivel de carga de la batería del sensor.",
             howToRead: ["Si baja de forma sostenida, la batería se está agotando y conviene revisarla."],
-            yScale: { minSpan: MIN_SPAN.voltageMv },
+            yScale: { minSpan: MIN_SPAN.voltageV },
         },
         {
             title: "Corriente",

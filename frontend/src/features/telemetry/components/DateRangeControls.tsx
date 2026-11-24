@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { CustomRangeDialog } from "./CustomRangeDialog";
 import { QUICK_RANGE_OPTIONS, type QuickRange } from "../lib/dateRanges";
 import type { AppliedRange } from "../lib/customRange";
@@ -11,25 +11,30 @@ interface DateRangeControlsProps {
     onCustomRangeApply: (range: AppliedRange) => void;
 }
 
-export function DateRangeControls({
-    activeQuickRange,
-    customRange,
-    onQuickRangeSelect,
-    onCustomRangeApply,
-}: DateRangeControlsProps) {
+/** Control segmentado de rangos rápidos (mismo material que las pestañas) y el botón del rango personalizado. */
+export function DateRangeControls({ activeQuickRange, customRange, onQuickRangeSelect, onCustomRangeApply }: DateRangeControlsProps) {
     return (
-        <div className="flex flex-wrap gap-2 items-center">
-            {QUICK_RANGE_OPTIONS.map((opt) => (
-                <Button
-                    key={opt.value}
-                    variant={activeQuickRange === opt.value ? "default" : "outline"}
-                    size="sm"
-                    className="font-data-mono text-xs"
-                    onClick={() => onQuickRangeSelect(opt.value)}
-                >
-                    {opt.label}
-                </Button>
-            ))}
+        <div className="flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="Rango de tiempo" className="inline-flex h-8 items-center rounded-lg bg-slate-100 p-0.75">
+                {QUICK_RANGE_OPTIONS.map((option) => {
+                    const active = activeQuickRange === option.value;
+                    return (
+                        <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => onQuickRangeSelect(option.value)}
+                            className={cn(
+                                "h-full rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition-colors",
+                                "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
+                                active ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                            )}
+                        >
+                            {option.label}
+                        </button>
+                    );
+                })}
+            </div>
             <CustomRangeDialog applied={customRange} onApply={onCustomRangeApply} />
         </div>
     );

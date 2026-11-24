@@ -31,7 +31,8 @@ export function TelemetryPanel({ deviceId }: { deviceId: number }) {
                     >
                         <SectionHeader sectionKey={key} />
                     </AccordionTrigger>
-                    <AccordionContent className="border-t border-slate-200 bg-slate-50/50 p-4">
+                    {/* Fondo blanco: las gráficas son mosaicos grises sin borde y deben destacarse sobre él. */}
+                    <AccordionContent className="border-t border-slate-200 bg-white p-4">
                         {openSections.includes(key) && (
                             <Suspense fallback={<SeriesSectionSkeleton />}>
                                 <SeriesSection key={deviceId} sectionKey={key} deviceId={deviceId} />
