@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type MouseEvent } from "react";
 import { BellRing } from "lucide-react";
 import type { AlertId, AlertItem } from "@/services/alertManagement";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -36,12 +36,33 @@ function DateTime({ value, className }: { value: string; className?: string }) {
     );
 }
 
-/** Fila del historial. Memoizada: al gestionar una alerta solo se vuelve a pintar su fila. */
+// Dentro de la fila, estos elementos tienen su propio clic y no abren el detalle.
+const OWN_CLICK = "button, a, input, select, textarea, label, [role='button']";
+
+/** Clic de puntero en la fila que debe abrir el detalle: botón principal, sin teclas modificadoras ni texto seleccionado. */
+function isRowOpenClick(event: MouseEvent<HTMLTableRowElement>): boolean {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
+    if (event.target instanceof Element && event.target.closest(OWN_CLICK)) return false;
+    // Quien arrastra para copiar el ID o el PK no quiere abrir el modal.
+    return !window.getSelection()?.toString();
+}
+
+/**
+ * Fila del historial. Memoizada: al gestionar una alerta solo se vuelve a pintar su fila.
+ * Toda la fila abre el detalle en lectura con el puntero. No es foco de teclado a propósito: el botón "Ver detalle"
+ * ya cubre ese caso, y una fila enfocable duplicaría la parada de tabulación y rompería la semántica de tabla.
+ */
 export const AlertHistoryRow = memo(function AlertHistoryRow({ item, onAction, onIntent }: AlertHistoryRowProps) {
     const label = labelDisplayText(item.label, item.label_other_text);
 
     return (
-        <TableRow className={cn(item.blinking && "bg-red-50/60 hover:bg-red-50")}>
+        <TableRow
+            onClick={(event) => {
+                if (isRowOpenClick(event)) onAction(item.id, "view");
+            }}
+            onPointerEnter={() => onIntent(item.id)}
+            className={cn("cursor-pointer", item.blinking && "bg-red-50/60 hover:bg-red-50")}
+        >
             {/* Rojo sin clasificar: fondo, ícono y texto, no solo el color. */}
             <TableCell className="px-3">
                 <span className="flex items-center gap-1.5 font-data-mono text-xs font-bold text-gray-900">
