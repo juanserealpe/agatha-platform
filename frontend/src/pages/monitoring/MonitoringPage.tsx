@@ -23,9 +23,10 @@ export function MonitoringPage() {
 
     return (
         <>
-            {/* En escritorio la fila ocupa el alto de la ventana bajo el header (sin pasarse, para no obligar a
-                hacer scroll de página sobre el mapa): el mapa la llena y los paneles usan scroll interno. */}
-            <div className="grid grid-cols-1 gap-4 lg:h-[clamp(520px,calc(100vh-180px),960px)] lg:grid-cols-[minmax(0,1fr)_360px]">
+            {/* En escritorio la fila ocupa casi todo el alto de la ventana: el mapa la llena y los paneles usan scroll
+                interno. El mínimo de 640 px deja ver unas tres alertas y los sensores en una laptop, aunque el header
+                quede fuera de la vista al bajar un poco. */}
+            <div className="grid grid-cols-1 gap-4 lg:h-[clamp(640px,calc(100vh-120px),960px)] lg:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="h-[60vh] min-h-[420px] lg:h-full lg:min-h-0">
                     <PipelineMap nodes={nodes} onShowTelemetry={showTelemetry} topRightOverlay={<NewAlertToast />} />
                 </div>

@@ -4,13 +4,13 @@ export interface SeverityStyle {
     label: string;
     /** Píldora con el nombre de la severidad. */
     badgeClass: string;
-    /** Borde completo de las tarjetas de alerta. */
+    /** Borde pleno del nivel (marcador "ahora" de la franja de tiempo). */
     borderClass: string;
     /** Anillo suave alrededor del punto de un sensor en alerta. */
     haloClass: string;
     /** Fondo tenue y opaco de los avisos (van sobre el mapa), para reconocer el nivel de un vistazo. */
     surfaceClass: string;
-    /** Borde de 1 px de los avisos flotantes: el color del nivel, rebajado para que no pese. */
+    /** Borde de 1 px de los avisos y de las tarjetas del panel: el color del nivel, rebajado para que no pese. */
     hairlineClass: string;
     /**
      * Fondo de vidrio de los avisos flotantes: degradado del tono -100 al -200, traslúcido. Va con el filtro de

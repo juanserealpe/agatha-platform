@@ -10,6 +10,9 @@ import { SensorListItem } from "./SensorListItem";
 import { SensorListSkeleton } from "./SensorListSkeleton";
 import { SensorSearch } from "./SensorSearch";
 
+// Con pocos sensores la lista se recorre de un vistazo: el buscador solo ocuparía alto del panel.
+const SEARCH_MIN_DEVICES = 7;
+
 interface SensorsPanelProps {
     selectedDeviceId: number | undefined;
     /** Alertas activas por id de dispositivo; los sensores sin entrada se muestran por su comunicación. */
@@ -23,7 +26,9 @@ export function SensorsPanel({ selectedDeviceId, alerts, onSelect, className }: 
     const [query, setQuery] = useState("");
     const now = useNow();
 
-    const visibleDevices = useMemo(() => filterDevices(devices, query), [devices, query]);
+    const showSearch = devices.length >= SEARCH_MIN_DEVICES;
+    // Sin buscador a la vista, una búsqueda anterior no debe seguir filtrando.
+    const visibleDevices = useMemo(() => (showSearch ? filterDevices(devices, query) : devices), [showSearch, devices, query]);
     const onlineCount = devices.filter((device) => getDeviceStatus(device.lastConnection, now) === "online").length;
     const isReady = !isLoading && !error;
 
@@ -38,7 +43,7 @@ export function SensorsPanel({ selectedDeviceId, alerts, onSelect, className }: 
                 )
             }
             action={isReady && <span className="text-xs text-gray-500">{devices.length} {devices.length === 1 ? "instalado" : "instalados"}</span>}
-            toolbar={isReady && devices.length > 0 && <SensorSearch value={query} onChange={setQuery} />}
+            toolbar={isReady && showSearch && <SensorSearch value={query} onChange={setQuery} />}
             className={className}
         >
             {isLoading ? (
