@@ -44,7 +44,7 @@ export function MonitoringPage() {
 
             <section ref={telemetryRef} aria-label="Telemetría del sensor" className="scroll-mt-4">
                 {activeDevice ? (
-                    <TelemetryPanel deviceId={activeDevice.id} />
+                    <TelemetryPanel deviceId={activeDevice.id} deviceName={activeDevice.name} />
                 ) : (
                     <EmptyState title="Selecciona un sensor para ver sus gráficas" />
                 )}
