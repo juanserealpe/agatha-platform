@@ -121,24 +121,24 @@ def open_msg(t, row, R, hist):
     calc, sent = row['table_level'], row['computed_level']
     if kind == 'SALTO':
         j = codes.get('MOV_JUMP') or {}
-        title = 'Cambio brusco de inclinación en pitch y roll'
+        title = 'Cambio brusco de inclinación del sensor en pitch y roll'
         body = (f"{entre(t - H, t)} el pitch y el roll cambiaron juntos y de golpe: "
                 f"pitch {g(j.get('dp'))}, roll {g(j.get('dr'))} en 1 h. En este sensor lo normal es menos de 0,01° por hora.")
     elif kind == 'HUECO':
         d = codes['MOV_SHIFT_GAP']
         hs = (T(d['gap_to']) - T(d['gap_from'])) / H
-        title = 'Cambio de inclinación durante una pérdida de datos'
+        title = 'Cambio de inclinación del sensor durante una pérdida de datos'
         body = (f"El sensor no transmitió entre las {hf(d['gap_from'])} y las {hf(d['gap_to'])} ({dur(hs)}). "
                 f"Al volver los datos, el pitch estaba {g(d['dp'])} y el roll {g(d['dr'])} respecto a antes de la pérdida de datos.")
     elif kind == 'RAPIDO':
         d = codes['MOV_ABRUPT']
         a = t - d['hours'] * H
-        title = 'Cambio rápido de inclinación'
+        title = 'Cambio rápido de inclinación del sensor'
         body = (f"{entre(a, t)} el {d['axis']} cambió {g(d['delta'])} "
                 f"({ventana(d['hours'])}). En este sensor lo normal es menos de {g0(d['amarillo_deg'])} en {ventana(d['window_hours'])}.")
     else:
         d = codes['MOV_CUMULATIVE']
-        title = 'Cambio lento de inclinación acumulado'
+        title = 'Cambio lento y acumulado de inclinación del sensor'
         body = cumulative_sentence(t, d)
     body += calc_txt(calc, sent)
     body += '\n' + history_block(hist)
@@ -204,7 +204,7 @@ def run(csv):
                     msgs.append(('MOV_LEVEL_OBSERVED', 'ACTUALIZACION', 'El cambio de inclinación sigue aumentando',
                                  f"El {d['axis']} ya cambió {g(d['delta'])} en {cuando}. Por su magnitud correspondería a {NIV[d['to_level']]} "
                                  f"(desde {g0(d['deg'])} en {ventana(d['window_hours'])}); ese nivel todavía no está activo para este sensor, "
-                                 f"por eso la alerta sigue en {NIV[act['level']]}."))
+                                 f"por eso la alerta sigue en nivel {NIV[act['level']]}."))
                 act['calc'] = d['to_level']
         if act is not None and act['ended_at'] is None and row['episode_event'] != 'OPENED':
             if 'TEMP_STABILIZED' in data:
@@ -224,10 +224,10 @@ def run(csv):
                 act['tramo'] = (d['temp_stable_from'], d['temp_stable_to'])
             if 'MOV_CUMULATIVE' in data:
                 d = data['MOV_CUMULATIVE']
-                msgs.append(('MOV_SLOW_ONGOING', 'ACTUALIZACION', 'Además, cambio lento acumulado', cumulative_sentence(t, d)))
+                msgs.append(('MOV_SLOW_ONGOING', 'ACTUALIZACION', 'Además, cambio lento y acumulado de inclinación', cumulative_sentence(t, d)))
             if 'MOV_DAILY' in data:
                 d = data['MOV_DAILY']
-                title = f"Resumen del día {d['day']} de la alerta"
+                title = f"Resumen del día {d['day']} de la alerta de movimiento"
                 if d['no_data']:
                     body = 'Sin datos del sensor en las últimas 24 h.'
                 elif d['dp_24h'] is None or d['dr_24h'] is None:
@@ -250,7 +250,7 @@ def run(csv):
                 if act['reactivations']:
                     body += f" desde que se reactivó; la alerta en total, {dur((t - act['started_at']) / H)}"
                 body += (f". Cambio total desde el inicio del movimiento: pitch {g(d['dp_total'])}, roll {g(d['dr_total'])}. "
-                         f"Nivel máximo: {NIV[act['level']]}")
+                         f"Nivel máximo de la alerta: {NIV[act['level']]}")
                 if ORD[d['max_level']] > ORD[act['level']]:
                     body += f" (por su magnitud correspondía a {NIV[d['max_level']]})"
                 body += '.'
@@ -258,7 +258,7 @@ def run(csv):
                     a, b = act['tramo']; body += f" Temperatura estable del {hf(a)} al {hf(b)}."
                 if 'MOV_NEW_POSITION' in data:
                     body += ' La posición actual queda como la nueva referencia del sensor.'
-                msgs.append(('END_NORMAL', 'FIN', 'Volvió a la normalidad', body))
+                msgs.append(('END_NORMAL', 'FIN', 'La alerta de movimiento terminó', body))
                 act['ended_at'] = t; last_fin = act
         for c, k, ti, b in msgs:
             act['messages'].append(dict(evaluated_at=str(t), hora_col=t.tz_convert(TZ).strftime('%d/%m %H:%M'), code=c, kind=k, title=ti, body=b))

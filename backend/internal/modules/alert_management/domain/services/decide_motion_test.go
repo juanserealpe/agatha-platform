@@ -309,11 +309,11 @@ func TestScenario02_AbruptOneAxis(t *testing.T) {
 		t.Fatalf("alerta %+v", a)
 	}
 	// v8: evento v1 sin la fila de la tabla ⇒ lo normal es la regla fija de v1.
-	if open := w.message("MOV_OPEN"); open.Title != "Cambio rápido de inclinación" ||
+	if open := w.message("MOV_OPEN"); open.Title != "Cambio rápido de inclinación del sensor" ||
 		!strings.HasPrefix(open.Body, "Entre las 02:00 y las 05:00 del 24/08 el roll cambió +0,04° (3 horas). En este sensor lo normal es menos de 0,04° en 3 horas.") {
 		t.Fatalf("MOV_OPEN %q / %q", open.Title, open.Body)
 	}
-	if end := w.message("END_NORMAL"); end.Title != "Volvió a la normalidad" || end.Body != "La inclinación lleva 24 h sin moverse. Duró 1 día y 2 h. Cambio total desde el inicio del movimiento: pitch s/d, roll s/d. Nivel máximo: Amarillo." {
+	if end := w.message("END_NORMAL"); end.Title != "La alerta de movimiento terminó" || end.Body != "La inclinación lleva 24 h sin moverse. Duró 1 día y 2 h. Cambio total desde el inicio del movimiento: pitch s/d, roll s/d. Nivel máximo de la alerta: Amarillo." {
 		t.Fatalf("END_NORMAL %q / %q", end.Title, end.Body)
 	}
 }
@@ -611,7 +611,7 @@ func TestScenario12_JumpDuringDataLoss(t *testing.T) {
 	if !a.StartedAt.Equal(h(-22)) {
 		t.Fatalf("started_at = %v, se esperaba el fin de la hora de gap_from (%v)", a.StartedAt, h(-22))
 	}
-	if open := w.message("MOV_OPEN"); open.Title != "Cambio de inclinación durante una pérdida de datos" ||
+	if open := w.message("MOV_OPEN"); open.Title != "Cambio de inclinación del sensor durante una pérdida de datos" ||
 		!strings.Contains(open.Body, "El sensor no transmitió entre las 06:15 del 23/08 y las 04:00 del 24/08 (22 h).") {
 		t.Fatalf("MOV_OPEN %q / %q", open.Title, open.Body)
 	}

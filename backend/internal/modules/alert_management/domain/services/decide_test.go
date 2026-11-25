@@ -714,13 +714,13 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 		{"subida rápida", fastRise, messages.CodeUpNaranjaFast, "El índice de anomalía acústica está subiendo más rápido de lo normal. Dato: pasó de 0,20 a 0,27 (Naranja desde 0,25)."},
 		{"subida a rojo", fastRise, messages.CodeUpRojo, "El índice de anomalía acústica siguió subiendo y ya es demasiado alto. Dato: pasó de 0,27 a 0,40 (Rojo desde 0,35)."},
 		{"subida por duración", persistUp, messages.CodeUpNaranjaPersist, "El índice de anomalía acústica lleva 12 h por encima de lo normal. Dato: 0,20 (lo normal es menos de 0,16)."},
-		{"cuenta regresiva", persistUp, messages.CodeCountdown, "El índice de anomalía acústica lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel."},
-		{"fin", persistUp, messages.CodeEndNormal, "El índice de anomalía acústica volvió a 0,12 (lo normal, menos de 0,16). Duró 14 h; nivel máximo Naranja, con índice de hasta 0,20. Si vuelve en las próximas 24 h y sigue sin clasificar, se reactivará esta misma alerta."},
-		{"casi normal", almostNormal, messages.CodeAlmostNormal, "Índice de anomalía acústica en 0,15, ya por debajo de 0,16; la alerta terminará si baja de 0,14 y se mantiene así."},
-		{"1 h normal", almostNormal, messages.CodeOneHourNormal, "Índice de anomalía acústica en 0,13, por debajo de 0,14. La alerta sigue en Amarillo hasta completar el cierre."},
-		{"vuelve anormal", almostNormal, messages.CodeBackAbnormal, "Índice de anomalía acústica en 0,19; lo normal es menos de 0,16. La alerta sigue en Amarillo."},
-		{"empieza a bajar", downgraded, messages.CodeDowngradeStart, "Índice de anomalía acústica en 0,20, por debajo del límite de Naranja (0,25). Si se mantiene así 6 h, la alerta bajará a Amarillo."},
-		{"bajó", downgraded, messages.CodeDowngrade, "El índice de anomalía acústica se mantuvo por debajo del límite de Naranja (0,25) durante 6 h; ahora está en 0,20. Máximo alcanzado: Naranja, con índice de hasta 0,27."},
+		{"cuenta regresiva", persistUp, messages.CodeCountdown, "El índice de anomalía acústica lleva 9 h por encima del límite de Amarillo (0,16) y ahora está en 0,19. Si sigue así 3 h más, la alerta sube a Naranja."},
+		{"fin", persistUp, messages.CodeEndNormal, "El índice de anomalía acústica volvió a 0,12 (lo normal, menos de 0,16). Duró 14 h; nivel máximo de la alerta: Naranja, con índice de hasta 0,20. Si el ruido anormal vuelve en las próximas 24 h y la alerta sigue sin clasificar, se reactivará esta misma alerta."},
+		{"casi normal", almostNormal, messages.CodeAlmostNormal, "Índice de anomalía acústica en 0,15, ya por debajo de lo normal (0,16). La alerta termina cuando el índice baja del límite de cierre (0,14) y completa las horas de cierre debajo de ese límite."},
+		{"1 h normal", almostNormal, messages.CodeOneHourNormal, "Índice de anomalía acústica en 0,13, por debajo del límite de cierre (0,14). La alerta sigue en nivel Amarillo hasta que el índice complete las horas de cierre debajo de ese límite."},
+		{"vuelve anormal", almostNormal, messages.CodeBackAbnormal, "Índice de anomalía acústica en 0,19; lo normal es menos de 0,16. La alerta sigue en nivel Amarillo."},
+		{"empieza a bajar", downgraded, messages.CodeDowngradeStart, "Índice de anomalía acústica en 0,20, por debajo del límite de Naranja (0,25). Si se mantiene por debajo 6 h, la alerta bajará a nivel Amarillo."},
+		{"bajó", downgraded, messages.CodeDowngrade, "El índice de anomalía acústica se mantuvo por debajo del límite de Naranja (0,25) durante 6 h; ahora está en 0,20. Nivel máximo de la alerta: Naranja, con índice de hasta 0,27."},
 		{"rojo retenido", func(t *testing.T) *world {
 			w := newWorld(t)
 			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.40, R, R, opened, hoursAbove(2)))
@@ -729,8 +729,8 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 			}
 			return w
 		}, messages.CodeRojoHeld, "El índice de anomalía acústica lleva 6 h por debajo del límite de Rojo (0,35) y está en 0,20, pero una alerta roja sin clasificar no baja de nivel."},
-		{"sin datos", noCalcGap, messages.CodeNoCalcStart, "No se puede evaluar desde las 08:00 del 24/08; la alerta sigue en Naranja. Último índice de anomalía acústica: 0,20."},
-		{"vuelven los datos", noCalcGap, messages.CodeNoCalcEnd, "Índice de anomalía acústica en 0,20; la alerta sigue en Naranja."},
+		{"sin datos", noCalcGap, messages.CodeNoCalcStart, "No hay datos suficientes del sensor desde las 08:00 del 24/08; la alerta se mantiene en nivel Naranja. Último índice de anomalía acústica: 0,20."},
+		{"vuelven los datos", noCalcGap, messages.CodeNoCalcEnd, "Índice de anomalía acústica en 0,20; la alerta sigue en nivel Naranja."},
 		{"reactivación", func(t *testing.T) *world {
 			w := finishedAt(t)
 			w.feed(calc(9, 0.17, A, A, none, inEpisode(false)), calc(10, 0.18, A, A, opened, hoursAbove(2)))
@@ -749,7 +749,7 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 				w.feed(calc(n, 0.18, A, A, none))
 			}
 			return w
-		}, messages.CodeSummary, "Sigue en Amarillo, lleva 7 h, ruido estable. Índice de anomalía acústica en 0,18 (lo normal, menos de 0,16); el máximo de la alerta fue 0,18."},
+		}, messages.CodeSummary, "Sigue en nivel Amarillo, activa hace 7 h, ruido estable. Índice de anomalía acústica en 0,18 (lo normal, menos de 0,16); el índice máximo de la alerta fue 0,18."},
 		{"tendencia", func(t *testing.T) *world {
 			w := newWorld(t)
 			w.feed(
@@ -760,7 +760,7 @@ func TestDecide_MessagesCiteTheData(t *testing.T) {
 				calc(4, 0.20, A, A, none),
 			)
 			return w
-		}, messages.CodeTrend, "El índice de anomalía acústica pasó de 0,17 a 0,20 en 3 h. La alerta sigue en Amarillo y lleva 4 h."},
+		}, messages.CodeTrend, "El índice de anomalía acústica pasó de 0,17 a 0,20 en 3 h. La alerta sigue en nivel Amarillo y lleva 4 h activa."},
 		{"oscila", func(t *testing.T) *world {
 			w := newWorld(t)
 			w.feed(calc(0, 0.17, A, A, none, inEpisode(false)), calc(1, 0.18, A, A, opened, hoursAbove(2)))

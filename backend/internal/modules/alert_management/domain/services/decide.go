@@ -565,7 +565,7 @@ func (b *builder) countdown(d *Decision, a *entities.Alert) bool {
 	a.Runtime.CountdownSentFor = a.CurrentLevel
 	d.Messages = append(d.Messages, b.message(a, messages.Key(messages.CodeCountdown, ""), map[string]string{
 		"N": strconv.Itoa(runs), "horas": strconv.Itoa(b.in.Policy.CountdownHours), "nivel_siguiente": messages.LevelName(next),
-		"corte": b.cut(a.CurrentLevel), "valor": b.value(),
+		"nivel": messages.LevelName(a.CurrentLevel), "corte": b.cut(a.CurrentLevel), "valor": b.value(),
 	}, "", a.CurrentLevel, true))
 	return true
 }

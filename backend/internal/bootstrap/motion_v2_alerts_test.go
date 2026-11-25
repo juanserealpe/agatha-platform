@@ -85,7 +85,7 @@ func TestMotionV2_NaranjaActiveLevelUp(t *testing.T) {
 		up.Title != "La alerta de movimiento subió a Naranja" || up.Body != "El roll ya cambió +0,12° en 3 horas. En este sensor, Naranja es desde 0,10° en 3 horas." {
 		t.Fatalf("MOV_LEVEL_UP %+v", up)
 	}
-	if end == nil || !strings.Contains(end.Body, "Nivel máximo: Naranja.") || strings.Contains(end.Body, "correspondía") {
+	if end == nil || !strings.Contains(end.Body, "Nivel máximo de la alerta: Naranja.") || strings.Contains(end.Body, "correspondía") {
 		t.Fatalf("END_NORMAL %+v", end)
 	}
 }

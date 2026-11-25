@@ -267,7 +267,7 @@ func TestManagement_MessagesAtTheirTime(t *testing.T) {
 	}
 	msgs = f.store.Messages()
 	l := msgs[len(msgs)-1]
-	if l.Code != messages.CodeLabeled || !l.EvaluatedAt.Equal(want.Add(2*time.Minute)) || l.Title != "Etiqueta: Mantenimiento programado" ||
+	if l.Code != messages.CodeLabeled || !l.EvaluatedAt.Equal(want.Add(2*time.Minute)) || l.Title != "Etiqueta de la alerta: Mantenimiento programado" ||
 		l.Body != "Registrada desde la web el 24/08 a las 14:25." {
 		t.Fatalf("LABELED %+v", l)
 	}

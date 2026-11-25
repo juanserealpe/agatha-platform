@@ -19,6 +19,27 @@ func placeholders(s string) []string {
 	return out
 }
 
+// v11: cada texto dice QUÉ cambia. Un nivel siempre es el de la alerta y
+// ningún título queda sin sujeto ("Sigue en Rojo", "Sin cambios").
+func TestCatalog_SaysWhatChanges(t *testing.T) {
+	vague := []string{"cambio de nivel", "completar el cierre", "se mantiene así.", "máximo alcanzado",
+		"sigue en {nivel}", "sigue en {nivel_enviado}", "se reactiva en {nivel}", "nivel máximo:"}
+	vagueTitles := []string{"Sigue en Rojo", "Puede subir a {nivel_siguiente}", "Sin cambios", "Casi normal",
+		"Sin datos suficientes", "Vuelve a haber datos", "Volvió a la normalidad",
+		"Clasificada como {clasificacion}", "Etiqueta: {etiqueta}", "Resumen del día {n} de la alerta"}
+	for key, tpl := range catalog {
+		text := strings.ToLower(tpl.Title + " " + tpl.Body)
+		for _, v := range vague {
+			if strings.Contains(text, v) {
+				t.Errorf("%s no dice qué cambia (%q): %s", key, v, text)
+			}
+		}
+		if slices.Contains(vagueTitles, tpl.Title) {
+			t.Errorf("%s tiene un título sin sujeto: %q", key, tpl.Title)
+		}
+	}
+}
+
 // Un texto no puede usar una variable que su código no declara (y entrega).
 func TestCatalog_TextsOnlyUseDeclaredVariables(t *testing.T) {
 	for key, tpl := range catalog {
@@ -52,11 +73,11 @@ func TestRender_FailsOnMissingVariable(t *testing.T) {
 }
 
 func TestRender_ReplacesAndMarksLowConfidence(t *testing.T) {
-	text, err := Render(Key(CodeCountdown, ""), map[string]string{"N": "9", "horas": "3", "nivel_siguiente": "Naranja", "corte": "0,16", "valor": "0,19"})
+	text, err := Render(Key(CodeCountdown, ""), map[string]string{"N": "9", "horas": "3", "nivel": "Amarillo", "nivel_siguiente": "Naranja", "corte": "0,16", "valor": "0,19"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text.Body != "El índice de anomalía acústica lleva 9 h por encima de 0,16 (ahora en 0,19); faltan 3 h para el cambio de nivel." || text.Title != "Puede subir a Naranja" {
+	if text.Body != "El índice de anomalía acústica lleva 9 h por encima del límite de Amarillo (0,16) y ahora está en 0,19. Si sigue así 3 h más, la alerta sube a Naranja." || text.Title != "La alerta puede subir a Naranja" {
 		t.Fatalf("body = %q", text.Body)
 	}
 	if got := WithLowConfidence(text).Body; !strings.HasSuffix(got, LowConfidenceMark) {
@@ -264,8 +285,8 @@ func TestRender_ManagementWithTimeRecordAndObservation(t *testing.T) {
 
 // v10 retiró los mensajes de la confirmación por planitud.
 func TestCatalog_PlanitudMessagesWereRetired(t *testing.T) {
-	if MessageCatalogVersion != 10 {
-		t.Fatalf("MessageCatalogVersion = %d, se esperaba 10", MessageCatalogVersion)
+	if MessageCatalogVersion < 10 {
+		t.Fatalf("MessageCatalogVersion = %d, se esperaba 10 o más", MessageCatalogVersion)
 	}
 	for key, tpl := range catalog {
 		for _, retired := range []string{"NO_LEAK_SHAPE", "SIN_FIRMA", "CONFIRMADA"} {
