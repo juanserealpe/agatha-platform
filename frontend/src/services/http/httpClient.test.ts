@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { memoryStorage } from "@/services/auth/testing";
+import { tokenStore } from "@/services/auth/tokenStore";
 import { ApiError, NETWORK_ERROR_CODE } from "./apiError";
-import { apiPath, buildQueryString, httpClient } from "./httpClient";
+import { apiPath, buildQueryString, httpClient, SESSION_EXPIRED_EVENT } from "./httpClient";
 
 function jsonResponse(status: number, body: unknown): Response {
     return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -89,6 +91,91 @@ describe("httpClient", () => {
         const { blob, filename } = await httpClient.getBlob("/api/x");
         expect(filename).toBe("alertas.xlsx");
         expect(await blob.text()).toBe("xlsx");
+    });
+});
+
+describe("httpClient con sesión", () => {
+    const session = { accessToken: "tok-1", expiresAt: "2099-01-01T00:00:00Z", username: "admin" };
+    let win: EventTarget;
+
+    beforeEach(() => {
+        vi.stubGlobal("localStorage", memoryStorage());
+        win = new EventTarget();
+        vi.stubGlobal("window", win);
+    });
+
+    afterEach(() => {
+        tokenStore.clear();
+    });
+
+    it("manda el token como Bearer si hay sesión", async () => {
+        tokenStore.set(session);
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {}));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await httpClient.get("/api/x");
+
+        expect(fetchMock.mock.calls[0][1].headers).toMatchObject({ Authorization: "Bearer tok-1" });
+    });
+
+    it("sin sesión no manda Authorization", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {}));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await httpClient.get("/api/x");
+
+        expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty("Authorization");
+    });
+
+    it("un 401 borra la sesión y avisa que venció", async () => {
+        tokenStore.set(session);
+        const expired = vi.fn();
+        win.addEventListener(SESSION_EXPIRED_EVENT, expired);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "UNAUTHORIZED", message: "Sesión vencida" })));
+
+        await expect(httpClient.get("/api/x")).rejects.toMatchObject({ status: 401, code: "UNAUTHORIZED" });
+
+        expect(tokenStore.get()).toBeNull();
+        expect(expired).toHaveBeenCalledOnce();
+    });
+
+    it("el 401 del login es contraseña incorrecta: no toca la sesión", async () => {
+        tokenStore.set(session);
+        const expired = vi.fn();
+        win.addEventListener(SESSION_EXPIRED_EVENT, expired);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "INVALID_CREDENTIALS", message: "x" })));
+
+        await expect(httpClient.post("/api/auth/login", {})).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+
+        expect(tokenStore.get()).toEqual(session);
+        expect(expired).not.toHaveBeenCalled();
+    });
+
+    it("otros errores no tocan la sesión", async () => {
+        tokenStore.set(session);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(403, { code: "FORBIDDEN", message: "x" })));
+
+        await expect(httpClient.get("/api/x")).rejects.toMatchObject({ status: 403 });
+
+        expect(tokenStore.get()).toEqual(session);
+    });
+});
+
+describe("Retry-After", () => {
+    it("expone los segundos de espera en el error", async () => {
+        const response = new Response(JSON.stringify({ code: "TOO_MANY_ATTEMPTS", message: "x" }), {
+            status: 429,
+            headers: { "Retry-After": "600" },
+        });
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+        await expect(httpClient.post("/api/auth/login", {})).rejects.toMatchObject({ status: 429, retryAfterSeconds: 600 });
+    });
+
+    it("es null si no viene o no es un número", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(429, { code: "TOO_MANY_ATTEMPTS", message: "x" })));
+
+        await expect(httpClient.post("/api/auth/login", {})).rejects.toMatchObject({ retryAfterSeconds: null });
     });
 });
 

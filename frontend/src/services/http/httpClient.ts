@@ -1,3 +1,4 @@
+import { tokenStore } from "@/services/auth/tokenStore";
 import { ApiError, NETWORK_ERROR_CODE } from "./apiError";
 import { parseContentDispositionFilename } from "./contentDisposition";
 
@@ -58,9 +59,27 @@ export function buildQueryString(query: QueryParams = {}): string {
     return serialized === "" ? "" : `?${serialized}`;
 }
 
-// Único punto donde se arman las cabeceras: aquí se agregará el token cuando exista autenticación (RN-10).
+/** Se emite cuando el backend responde 401: la sesión ya no sirve. */
+export const SESSION_EXPIRED_EVENT = "agatha:session-expired";
+
+/** Su 401 es "contraseña incorrecta", no una sesión vencida. */
+const LOGIN_PATH = "/api/auth/login";
+
+// Único punto donde se arman las cabeceras.
 function buildHeaders(hasBody: boolean): HeadersInit {
-    return hasBody ? { Accept: "application/json", "Content-Type": "application/json" } : { Accept: "application/json" };
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (hasBody) headers["Content-Type"] = "application/json";
+    const token = tokenStore.accessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+}
+
+/** Segundos de `Retry-After` (p. ej. en un 429); null si no viene o no es un número. */
+function retryAfterSeconds(response: Response): number | null {
+    const raw = response.headers.get("Retry-After");
+    if (raw === null || raw.trim() === "") return null;
+    const seconds = Number(raw);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -81,7 +100,7 @@ async function toApiError(response: Response, fallbackMessage = DEFAULT_ERROR_ME
     const message = isRecord(body) && typeof body.message === "string" && body.message.trim() !== ""
         ? body.message
         : fallbackMessage;
-    return new ApiError({ status: response.status, code, message, body });
+    return new ApiError({ status: response.status, code, message, body, retryAfterSeconds: retryAfterSeconds(response) });
 }
 
 /** Código del error cuando las peticiones al backend están bloqueadas (modo demo). */
@@ -117,6 +136,10 @@ async function send(method: "GET" | "POST", path: string, options: RequestOption
         throw new ApiError({ status: 0, code: NETWORK_ERROR_CODE, message: NETWORK_ERROR_MESSAGE });
     }
 
+    if (response.status === 401 && path !== LOGIN_PATH) {
+        tokenStore.clear();
+        if (typeof window !== "undefined") window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
     if (!response.ok) throw await toApiError(response, options.errorMessage);
     return response;
 }

@@ -30,7 +30,8 @@ async function bootstrap() {
       },
     },
   })
-  const router = createAppRouter(demoMode ? { basename: DEMO_BASENAME } : {})
+  // La demo no tiene backend real ni login: sin guard, sin /login y sin verificar la sesión.
+  const router = createAppRouter(demoMode ? { basename: DEMO_BASENAME, requireSession: false } : {})
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

@@ -11,23 +11,26 @@ import (
 // ErrInvalidCORSOrigin indica un origen CORS mal formado o no admitido.
 var ErrInvalidCORSOrigin = errors.New("origen CORS inválido")
 
-// Lo que usa el navegador, sin autenticación ni credenciales:
+// Lo que usa el navegador:
 //   - GET: consultas de Dashboard y alertas, y el stream SSE de notificaciones.
-//   - POST: gestión de alertas (clasificar, etiquetar, observar) y políticas.
+//   - POST: gestión de alertas (clasificar, etiquetar, observar), políticas y login.
 //   - PUT: registro de tokens de push (hoy solo lo usa la app, sin CORS).
 //
 // Last-Event-ID la agrega EventSource al reconectar: no es una cabecera
-// "segura" y, según el navegador, dispara preflight. Authorization no se
-// permite: el callback de Dataflow Labs (con Bearer) es de servidor a servidor.
+// "segura" y, según el navegador, dispara preflight. Authorization lleva la
+// sesión web (Bearer) y X-API-Key la key de la app móvil (ver auth.go). No se
+// usan cookies: Access-Control-Allow-Credentials nunca se envía.
 const (
 	corsAllowedMethods = "GET, POST, PUT"
-	corsAllowedHeaders = "Accept, Content-Type, Last-Event-ID"
+	corsAllowedHeaders = "Accept, Authorization, Content-Type, Last-Event-ID, X-API-Key"
 	corsMaxAgeSeconds  = "600"
 )
 
 var (
 	corsAllowedMethodSet = map[string]bool{http.MethodGet: true, http.MethodPost: true, http.MethodPut: true}
-	corsAllowedHeaderSet = map[string]bool{"accept": true, "content-type": true, "last-event-id": true}
+	corsAllowedHeaderSet = map[string]bool{
+		"accept": true, "authorization": true, "content-type": true, "last-event-id": true, "x-api-key": true,
+	}
 )
 
 // ParseAllowedOrigins interpreta una lista de orígenes separada por comas

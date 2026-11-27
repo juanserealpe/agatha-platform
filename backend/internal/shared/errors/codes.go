@@ -24,4 +24,11 @@ const (
 	CodePersistingRuleEvaluations ErrorCode = "PERSISTING_RULE_EVALUATIONS"
 	CodeConsultingAlerts          ErrorCode = "CONSULTING_ALERTS"
 	CodePersistingAlerts          ErrorCode = "PERSISTING_ALERTS"
+
+	// Autenticación (middleware de shared/http y módulo auth).
+	CodeUnauthorized       ErrorCode = "UNAUTHORIZED"
+	CodeForbidden          ErrorCode = "FORBIDDEN"
+	CodeInvalidCredentials ErrorCode = "INVALID_CREDENTIALS"
+	CodeTooManyAttempts    ErrorCode = "TOO_MANY_ATTEMPTS"
+	CodeAuthNotConfigured  ErrorCode = "AUTH_NOT_CONFIGURED"
 )

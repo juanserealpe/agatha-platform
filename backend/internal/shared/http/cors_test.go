@@ -154,7 +154,7 @@ func TestCORS_Preflight(t *testing.T) {
 		want := map[string]string{
 			"Access-Control-Allow-Origin":  allowedOrigin,
 			"Access-Control-Allow-Methods": "GET, POST, PUT",
-			"Access-Control-Allow-Headers": "Accept, Content-Type, Last-Event-ID",
+			"Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, Last-Event-ID, X-API-Key",
 			"Access-Control-Max-Age":       "600",
 		}
 		for header, value := range want {
@@ -173,8 +173,8 @@ func TestCORS_Preflight(t *testing.T) {
 		{name: "origen no autorizado", origin: forbiddenOrigin, method: http.MethodGet},
 		{name: "método DELETE no permitido", origin: allowedOrigin, method: http.MethodDelete},
 		{name: "método PATCH no permitido", origin: allowedOrigin, method: http.MethodPatch},
-		{name: "Authorization no permitido en POST", origin: allowedOrigin, method: http.MethodPost, headers: "authorization, content-type"},
-		{name: "encabezado no permitido", origin: allowedOrigin, method: http.MethodGet, headers: "Authorization"},
+		{name: "encabezado no permitido", origin: allowedOrigin, method: http.MethodGet, headers: "X-Custom"},
+		{name: "un encabezado no permitido entre permitidos", origin: allowedOrigin, method: http.MethodPost, headers: "authorization, x-custom"},
 	}
 	for _, tt := range rejected {
 		t.Run(tt.name+" responde 403 sin encabezados CORS", func(t *testing.T) {
@@ -203,6 +203,8 @@ func TestCORS_Preflight(t *testing.T) {
 		{name: "POST con JSON (clasificar una alerta)", path: "/api/alerts/123/classification", method: http.MethodPost, headers: "content-type"},
 		{name: "PUT con JSON (token de push)", path: "/api/devices/push-token", method: http.MethodPut, headers: "Content-Type"},
 		{name: "GET con Last-Event-ID (reconexión del stream)", path: "/api/notifications/stream", method: http.MethodGet, headers: "last-event-id"},
+		{name: "POST con Bearer (sesión web)", path: "/api/alerts/policies", method: http.MethodPost, headers: "authorization, content-type"},
+		{name: "GET con X-API-Key (app móvil)", path: "/api/alerts/active", method: http.MethodGet, headers: "x-api-key"},
 	}
 	for _, tt := range allowed {
 		t.Run(tt.name+" responde 204", func(t *testing.T) {
@@ -320,11 +322,14 @@ func TestCORS_CompatibleConServeMux(t *testing.T) {
 		}
 	})
 
-	t.Run("preflight POST al callback desde el navegador se rechaza", func(t *testing.T) {
+	// Authorization se permite para la sesión web: el preflight al callback ya
+	// no se rechaza, pero nunca llega al handler y el callback sigue exigiendo
+	// su propio token Bearer.
+	t.Run("preflight POST al callback se responde sin llegar al handler", func(t *testing.T) {
 		callbackMethod = ""
 		rec := serve(h, preflight("/ingestion/callback", allowedOrigin, http.MethodPost, "authorization, content-type"))
-		if rec.Code != http.StatusForbidden || callbackMethod != "" {
-			t.Fatalf("status = %d, handler = %q; se esperaba 403 sin llegar al handler", rec.Code, callbackMethod)
+		if rec.Code != http.StatusNoContent || callbackMethod != "" {
+			t.Fatalf("status = %d, handler = %q; se esperaba 204 sin llegar al handler", rec.Code, callbackMethod)
 		}
 	})
 }

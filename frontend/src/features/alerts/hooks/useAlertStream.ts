@@ -65,12 +65,22 @@ function applyAlertChanged(queryClient: QueryClient, event: AlertChangedEvent) {
     void queryClient.invalidateQueries({ queryKey: alertKeys.groups(event.measuring_point_id) });
 }
 
+export interface UseAlertStreamOptions {
+    /**
+     * Si el navegador cierra el stream (p. ej. 401 por token vencido), se consulta antes de reconectar. La app
+     * real pasa `verifySession`; la demo nada (no hay sesión y su `EventSource` simulado también se cae).
+     * Debe ser una referencia estable: cambiarla reabre el stream.
+     */
+    shouldReconnect?: () => Promise<boolean>;
+}
+
 /**
  * Abre el stream de alertas una sola vez para toda la app (se monta en RootLayout) y aplica sus eventos a la
  * caché. El stream sigue abierto con la pestaña oculta, para que los avisos lleguen aunque el operador esté
- * en otra pestaña.
+ * en otra pestaña. Sin sesión no se monta (RootLayout queda detrás de RequireSession), y al cerrar sesión el
+ * desmontaje lo cierra.
  */
-export function useAlertStream() {
+export function useAlertStream({ shouldReconnect }: UseAlertStreamOptions = {}) {
     const queryClient = useQueryClient();
     const { open } = useAlertDetailParam();
     // El stream vive mientras dure la app; la notificación usa siempre el `open` más reciente.
@@ -102,6 +112,7 @@ export function useAlertStream() {
                 },
                 onStatusChange: setStatus,
             },
+            shouldReconnect,
         });
         stream.connect();
         // El navegador bloquea el audio hasta que el usuario interactúa con la página.
@@ -110,5 +121,5 @@ export function useAlertStream() {
             stream.close();
             removeSoundUnlock();
         };
-    }, [queryClient]);
+    }, [queryClient, shouldReconnect]);
 }

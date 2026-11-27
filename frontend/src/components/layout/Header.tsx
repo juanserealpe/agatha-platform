@@ -4,9 +4,11 @@ import tgiLogo from "@/assets/tgi-logo.png";
 interface HeaderProps {
     /** Indicador de conexión en tiempo real; lo provee la capa de la app para que el layout no dependa de features. */
     connectionStatus?: ReactNode;
+    /** Control de sesión (cerrar sesión); null en la demo, que no tiene login. */
+    sessionControl?: ReactNode;
 }
 
-export function Header({ connectionStatus }: HeaderProps) {
+export function Header({ connectionStatus, sessionControl }: HeaderProps) {
     return (
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
@@ -28,6 +30,7 @@ export function Header({ connectionStatus }: HeaderProps) {
                     Güepsa - San José de Pare
                 </div>
                 {connectionStatus}
+                {sessionControl}
             </div>
         </header>
     );

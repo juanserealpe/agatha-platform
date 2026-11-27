@@ -1,3 +1,4 @@
+import { tokenStore } from "@/services/auth/tokenStore";
 import { apiPath, apiUrl } from "@/services/http";
 import {
     STREAM_EVENTS,
@@ -39,6 +40,12 @@ export interface AlertStreamOptions {
     handlers: AlertStreamHandlers;
     createEventSource?: (url: string) => EventSourceLike;
     random?: () => number;
+    /**
+     * Se consulta cuando el navegador se rinde (`CLOSED`), antes de reintentar: con un token vencido el
+     * backend responde 401 y `EventSource` no deja ver el status. `false` = la sesión ya no sirve, no se
+     * reconecta. Sin esta opción siempre se reintenta (la demo no tiene sesión).
+     */
+    shouldReconnect?: () => Promise<boolean>;
 }
 
 export interface AlertStream {
@@ -60,10 +67,14 @@ export function reconnectDelay(attempt: number, random: () => number = Math.rand
 
 /**
  * URL del stream. Con el último id recibido el servidor reenvía lo que se perdió: un `EventSource` nuevo
- * no manda la cabecera `Last-Event-ID`, así que va como parámetro.
+ * no manda la cabecera `Last-Event-ID`, así que va como parámetro. El token también va como parámetro
+ * (`EventSource` no permite encabezados) y se lee en cada conexión.
  */
 export function streamUrl(lastEventId: string | null): string {
-    return apiUrl(STREAM_PATH, { last_event_id: lastEventId });
+    return apiUrl(STREAM_PATH, {
+        last_event_id: lastEventId,
+        access_token: tokenStore.accessToken(),
+    });
 }
 
 /** JSON de un evento; null si no se entiende. Se ignora: la próxima resincronización corrige la caché. */
@@ -90,6 +101,7 @@ export function createAlertStream({
     handlers,
     createEventSource = defaultCreateEventSource,
     random = Math.random,
+    shouldReconnect,
 }: AlertStreamOptions): AlertStream {
     let source: EventSourceLike | null = null;
     let status: StreamStatus = "idle";
@@ -98,6 +110,8 @@ export function createAlertStream({
     let hasConnected = false;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    /** Verificando la sesión antes de reconectar; `close` lo invalida. */
+    let checking: object | null = null;
 
     function setStatus(next: StreamStatus) {
         if (next === status) return;
@@ -107,7 +121,7 @@ export function createAlertStream({
 
     function armWatchdog() {
         clearTimeout(watchdog);
-        watchdog = setTimeout(() => fail(true), WATCHDOG_MS);
+        watchdog = setTimeout(() => fail("hung"), WATCHDOG_MS);
     }
 
     /** Actividad de un evento con datos: posterga el watchdog y guarda el id para el reenvío. */
@@ -117,22 +131,42 @@ export function createAlertStream({
         if (id) lastEventId = id;
     }
 
-    /**
-     * Una falla. Si `replace`, se descarta la conexión y se abre otra tras el backoff; si no, el navegador ya
-     * está reintentando solo (con `Last-Event-ID`) y el watchdog cubre el caso de que nunca lo logre.
-     */
-    function fail(replace: boolean) {
-        failures += 1;
-        setStatus(failures >= OFFLINE_AFTER_FAILURES ? "offline" : hasConnected ? "reconnecting" : "connecting");
-        if (!replace) return;
-
-        clearTimeout(watchdog);
-        source?.close();
-        source = null;
+    function scheduleReconnect() {
         retry = setTimeout(() => {
             retry = undefined;
             open();
         }, reconnectDelay(failures - 1, random));
+    }
+
+    /**
+     * Una falla. `"keep"`: el navegador ya está reintentando solo (con `Last-Event-ID`) y el watchdog cubre el
+     * caso de que nunca lo logre. `"hung"` (watchdog) o `"closed"` (el navegador se rindió): se descarta la
+     * conexión y se abre otra tras el backoff; con `"closed"` puede ser un 401, así que antes se verifica la
+     * sesión si hay `shouldReconnect`.
+     */
+    function fail(kind: "keep" | "hung" | "closed") {
+        failures += 1;
+        setStatus(failures >= OFFLINE_AFTER_FAILURES ? "offline" : hasConnected ? "reconnecting" : "connecting");
+        if (kind === "keep") return;
+
+        clearTimeout(watchdog);
+        source?.close();
+        source = null;
+        if (kind === "hung" || !shouldReconnect) {
+            scheduleReconnect();
+            return;
+        }
+
+        const check = {};
+        checking = check;
+        shouldReconnect()
+            // Si la verificación misma falla, era otra falla: sigue el backoff normal.
+            .catch(() => true)
+            .then((ok) => {
+                if (checking !== check) return; // se cerró mientras tanto
+                checking = null;
+                if (ok) scheduleReconnect();
+            });
     }
 
     function open() {
@@ -153,7 +187,7 @@ export function createAlertStream({
             setStatus("live");
             handlers.onResync();
         });
-        on("error", () => fail(current.readyState === READY_STATE_CLOSED));
+        on("error", () => fail(current.readyState === READY_STATE_CLOSED ? "closed" : "keep"));
         on(STREAM_EVENTS.changed, (event) => {
             track(event);
             const data = parseEventData<AlertChangedEvent>((event as MessageEvent).data, "alert_id");
@@ -173,7 +207,7 @@ export function createAlertStream({
 
     return {
         connect() {
-            if (source || retry) return;
+            if (source || retry || checking) return;
             setStatus(hasConnected ? "reconnecting" : "connecting");
             open();
         },
@@ -181,6 +215,7 @@ export function createAlertStream({
             clearTimeout(watchdog);
             clearTimeout(retry);
             retry = undefined;
+            checking = null;
             source?.close();
             source = null;
             failures = 0;

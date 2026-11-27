@@ -26,6 +26,8 @@ l.Info("mediciones guardadas", "cantidad", 42)
 
 - `WriteJSON(w, status, data)` — respuesta JSON estandarizada.
 - `HandleError(w, err)` — mapea `*AppError` a HTTP status automáticamente.
+- `CORS(origins, next)` — política CORS (`AGATHA_CORS_ALLOWED_ORIGINS`). Encabezados permitidos: `Accept, Authorization, Content-Type, Last-Event-ID, X-API-Key`.
+- `Auth(policy, next)` — middleware de autenticación por patrón del `ServeMux` (`AGATHA_AUTH_MODE` off/log/enforce). `X-API-Key` => `PrincipalMobile` (solo rutas permitidas), Bearer => `PrincipalAdmin`. `PrincipalFromContext(ctx)` en los handlers. Va DENTRO de `CORS`. Detalle en `modules/auth/README.md`.
 
 ```go
 sharedhttp.HandleError(w, appErrors.ErrNotFound) // → 404
@@ -256,6 +258,14 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 
 ---
 
+# Modulo: Auth
+
+**Responsabilidad**: autenticar la API HTTP. Un único admin web (`AGATHA_ADMIN_USER` + hash bcrypt en base64 + `AGATHA_JWT_SECRET`) inicia sesión con `POST /api/auth/login` y recibe un JWT HS256 (vigencia `AGATHA_JWT_TTL`, 720h por defecto) que manda como `Authorization: Bearer` (en el SSE, `?access_token=`). La app móvil manda `X-API-Key` (`AGATHA_MOBILE_API_KEYS`, varias para rotar) y solo llega a alertas (lectura y gestión), `push-token`, `GET /api/dashboard/*` y `GET /api/auth/me`. El callback sigue con su propio token. El middleware (`shared/http.Auth`) no deduce el cliente por encabezados: la credencial lo identifica. `AGATHA_AUTH_MODE=log` (default) valida y registra sin bloquear, para desplegar antes de que los clientes manden credenciales; `enforce` bloquea. Herramienta: `cmd/auth` (`-hash-password` por stdin, `-generate-key`). Detalle, códigos de error y despliegue en `modules/auth/README.md`; guías de cliente en `modules/auth/FRONTEND_AUTH_GUIDE.md` y `MOBILE_AUTH_GUIDE.md`.
+
+**Aislamiento**: no usa BD ni bus. Solo importa `shared/{errors, http, logger}` y `golang.org/x/crypto/bcrypt`. La lista de rutas públicas/móviles vive en `internal/bootstrap/auth.go`, que es quien conoce las rutas de los demás módulos.
+
+---
+
 # Composition Root y Despliegue
 
 `internal/bootstrap` arma cada módulo sobre una `Platform` compartida (`NewPlatform`: `LoadEnvironment` + `DATABASE_URL` + bus en memoria; `AGATHA_DB=local|production` carga `.env.local` o `.env.production` por encima de `.env` y loguea host/base; sin `AGATHA_DB` solo `.env`, como en el VPS. `local` exige un host loopback. BD local: `docker-compose.local.yml` (Postgres 17 en 127.0.0.1:5433) + `scripts/db-clone-prod.sh` (pg_dump del esquema public de Supabase, vacía `push_devices`)). Cada módulo tiene su constructor y ninguno conoce a los demás:
@@ -270,7 +280,8 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 | `NewRuleEngineModule(platform)` | Rule Engine | `persistence.Migrate` (AutoMigrate + `btree_gist` + `EXCLUDE` idempotente) + seed de la v1 + repos + `busLevelEventPublisher`. Expone `Thresholds`, `Simulator`, `Evaluator`, `Backfiller`, `CatchUp` y `NewScheduler` (catch-up horario, Runner de `NewApplication`); `.SubscribeIndicatorEvaluated()` suscribe a `processing.indicator_evaluated` (traduce contrato → Notice); `.RegisterRoutes(mux)` registra `/api/rule-engine/*` (la simulación usa repos en memoria vía `memorySandbox`). Movimiento: seed de `motion_threshold_versions`, `busMotionEventPublisher`, `MotionThresholds`, `MotionEvaluator`, `MotionBackfiller`, `MotionSimulator` y `NewMotionScheduler` (Runner). Lee `AGATHA_ENV`, `RULE_ENGINE_BACKFILL_BATCH_SIZE`, `RULE_ENGINE_CATCHUP_MINUTE` y `RULE_ENGINE_MOTION_MINUTE`. |
 | `NewAlertManagementModule(platform)` | Alert Management | `MigrateAlertManagement` (AutoMigrate + `code` GENERATED + índice único parcial + CHECK de gestión + `EXCLUDE` de políticas + trigger) + seed (política global desde 2000-01-01) + repos GORM + `busAlertNotificationPublisher` (port `NotificationPublisher` → bus). Expone `Processor`, `Replay`; `.SubscribeLevelEvaluated()`, `.RegisterRoutes(mux)` (`/api/alerts/*`) y `.Runners()` (catch-up). `NewApplication` lo construye ANTES de Baseline (crea `alerts`, que Baseline lee). Lee `AGATHA_ENV`, `ALERT_MANAGEMENT_BACKFILL_BATCH_SIZE`, `ALERT_MANAGEMENT_CATCHUP_MINUTE`. |
 | `NewNotificationsModule(platform)` | Notifications | Cablea un `NoticeDispatcher` por canal configurado (política + canal) y `.Subscribe()` registra sus suscripciones (traduce contrato → `AlertNotice`/`AlertChange`). Advierte en el log si no hay canales o si falta `alert_management`. |
-| `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*`. |
+| `NewDashboardModule(platform)` | Dashboard | `.RegisterRoutes(mux)` registra los endpoints `GET /api/dashboard/*` (patrones en constantes `RouteDashboard*`). |
+| `NewAuthModule()` | Auth | Lee `AGATHA_AUTH_MODE`, `AGATHA_ADMIN_*`, `AGATHA_JWT_*`, `AGATHA_MOBILE_API_KEYS`, `AGATHA_AUTH_CLIENT_IP_HEADER` (inválido = exit 2; `enforce` sin admin = error). No es un módulo de `AGATHA_MODULES`: `cmd/platform` lo arma siempre que haya HTTP. `.RegisterRoutes(mux)` (`/api/auth/login`, `/api/auth/me`) y `.Wrap(mux)`; el handler raíz queda `WithCORS(auth.Wrap(mux))`. |
 | `NewIngestionApplication()` | Baseline + Ingestion | Composición para `cmd/scheduler`, que arranca el scheduler de Baseline. |
 
 **Entrypoints (`cmd/`)**:
@@ -284,6 +295,7 @@ Ingestion **no publica eventos** (el evento `ingestion.measurements_ingested` se
 | `cmd/rule_engine` | Histórico de interpretaciones (`-backfill`, `-point`, `-from`, `-to`, `-rebuild`, `-reset-versions` con `-confirm`); con `-motion`, el de `motion_evaluations`; nunca publica; sale al terminar. |
 | `cmd/alert_management` | Histórico de alertas (`-backfill`, `-point`, `-from`, `-to`, `-rebuild`, `-drop-management`), con FUGA y MOVIMIENTO intercalados; nunca publica avisos; sale al terminar. |
 | `cmd/ingestion` | Ingesta única (rango fijo); sale al terminar. |
+| `cmd/auth` | Genera secretos de autenticación: `-hash-password` (lee stdin, imprime `AGATHA_ADMIN_PASSWORD_HASH`) y `-generate-key` (key móvil o secreto JWT). No toca BD ni `.env`. |
 
 **Docker**: `Dockerfile` compila `./cmd/${APP}` (`APP=platform` por defecto) en una imagen `alpine` sin root. `docker-compose.yml` levanta UN servicio `platform` (`AGATHA_MODULES: callback,dashboard,baseline,processing,rule_engine,alert_management,notifications`, `127.0.0.1:8080:8080` para que solo llegue el nginx del VPS, `env_file: .env`, que debe incluir `AGATHA_CALLBACK_TOKEN` si se habilita `callback`). Fija `AGATHA_ENV=production` en `environment` (pisa el `.env`), así los bloqueos de `-rebuild` y del endpoint de eventos de prueba no dependen de que el `.env` del VPS lo tenga; los `go run ./cmd/... -rebuild` fuera del contenedor leen el `.env`, que también debe tenerlo. `AGATHA_ENV` se compara sin distinguir mayúsculas ni espacios en los tres lugares (`bootstrap/environment.go` para Notifications; los servicios de backfill tienen su propia comparación). Para `notifications`, el compose monta `./secrets` en solo lectura (`FCM_SERVICE_ACCOUNT_FILE=/run/secrets/agatha/fcm-service-account.json`), pide entregar push reales (`FCM_VALIDATE_ONLY=false`; el código valida sin entregar por defecto) y fuerza `NOTIFICATIONS_TEST_ENDPOINT=false`. Cambiar los módulos no requiere rebuild. No se separan módulos en contenedores: el bus en memoria no cruza procesos; separarlos requeriría un bus externo (NATS, Redis Streams, Postgres `LISTEN/NOTIFY`). `.dockerignore` excluye `.env` y `secrets` (los secretos entran en runtime).
 

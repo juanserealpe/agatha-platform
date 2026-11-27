@@ -31,6 +31,12 @@ var errorStatus = map[appErrors.ErrorCode]int{
 	appErrors.CodePersistingRuleEvaluations: http.StatusInternalServerError,
 	appErrors.CodeConsultingAlerts:          http.StatusInternalServerError,
 	appErrors.CodePersistingAlerts:          http.StatusInternalServerError,
+
+	appErrors.CodeUnauthorized:       http.StatusUnauthorized,
+	appErrors.CodeForbidden:          http.StatusForbidden,
+	appErrors.CodeInvalidCredentials: http.StatusUnauthorized,
+	appErrors.CodeTooManyAttempts:    http.StatusTooManyRequests,
+	appErrors.CodeAuthNotConfigured:  http.StatusServiceUnavailable,
 }
 
 func HandleError(w http.ResponseWriter, err error) {

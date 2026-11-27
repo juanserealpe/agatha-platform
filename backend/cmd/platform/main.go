@@ -80,10 +80,18 @@ func main() {
 	// 3. Servidor HTTP solo si algún módulo expone rutas.
 	var server *http.Server
 	if modules.HasHTTP() {
+		auth, err := bootstrap.NewAuthModule()
+		if err != nil {
+			log.Error("configuración de autenticación inválida", "error", err)
+			os.Exit(2)
+		}
+
 		mux := http.NewServeMux()
 		app.RegisterRoutes(mux)
+		auth.RegisterRoutes(mux)
 
-		handler, err := bootstrap.WithCORS(mux)
+		// CORS AFUERA de auth: los preflight OPTIONS no traen credenciales.
+		handler, err := bootstrap.WithCORS(auth.Wrap(mux))
 		if err != nil {
 			log.Error("configuración CORS inválida", "variable", bootstrap.CORSAllowedOriginsEnv, "error", err)
 			os.Exit(2)

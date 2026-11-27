@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { memoryStorage } from "@/services/auth/testing";
+import { tokenStore } from "@/services/auth/tokenStore";
 import { createAlertStream, parseEventData, reconnectDelay, streamUrl, type EventSourceLike } from "./alertStream.client";
 import type { AlertStreamHandlers } from "./alertStream.types";
 
@@ -42,9 +44,10 @@ let handlers: { [K in keyof AlertStreamHandlers]: ReturnType<typeof vi.fn> };
 
 const latest = () => sources.at(-1)!;
 
-function startStream() {
+function startStream(shouldReconnect?: () => Promise<boolean>) {
     const stream = createAlertStream({
         handlers: handlers as unknown as AlertStreamHandlers,
+        shouldReconnect,
         createEventSource: (url) => {
             const source = new FakeEventSource(url);
             sources.push(source);
@@ -60,10 +63,13 @@ beforeEach(() => {
     vi.useFakeTimers();
     sources = [];
     handlers = { onChanged: vi.fn(), onNotification: vi.fn(), onResync: vi.fn(), onStatusChange: vi.fn() };
+    vi.stubGlobal("localStorage", memoryStorage());
+    tokenStore.set({ accessToken: "tok-1", expiresAt: "2099-01-01T00:00:00Z", username: "admin" });
 });
 
 afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
 });
 
 describe("reconnectDelay", () => {
@@ -76,9 +82,21 @@ describe("reconnectDelay", () => {
 });
 
 describe("streamUrl", () => {
-    it("agrega el último id solo si existe", () => {
+    it("agrega el token y el último id solo si existe", () => {
+        expect(streamUrl(null)).toBe("/api/notifications/stream?access_token=tok-1");
+        expect(streamUrl("1761832800123-42")).toBe(
+            "/api/notifications/stream?last_event_id=1761832800123-42&access_token=tok-1"
+        );
+    });
+
+    it("sin sesión no agrega access_token", () => {
+        tokenStore.clear();
         expect(streamUrl(null)).toBe("/api/notifications/stream");
-        expect(streamUrl("1761832800123-42")).toBe("/api/notifications/stream?last_event_id=1761832800123-42");
+    });
+
+    it("lee el token en cada conexión", () => {
+        tokenStore.set({ accessToken: "tok-2", expiresAt: "2099-01-01T00:00:00Z", username: "admin" });
+        expect(streamUrl(null)).toBe("/api/notifications/stream?access_token=tok-2");
     });
 });
 
@@ -128,7 +146,7 @@ describe("createAlertStream", () => {
 
         vi.advanceTimersByTime(1_000);
         expect(sources).toHaveLength(2);
-        expect(latest().url).toBe("/api/notifications/stream?last_event_id=e-7");
+        expect(latest().url).toBe("/api/notifications/stream?last_event_id=e-7&access_token=tok-1");
 
         latest().emit("open");
         expect(stream.status).toBe("live");
@@ -193,6 +211,72 @@ describe("createAlertStream", () => {
     });
 });
 
+describe("shouldReconnect (sesión vencida en el stream)", () => {
+    it("si el navegador se rinde y la sesión sigue válida, reconecta con el backoff normal", async () => {
+        const shouldReconnect = vi.fn().mockResolvedValue(true);
+        startStream(shouldReconnect);
+        latest().emit("open");
+
+        latest().giveUp();
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(shouldReconnect).toHaveBeenCalledOnce();
+        expect(sources).toHaveLength(2);
+    });
+
+    it("si la sesión ya no sirve, no reconecta", async () => {
+        const shouldReconnect = vi.fn().mockResolvedValue(false);
+        startStream(shouldReconnect);
+        latest().emit("open");
+
+        latest().giveUp();
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(sources).toHaveLength(1);
+    });
+
+    it("si la verificación falla, sigue el backoff normal", async () => {
+        startStream(vi.fn().mockRejectedValue(new Error("red")));
+        latest().giveUp();
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(sources).toHaveLength(2);
+    });
+
+    it("el watchdog no verifica la sesión: la conexión estaba colgada, no rechazada", async () => {
+        const shouldReconnect = vi.fn().mockResolvedValue(true);
+        startStream(shouldReconnect);
+        latest().emit("open");
+
+        await vi.advanceTimersByTimeAsync(61_000);
+
+        expect(shouldReconnect).not.toHaveBeenCalled();
+        expect(sources).toHaveLength(2);
+    });
+
+    it("close durante la verificación cancela la reconexión", async () => {
+        let resolve!: (ok: boolean) => void;
+        const stream = startStream(() => new Promise<boolean>((r) => (resolve = r)));
+        latest().giveUp();
+
+        stream.close();
+        resolve(true);
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(sources).toHaveLength(1);
+        expect(stream.status).toBe("idle");
+    });
+
+    it("connect no abre otra conexión mientras verifica", async () => {
+        const stream = startStream(() => new Promise<boolean>(() => {}));
+        latest().giveUp();
+
+        stream.connect();
+
+        expect(sources).toHaveLength(1);
+    });
+});
+
 describe("installEventSourceFactory", () => {
     it("lo usan los streams que se abren sin un EventSource propio", async () => {
         // Módulo nuevo: la fábrica instalada es global y no debe afectar a las demás pruebas.
@@ -206,6 +290,6 @@ describe("installEventSourceFactory", () => {
 
         client.createAlertStream({ handlers: handlers as unknown as AlertStreamHandlers }).connect();
 
-        expect(created).toEqual(["/api/notifications/stream"]);
+        expect(created).toEqual(["/api/notifications/stream?access_token=tok-1"]);
     });
 });

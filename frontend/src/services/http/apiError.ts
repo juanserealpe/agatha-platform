@@ -7,6 +7,8 @@ interface ApiErrorInit {
     /** Texto apto para mostrar al usuario: el `message` del backend o un mensaje genérico en español. */
     message: string;
     body?: unknown;
+    /** Segundos de `Retry-After` (p. ej. en un 429). */
+    retryAfterSeconds?: number | null;
 }
 
 /**
@@ -17,13 +19,15 @@ export class ApiError extends Error {
     readonly status: number;
     readonly code: string;
     readonly body: unknown;
+    readonly retryAfterSeconds: number | null;
 
-    constructor({ status, code, message, body = null }: ApiErrorInit) {
+    constructor({ status, code, message, body = null, retryAfterSeconds = null }: ApiErrorInit) {
         super(message);
         this.name = "ApiError";
         this.status = status;
         this.code = code;
         this.body = body;
+        this.retryAfterSeconds = retryAfterSeconds;
     }
 }
 

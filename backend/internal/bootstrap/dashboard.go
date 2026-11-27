@@ -52,10 +52,18 @@ func NewDashboardModule(platform *Platform) *DashboardModule {
 	}
 }
 
+// Rutas de Dashboard (también las usa la política de autenticación).
+const (
+	RouteDashboardDevices      = "GET /api/dashboard/devices"
+	RouteDashboardMeasurements = "GET /api/dashboard/measurements"
+	RouteDashboardVariables    = "GET /api/dashboard/variables"
+	RouteDashboardSeries       = "GET /api/dashboard/series"
+)
+
 // RegisterRoutes registra los endpoints de Dashboard en el mux.
 func (m *DashboardModule) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/dashboard/devices", m.deviceHandler.GetAllDevices)
-	mux.HandleFunc("GET /api/dashboard/measurements", m.measurementHandler.GetMeasurements)
-	mux.HandleFunc("GET /api/dashboard/variables", m.seriesHandler.GetVariables)
-	mux.HandleFunc("GET /api/dashboard/series", m.seriesHandler.GetSeries)
+	mux.HandleFunc(RouteDashboardDevices, m.deviceHandler.GetAllDevices)
+	mux.HandleFunc(RouteDashboardMeasurements, m.measurementHandler.GetMeasurements)
+	mux.HandleFunc(RouteDashboardVariables, m.seriesHandler.GetVariables)
+	mux.HandleFunc(RouteDashboardSeries, m.seriesHandler.GetSeries)
 }
